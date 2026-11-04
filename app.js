@@ -703,10 +703,14 @@
       const res = await fetch(CFG.APPS_SCRIPT_URL + '?view=supplier' + (rebuild ? '&rebuild=1' : ''));
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
+      if (!Array.isArray(data.rows)) {
+        $('sRows').innerHTML = '<tr class="empty"><td colspan="11">Apps Script di Google Sheet MONITORING PO belum versi terbaru. Tempel kode Code.gs terbaru, lalu Deploy → Manage deployments → Edit → New version → Deploy. Setelah itu tekan "Muat ulang data".</td></tr>';
+        $('sInfo').textContent = '';
+        return;
+      }
       setSupRows(data.rows, data.builtAt, data.databaseUrl);
     } catch (err) {
-      const msg = /view|supplier|rows/i.test(err.message) || state.oldScript ? 'Apps Script belum versi terbaru. ' : '';
-      $('sRows').innerHTML = `<tr class="empty"><td colspan="11">Data supplier tidak bisa dimuat. ${msg}${esc(err.message)}</td></tr>`;
+      $('sRows').innerHTML = `<tr class="empty"><td colspan="11">Data supplier tidak bisa dimuat: ${esc(err.message)}. Tekan "Muat ulang data" untuk mencoba lagi.</td></tr>`;
     } finally {
       SUP.loading = false;
       $('btnReload').disabled = false;
