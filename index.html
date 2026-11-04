@@ -81,7 +81,7 @@
         <div class="setup-note" id="setupNote" hidden></div>
 
         <div class="edit-bar" id="editBar" hidden>
-          <p><b>Mode edit aktif</b> sebagai <span id="editUser"></span>. Klik sebuah baris untuk mengubah atau menghapus baris PO dan jadwalnya. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
+          <p><b>Mode edit aktif.</b> Klik sebuah baris untuk mengubah atau menghapus baris PO dan jadwalnya. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
           <div class="edit-bar-actions">
             <button class="btn" id="btnAddLine" title="Tambah baris PO baru secara manual">Tambah baris PO</button>
             <button class="btn btn-ghost" id="btnEditOff" title="Matikan mode edit">Keluar mode edit</button>
@@ -249,13 +249,13 @@
         <div class="filters">
           <label class="field grow">
             <span>Cari riwayat</span>
-            <input type="search" id="qLog" placeholder="No PO, kode, nama pengedit, atau aksi">
+            <input type="search" id="qLog" placeholder="No PO, kode, kolom, atau aksi">
           </label>
         </div>
         <div class="table-wrap log-wrap">
           <table class="po-table log-table">
-            <thead><tr><th>Waktu</th><th>Pengedit</th><th>Aksi</th><th>No PO</th><th>Kode</th><th>Kolom</th><th>Nilai lama</th><th>Nilai baru</th></tr></thead>
-            <tbody id="logRows"><tr class="empty"><td colspan="8">Belum ada riwayat edit.</td></tr></tbody>
+            <thead><tr><th>Waktu</th><th>Aksi</th><th>No PO</th><th>Kode</th><th>Kolom</th><th>Nilai lama</th><th>Nilai baru</th></tr></thead>
+            <tbody id="logRows"><tr class="empty"><td colspan="7">Belum ada riwayat edit.</td></tr></tbody>
           </table>
         </div>
       </section>

@@ -17,7 +17,7 @@
     raw: { lines: [], schedules: [] },
     manual: new Map(),
     editLog: [],
-    edit: { on: false, user: '', pin: '' },
+    edit: { on: false, user: 'Website', pin: '' },   // Apps Script mewajibkan isian user; nama pengedit tidak dipakai
     shown: PAGE,
     openKey: null,
     parsedDet: null,
@@ -368,7 +368,7 @@
     const note = r.dupCount > 1 ? `<span class="note">Kode ini muncul ${r.dupCount}× di PO ini</span>` : '';
     const next = r.next ? `${fmtDate(r.next.date)}<div class="strip-cap">${fmtNum(r.next.qty)} ${esc(r.uom)}</div>` : '–';
     const open = state.openKey === r.key;
-    const man = r.manual ? `<span class="tag-manual" title="Diedit manual ${esc(r.manual.time)} oleh ${esc(r.manual.by)}">Diedit manual</span>` : '';
+    const man = r.manual ? `<span class="tag-manual" title="Terakhir diedit ${esc(r.manual.time)}">Diedit manual</span>` : '';
     let html = `<tr class="row${open ? ' is-open' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
       <td class="po">${esc(r.po)}${man}</td>
       <td class="date">${fmtDate(r.date)}</td>
@@ -400,7 +400,7 @@
     const dup = r.dupCount > 1
       ? `<p class="hint">Kode ${esc(r.code)} muncul ${r.dupCount}× di ${esc(r.po)}. Odoo tidak membedakan jadwalnya, jadwal di bawah adalah gabungan; qty diterima dibagi berurutan ke tiap baris.</p>` : '';
     const man = r.manual
-      ? `<p class="manual-note">PO ini pernah diedit manual (${[r.manual.lines && 'baris PO', r.manual.sched && 'jadwal'].filter(Boolean).join(' dan ')}) pada ${esc(r.manual.time)} oleh ${esc(r.manual.by)}. Saat upload export Odoo berikutnya, Anda akan ditanya mau memakai data Odoo atau mempertahankan edit ini.</p>` : '';
+      ? `<p class="manual-note">PO ini pernah diedit manual (${[r.manual.lines && 'baris PO', r.manual.sched && 'jadwal'].filter(Boolean).join(' dan ')}) pada ${esc(r.manual.time)}. Saat upload export Odoo berikutnya, Anda akan ditanya mau memakai data Odoo atau mempertahankan edit ini.</p>` : '';
     const tools = ed ? `<div class="detail-tools" data-key="${esc(r.key)}">
         <button type="button" class="btn btn-sm" data-act="editLine">Ubah baris PO</button>
         <button type="button" class="btn btn-sm" data-act="addSched">Tambah jadwal</button>
@@ -475,10 +475,6 @@
   /* ================= EDIT MANUAL ================= */
 
   const SCHED_STATUS = ['Confirmed', 'Waiting for Shipment', 'Done'];
-  const store = {
-    get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* abaikan */ } },
-  };
 
   async function api(action, payload) {
     const res = await fetch(CFG.APPS_SCRIPT_URL, {
@@ -534,7 +530,6 @@
     state.edit.on = on;
     if (!on) state.edit.pin = '';
     $('editBar').hidden = !on;
-    $('editUser').textContent = state.edit.user;
     $('btnEditMode').textContent = on ? 'Keluar mode edit' : 'Mode edit';
     $('btnEditMode').classList.toggle('is-on', on);
     render();
@@ -551,14 +546,12 @@
     }
     openDialog({
       title: 'Masuk mode edit', ok: 'Masuk',
-      body: `<p class="dlg-lead">Nama Anda dicatat di setiap perubahan. PIN sama dengan PIN upload.</p>
-        <div class="form-grid">${fld('user', 'Nama pengedit', store.get('ppic_user'), { required: true })}
-        ${fld('pin', 'PIN', '', { type: 'password', required: true })}</div>`,
+      body: `<p class="dlg-lead">Masukkan PIN (sama dengan PIN upload).</p>
+        <div class="form-grid">${fld('pin', 'PIN', '', { type: 'password', required: true })}</div>`,
       onSubmit: async (fd) => {
-        state.edit.user = fd.user.trim(); state.edit.pin = fd.pin.trim();
-        if (!state.edit.user || !state.edit.pin) throw new Error('Isi nama dan PIN.');
+        state.edit.pin = fd.pin.trim();
+        if (!state.edit.pin) throw new Error('Isi PIN.');
         try { await api('verify', {}); } catch (err) { state.edit.pin = ''; throw err; }
-        store.set('ppic_user', state.edit.user);
         setEditMode(true);
       },
     });
@@ -666,11 +659,11 @@
   /* ---------- Riwayat edit ---------- */
   function renderLog() {
     const q = $('qLog').value.trim().toLowerCase();
-    const rows = state.editLog.filter((r) => !q || r.join(' ').toLowerCase().includes(q));
+    const rows = state.editLog.filter((r) => !q || [r[0]].concat(r.slice(2)).join(' ').toLowerCase().includes(q));
     $('logRows').innerHTML = rows.length ? rows.map((r) => `<tr>
-        <td class="date">${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td class="po">${esc(r[3])}</td>
+        <td class="date">${esc(r[0])}</td><td>${esc(r[2])}</td><td class="po">${esc(r[3])}</td>
         <td>${esc(r[4])}</td><td>${esc(r[5])}</td><td class="old">${esc(r[6])}</td><td class="new">${esc(r[7])}</td></tr>`).join('')
-      : `<tr class="empty"><td colspan="8">${state.editLog.length ? 'Tidak ada riwayat yang cocok.' : 'Belum ada riwayat edit. Perubahan lewat Mode edit akan tampil di sini.'}</td></tr>`;
+      : `<tr class="empty"><td colspan="7">${state.editLog.length ? 'Tidak ada riwayat yang cocok.' : 'Belum ada riwayat edit. Perubahan lewat Mode edit akan tampil di sini.'}</td></tr>`;
   }
   $('qLog').addEventListener('input', renderLog);
 
@@ -703,7 +696,7 @@
       <ul class="conflict-list">${list.map((c) => {
         const ch = state.choices.get(c.po);
         const what = c.parts.map((p) => (p === 'lines' ? 'baris PO' : 'jadwal')).join(' dan ');
-        return `<li><div><b>${esc(c.po)}</b><span class="hint"> · ${what} diedit ${esc(c.time)} oleh ${esc(c.by)}</span></div>
+        return `<li><div><b>${esc(c.po)}</b><span class="hint"> · ${what} diedit ${esc(c.time)}</span></div>
           <div class="choice">
             <label><input type="radio" name="c_${esc(c.po)}" value="odoo" data-po="${esc(c.po)}"${ch === 'odoo' ? ' checked' : ''}> Pakai data Odoo</label>
             <label><input type="radio" name="c_${esc(c.po)}" value="keep" data-po="${esc(c.po)}"${ch === 'keep' ? ' checked' : ''}> Pertahankan edit</label>
