@@ -55,6 +55,56 @@
     none: { label: 'Belum dijadwalkan', cls: 'b-none' },
   };
 
+
+  /* ---------- Urutkan lewat judul kolom (semua tabel) ---------- */
+  // Klik pertama: arah bawaan kolom; klik kedua: dibalik; klik ketiga: kembali ke urutan semula.
+  const colSort = { po: null, sup: null, act: null, log: null };
+  const DESC_FIRST = new Set(['qty', 'sisa', 'shortage', 'nsched', 'moq', 'max', 'count', 'total', 'price', 'lead', 'lateDays', 'shortValue', '0']);
+  const isBlankV = (v) => v === null || v === undefined || v === '' || (typeof v === 'number' && isNaN(v));
+  function applyColSort(rows, cs, getters) {
+    if (!cs) return rows;
+    const g = getters[cs.k] || ((r) => r[cs.k]);
+    const sign = cs.dir === 'asc' ? 1 : -1;
+    return rows.slice().sort((a, b) => {
+      const x = g(a), y = g(b), bx = isBlankV(x), by = isBlankV(y);
+      if (bx || by) return bx === by ? 0 : bx ? 1 : -1;            // kosong selalu di bawah
+      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'id', { numeric: true, sensitivity: 'base' });
+      return c * sign;
+    });
+  }
+  function initSortHeaders(table, name, onChange) {
+    table.querySelectorAll('th[data-sk]').forEach((th) => {
+      th.innerHTML = `<button type="button" class="th-sort" title="Klik untuk mengurutkan">${th.innerHTML}<span class="sort-ind" aria-hidden="true"></span></button>`;
+    });
+    table.querySelector('thead').addEventListener('click', (e) => {
+      const th = e.target.closest('th[data-sk]'); if (!th) return;
+      const k = th.dataset.sk, cur = colSort[name];
+      if (!cur || cur.k !== k) colSort[name] = { k, dir: DESC_FIRST.has(k) ? 'desc' : 'asc' };
+      else if (cur.dir === (DESC_FIRST.has(k) ? 'desc' : 'asc')) colSort[name] = { k, dir: cur.dir === 'asc' ? 'desc' : 'asc' };
+      else colSort[name] = null;
+      onChange();
+    });
+  }
+  function paintSortHeaders(table, name) {
+    const cs = colSort[name];
+    table.querySelectorAll('th[data-sk]').forEach((th) => {
+      const on = cs && cs.k === th.dataset.sk;
+      if (on) th.setAttribute('aria-sort', cs.dir === 'asc' ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
+      th.classList.toggle('is-sorted', !!on);
+    });
+  }
+  const STATUS_ORDER = { late: 0, short: 1, wait: 2, none: 3, done: 4 };
+  const PO_GET = {
+    po: (r) => r.po, date: (r) => r.date, supplier: (r) => r.supplier, name: (r) => r.name, qty: (r) => r.qty,
+    sisa: (r) => Math.max(0, r.sisa), shortage: (r) => r.shortage || null, nsched: (r) => r.sched.length,
+    next: (r) => (r.next ? r.next.date : null), status: (r) => STATUS_ORDER[r.status],
+  };
+  const SUP_GET = {
+    name: (x) => x.name, supplier: (x) => x.supplier || null, moq: (x) => x.moq, max: (x) => x.max,
+    count: (x) => (x.supplier ? x.count : null), total: (x) => (x.count ? x.total : null), lastDate: (x) => x.lastDate || null,
+    price: (x) => (x.price === '' || x.price === null ? null : Number(x.price)), lead: (x) => x.lead,
+  };
+
   /* ---------- Menu & halaman ---------- */
   // Menu baru cukup ditambah di sini + <section id="view-..."> di index.html + link di menu samping.
   const ROUTES = {
@@ -385,7 +435,8 @@
     $('cDone').textContent = nf.format(byStatus(base, 'done').length);
     document.querySelectorAll('.stat').forEach((b) => b.classList.toggle('is-active', b.dataset.status === state.status));
 
-    const rows = byStatus(base, state.status).slice().sort(SORTS[$('fSort').value] || SORTS['date-asc']);
+    const rows = applyColSort(byStatus(base, state.status).slice().sort(SORTS[$('fSort').value] || SORTS['date-asc']), colSort.po, PO_GET);
+    paintSortHeaders($('rows').closest('table'), 'po');
     const view = rows.slice(0, state.shown);
     const m = activeMonth();
     const where = m === 'all' ? 'semua bulan order' : 'order ' + monthLabel(m, true);
@@ -476,7 +527,11 @@
   let t;
   $('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.shown = PAGE; render(); }, 200); });
   ['fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fSort'].forEach((id) =>
-    $(id).addEventListener('change', () => { state.shown = PAGE; render(); }));
+    $(id).addEventListener('change', () => { if (id === 'fSort') colSort.po = null; state.shown = PAGE; render(); }));
+  initSortHeaders($('rows').closest('table'), 'po', () => {
+    $('fSort').value = colSort.po ? 'col' : 'date-asc';
+    state.shown = PAGE; render();
+  });
 
   $('monthBar').addEventListener('click', (e) => {
     const b = e.target.closest('.month'); if (!b) return;
@@ -496,6 +551,7 @@
   $('btnReset').addEventListener('click', () => {
     ['q', 'fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual'].forEach((id) => { $(id).value = ''; });
     $('fSort').value = 'date-asc';
+    colSort.po = null;
     state.drill = null;
     state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
@@ -684,7 +740,8 @@
     }), fmtRp);
 
     // Perlu ditindaklanjuti
-    const act = sh.slice().sort((a, b) => b.lateDays - a.lateDays || b.shortValue - a.shortValue).slice(0, 12);
+    const act = applyColSort(sh.slice().sort((a, b) => b.lateDays - a.lateDays || b.shortValue - a.shortValue).slice(0, 12), colSort.act, PO_GET);
+    paintSortHeaders($('dAction').closest('table'), 'act');
     $('dAction').innerHTML = act.length ? act.map((r) => `<tr class="row" data-key="${esc(r.key)}" tabindex="0">
         <td class="po">${esc(r.po)}</td><td class="supplier">${esc(r.supplier)}</td>
         <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}</div></td>
@@ -702,6 +759,7 @@
     if (go.arrive) $('fArrive').value = go.arrive;
     if (go.q) $('q').value = go.q;
     $('fSort').value = go.sort || 'date-asc';
+    colSort.po = null;
     state.drill = go.drill || null;
     state.status = go.status || 'all';
     state.month = go.month || 'all';
@@ -712,6 +770,7 @@
   }
 
   ['dJenis', 'dSup'].forEach((id) => $(id).addEventListener('change', renderDash));
+  initSortHeaders($('dAction').closest('table'), 'act', renderDash);
   $('dReset').addEventListener('click', () => { $('dJenis').value = ''; $('dSup').value = ''; renderDash(); });
   document.querySelectorAll('[data-arrmode]').forEach((b) => b.addEventListener('click', () => {
     DASH.arrMode = b.dataset.arrmode;
@@ -1020,13 +1079,14 @@
     document.querySelectorAll('#supStatusRow .stat').forEach((b) => b.classList.toggle('is-active', b.dataset.sv === SUP.view));
 
     const sortKey = $('sSort').value;
-    const rows = supByView(base, SUP.view).slice().sort(SUP_SORT[sortKey] || SUP_SORT.kode);
+    const rows = applyColSort(supByView(base, SUP.view).slice().sort(SUP_SORT[sortKey] || SUP_SORT.kode), colSort.sup, SUP_GET);
+    paintSortHeaders($('sRows').closest('table'), 'sup');
     const view = rows.slice(0, SUP.shown);
     $('sInfo').textContent = `Menampilkan ${nf.format(view.length)} dari ${nf.format(rows.length)} baris (${nf.format(countCodes(rows))} material)`
       + (SUP.builtAt ? ` · dihitung ${SUP.builtAt}` : '');
     renderSupChips();
 
-    const grouped = sortKey === 'kode' || sortKey === 'nama';
+    const grouped = colSort.sup ? colSort.sup.k === 'name' : (sortKey === 'kode' || sortKey === 'nama');
     let prev = null;
     $('sRows').innerHTML = rows.length ? view.map((x) => {
       const cont = grouped && prev === x.code; prev = x.code;
@@ -1073,7 +1133,11 @@
   });
   let st;
   $('sq').addEventListener('input', () => { clearTimeout(st); st = setTimeout(() => { SUP.shown = PAGE; renderSup(); }, 200); });
-  ['sCat', 'sSup', 'sSort'].forEach((id) => $(id).addEventListener('change', () => { SUP.shown = PAGE; renderSup(); }));
+  ['sCat', 'sSup', 'sSort'].forEach((id) => $(id).addEventListener('change', () => { if (id === 'sSort') colSort.sup = null; SUP.shown = PAGE; renderSup(); }));
+  initSortHeaders($('sRows').closest('table'), 'sup', () => {
+    $('sSort').value = colSort.sup ? 'col' : 'kode';
+    SUP.shown = PAGE; renderSup();
+  });
   $('sChips').addEventListener('click', (e) => {
     const c = e.target.closest('.chip'); if (!c) return;
     if (c.dataset.clear === 'view') SUP.view = 'all'; else $(c.dataset.clear).value = '';
@@ -1081,7 +1145,7 @@
   });
   $('sReset').addEventListener('click', () => {
     ['sq', 'sCat', 'sSup'].forEach((id) => { $(id).value = ''; });
-    $('sSort').value = 'kode'; SUP.view = 'all'; SUP.shown = PAGE; renderSup();
+    $('sSort').value = 'kode'; colSort.sup = null; SUP.view = 'all'; SUP.shown = PAGE; renderSup();
   });
   $('sMore').addEventListener('click', () => { SUP.shown += PAGE; renderSup(); });
   $('sExport').addEventListener('click', () => {
@@ -1101,13 +1165,15 @@
   /* ---------- Riwayat edit ---------- */
   function renderLog() {
     const q = $('qLog').value.trim().toLowerCase();
-    const rows = state.editLog.filter((r) => !q || [r[0]].concat(r.slice(2)).join(' ').toLowerCase().includes(q));
+    const rows = applyColSort(state.editLog.filter((r) => !q || [r[0]].concat(r.slice(2)).join(' ').toLowerCase().includes(q)), colSort.log, {});
+    paintSortHeaders($('logRows').closest('table'), 'log');
     $('logRows').innerHTML = rows.length ? rows.map((r) => `<tr>
         <td class="date">${esc(r[0])}</td><td>${esc(r[2])}</td><td class="po">${esc(r[3])}</td>
         <td>${esc(r[4])}</td><td>${esc(r[5])}</td><td class="old">${esc(r[6])}</td><td class="new">${esc(r[7])}</td></tr>`).join('')
       : `<tr class="empty"><td colspan="7">${state.editLog.length ? 'Tidak ada riwayat yang cocok.' : 'Belum ada riwayat edit. Perubahan lewat Mode edit akan tampil di sini.'}</td></tr>`;
   }
   $('qLog').addEventListener('input', renderLog);
+  initSortHeaders($('logRows').closest('table'), 'log', renderLog);
 
   /* ---------- Upload: PO yang pernah diedit manual ---------- */
   state.choices = new Map();

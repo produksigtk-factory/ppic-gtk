@@ -456,3 +456,19 @@ tr.detail td { background: #fbfcfe; padding: 0; }
   content: ""; position: absolute; left: -2px; right: -2px; top: 18%; height: 6px;
   background: var(--surface); transform: skewY(-12deg);
 }
+
+/* ---------- Urutkan dari judul kolom ---------- */
+.th-sort {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; text-align: inherit;
+}
+th.num .th-sort { justify-content: flex-end; width: 100%; }
+.th-sort:hover { color: var(--brand); }
+.sort-ind { display: inline-block; width: 8px; height: 10px; flex: none; opacity: .35;
+  background: linear-gradient(to bottom, currentColor 0 0) no-repeat; }
+.sort-ind::before { content: "↕"; font-size: 11px; line-height: 10px; display: block; }
+.sort-ind { background: none; }
+th.is-sorted { color: var(--brand-dark); }
+th.is-sorted .sort-ind { opacity: 1; }
+th[aria-sort="ascending"] .sort-ind::before { content: "↑"; }
+th[aria-sort="descending"] .sort-ind::before { content: "↓"; }

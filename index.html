@@ -172,7 +172,7 @@
             <p class="card-sub">Shortage paling lama terlambat. Klik baris untuk membuka PO-nya.</p>
             <div class="table-wrap">
               <table class="po-table action-table">
-                <thead><tr><th>No PO</th><th>Supplier</th><th>Material</th><th class="num">Shortage</th><th class="num">Terlambat</th><th class="num">Nilai</th></tr></thead>
+                <thead><tr><th data-sk="po">No PO</th><th data-sk="supplier">Supplier</th><th data-sk="name">Material</th><th class="num" data-sk="shortage">Shortage</th><th class="num" data-sk="lateDays">Terlambat</th><th class="num" data-sk="shortValue">Nilai</th></tr></thead>
                 <tbody id="dAction"><tr class="empty"><td colspan="6">Memuat data…</td></tr></tbody>
               </table>
             </div>
@@ -253,6 +253,7 @@
             <label class="field">
               <span>Urutkan</span>
               <select id="fSort">
+                <option value="col" hidden>Sesuai judul kolom yang diklik</option>
                 <option value="date-asc">Order Date terlama dulu</option>
                 <option value="date-desc">Order Date terbaru dulu</option>
                 <option value="next-asc">Jadwal berikutnya terdekat</option>
@@ -283,16 +284,16 @@
           <table class="po-table">
             <thead>
               <tr>
-                <th>No PO</th>
-                <th>Tgl order</th>
-                <th>Supplier</th>
-                <th>Material</th>
-                <th class="num">Qty order</th>
-                <th class="num">Sisa</th>
-                <th class="num" title="Qty yang jadwalnya sudah lewat tetapi belum diterima, termasuk kurang kirim">Shortage</th>
-                <th>Pengiriman</th>
-                <th>Jadwal berikutnya</th>
-                <th>Status</th>
+                <th data-sk="po">No PO</th>
+                <th data-sk="date">Tgl order</th>
+                <th data-sk="supplier">Supplier</th>
+                <th data-sk="name">Material</th>
+                <th class="num" data-sk="qty">Qty order</th>
+                <th class="num" data-sk="sisa">Sisa</th>
+                <th class="num" data-sk="shortage" title="Qty yang jadwalnya sudah lewat tetapi belum diterima, termasuk kurang kirim">Shortage</th>
+                <th data-sk="nsched">Pengiriman</th>
+                <th data-sk="next">Jadwal berikutnya</th>
+                <th data-sk="status">Status</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
@@ -380,6 +381,7 @@
             <label class="field">
               <span>Urutkan</span>
               <select id="sSort">
+                <option value="col" hidden>Sesuai judul kolom yang diklik</option>
                 <option value="kode">Kode material</option>
                 <option value="nama">Nama material</option>
                 <option value="supplier">Nama supplier</option>
@@ -405,15 +407,15 @@
           <table class="po-table sup-table">
             <thead>
               <tr>
-                <th>Material</th>
-                <th>Supplier</th>
-                <th class="num">MoQ</th>
-                <th class="num">Qty PO terbesar</th>
-                <th class="num">Jumlah PO</th>
-                <th class="num">Total qty PO</th>
-                <th>PO terakhir</th>
-                <th class="num">Harga terakhir</th>
-                <th class="num">Lead time</th>
+                <th data-sk="name">Material</th>
+                <th data-sk="supplier">Supplier</th>
+                <th class="num" data-sk="moq">MoQ</th>
+                <th class="num" data-sk="max">Qty PO terbesar</th>
+                <th class="num" data-sk="count">Jumlah PO</th>
+                <th class="num" data-sk="total">Total qty PO</th>
+                <th data-sk="lastDate">PO terakhir</th>
+                <th class="num" data-sk="price">Harga terakhir</th>
+                <th class="num" data-sk="lead">Lead time</th>
               </tr>
             </thead>
             <tbody id="sRows"><tr class="empty"><td colspan="9">Memuat data supplier…</td></tr></tbody>
@@ -433,7 +435,7 @@
         </div>
         <div class="table-wrap log-wrap">
           <table class="po-table log-table">
-            <thead><tr><th>Waktu</th><th>Aksi</th><th>No PO</th><th>Kode</th><th>Kolom</th><th>Nilai lama</th><th>Nilai baru</th></tr></thead>
+            <thead><tr><th data-sk="0">Waktu</th><th data-sk="2">Aksi</th><th data-sk="3">No PO</th><th data-sk="4">Kode</th><th data-sk="5">Kolom</th><th data-sk="6">Nilai lama</th><th data-sk="7">Nilai baru</th></tr></thead>
             <tbody id="logRows"><tr class="empty"><td colspan="7">Belum ada riwayat edit.</td></tr></tbody>
           </table>
         </div>
