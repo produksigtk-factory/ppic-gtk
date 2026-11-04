@@ -133,6 +133,51 @@ main { padding: 22px 28px 48px; width: 100%; max-width: 1440px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend .seg { width: 18px; height: 8px; display: inline-block; flex: none; }
 
+
+/* ---------- Bulan order ---------- */
+.month-block { margin-bottom: 16px; }
+.month-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.month-head h2 { font-size: 15px; }
+.month-head .hint { margin: 0; }
+.month-bar {
+  display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+.month {
+  flex: none; scroll-snap-align: start; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  min-width: 112px; padding: 8px 12px; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); text-align: left;
+}
+.month:hover { border-color: var(--brand); }
+.month-name { font-weight: 700; white-space: nowrap; }
+.month-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.month.is-current .month-name { color: var(--brand); }
+.month.month-all { border-style: dashed; }
+.month.is-active { background: var(--brand); border-color: var(--brand); }
+.month.is-active .month-name, .month.is-active .month-count { color: #fff; }
+
+/* ---------- Panel saringan ---------- */
+.filter-panel {
+  margin-top: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+.filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; align-items: end; }
+.filter-grid .field { min-width: 0; }
+.filter-grid .span-2 { grid-column: span 2; }
+.filter-grid .filter-actions { grid-column: span 2; justify-content: flex-end; }
+.active-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
+}
+.af-label { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 999px;
+  border: 1px solid #b9d5c3; background: var(--brand-soft); color: var(--brand-dark); font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.chip:hover { border-color: var(--brand); }
+.chip-x { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: rgba(16,106,58,.12); font-size: 13px; line-height: 1; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 /* ---------- Table ---------- */
 .table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow-x: auto; }
 .po-table { width: 100%; border-collapse: collapse; min-width: 980px; }
@@ -231,7 +276,12 @@ tr.detail td { background: #fbfcfe; padding: 0; }
   .page-head .menu-toggle { display: inline-flex; }
   .status-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 1100px) {
+  .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 560px) {
+  .filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .filter-grid .span-2, .filter-grid .filter-actions { grid-column: auto; }
   .page-head, main { padding-left: 16px; padding-right: 16px; }
   .module-stats { grid-template-columns: 1fr; }
   .stat-num { font-size: 22px; }

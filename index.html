@@ -78,31 +78,70 @@
 
         <div class="setup-note" id="setupNote" hidden></div>
 
+        <!-- Bulan order -->
+        <div class="month-block">
+          <div class="month-head">
+            <h2>Bulan order</h2>
+            <p class="hint">Berdasarkan Order Date. Saat dibuka, website menampilkan bulan berjalan.</p>
+          </div>
+          <div class="month-bar" id="monthBar" role="group" aria-label="Pilih bulan order"></div>
+        </div>
+
+        <!-- Status -->
         <div class="status-row" id="statusRow" role="group" aria-label="Saring berdasarkan status">
           <button class="stat" data-status="all"><span class="stat-num" id="cAll">–</span><span class="stat-label">Semua baris PO</span></button>
           <button class="stat stat-open" data-status="open"><span class="stat-num" id="cOpen">–</span><span class="stat-label">Belum lengkap diterima</span></button>
           <button class="stat stat-late" data-status="late"><span class="stat-num" id="cLate">–</span><span class="stat-label">Jadwal lewat, belum datang</span></button>
           <button class="stat stat-done" data-status="done"><span class="stat-num" id="cDone">–</span><span class="stat-label">Sudah lengkap</span></button>
         </div>
-        <p class="hint">Klik salah satu kotak di atas untuk menampilkan baris dengan status tersebut.</p>
+        <p class="hint">Angka di kotak mengikuti bulan dan saringan yang dipilih. Klik kotak untuk menampilkan status itu saja.</p>
 
-        <div class="filters">
-          <label class="field grow">
-            <span>Cari</span>
-            <input type="search" id="q" placeholder="No PO, supplier, kode, atau nama material">
-          </label>
-          <label class="field">
-            <span>Jenis</span>
-            <select id="fJenis"><option value="">Semua jenis</option></select>
-          </label>
-          <label class="field">
-            <span>Supplier</span>
-            <select id="fSupplier"><option value="">Semua supplier</option></select>
-          </label>
-          <div class="filter-actions">
-            <button class="btn btn-ghost" id="btnReset" title="Kosongkan pencarian dan semua saringan">Reset saringan</button>
-            <button class="btn" id="btnExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
+        <!-- Saringan -->
+        <div class="filter-panel">
+          <div class="filter-grid">
+            <label class="field span-2">
+              <span>Cari</span>
+              <input type="search" id="q" placeholder="No PO, supplier, kode, atau nama material">
+            </label>
+            <label class="field">
+              <span>Supplier</span>
+              <select id="fSupplier"><option value="">Semua supplier</option></select>
+            </label>
+            <label class="field">
+              <span>Jenis material</span>
+              <select id="fJenis"><option value="">Semua jenis</option></select>
+            </label>
+            <label class="field">
+              <span>Jadwal kedatangan</span>
+              <select id="fArrive">
+                <option value="">Semua</option>
+                <option value="today">Dijadwalkan hari ini</option>
+                <option value="week">Dalam 7 hari ke depan</option>
+                <option value="month">Dijadwalkan bulan ini</option>
+                <option value="late">Lewat jadwal, belum datang</option>
+                <option value="none">Belum ada jadwal</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Kurs</span>
+              <select id="fKurs"><option value="">Semua kurs</option></select>
+            </label>
+            <label class="field">
+              <span>Urutkan</span>
+              <select id="fSort">
+                <option value="date-asc">Order Date terlama dulu</option>
+                <option value="date-desc">Order Date terbaru dulu</option>
+                <option value="next-asc">Jadwal berikutnya terdekat</option>
+                <option value="sisa-desc">Sisa qty terbanyak</option>
+                <option value="amount-desc">Nilai PO terbesar</option>
+              </select>
+            </label>
+            <div class="filter-actions">
+              <button class="btn btn-ghost" id="btnReset" title="Kembali ke bulan berjalan dan kosongkan semua saringan">Reset saringan</button>
+              <button class="btn" id="btnExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
+            </div>
           </div>
+          <div class="active-filters" id="activeFilters" aria-live="polite"></div>
         </div>
 
         <div class="result-bar">

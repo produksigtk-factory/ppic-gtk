@@ -13,6 +13,7 @@
     rows: [],          // baris PO yang sudah dihitung
     knownPOs: new Set(),
     status: 'all',
+    month: null,       // 'yyyy-mm' atau 'all'; null = bulan berjalan
     shown: PAGE,
     openKey: null,
     parsedDet: null,
@@ -94,7 +95,7 @@
     const seen = new Set();
     rows.forEach((r) => {
       const k = r.po + '|' + r.code;
-      if (seen.has(k)) return; seen.add(k);
+      if (r.status === 'done' || seen.has(k)) return; seen.add(k);
       r.sched.forEach((s) => { if (s.status !== 'Done' && s.date >= today && s.date <= plus7) week++; });
     });
     $('hOpen').textContent = nf.format(rows.filter((r) => r.status !== 'done').length);
@@ -178,10 +179,13 @@
         else if (pending.length) status = 'wait';
         else status = 'none';
 
+        const date = normDate(l[1]);
         rows.push({
           key: k + '|' + l[10], idx,
-          po: l[0], date: normDate(l[1]), supplier: l[2], code: l[3], name: l[4], jenis: l[5],
+          po: l[0], date, month: date.slice(0, 7), supplier: l[2], code: l[3], name: l[4], jenis: l[5],
           qty, uom: l[7], price: l[8], kurs: l[9], lineKe: l[10], dupCount: items.length,
+          amount: l[8] === '' ? 0 : qty * Number(l[8]),
+          pendingDates: pending.map((s) => s.date).filter(Boolean),
           rec, sisa, status, sched, next, today,
           search: (l[0] + ' ' + l[2] + ' ' + l[3] + ' ' + l[4]).toLowerCase(),
         });
@@ -204,37 +208,110 @@
     const uniq = (f) => [...new Set(state.rows.map(f).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
     fill($('fJenis'), uniq((r) => r.jenis), 'Semua jenis');
     fill($('fSupplier'), uniq((r) => r.supplier), 'Semua supplier');
+    fill($('fKurs'), uniq((r) => r.kurs), 'Semua kurs');
   }
 
-  function filtered() {
+  const curMonth = () => todayStr().slice(0, 7);
+  const activeMonth = () => state.month || curMonth();
+  const mf = new Intl.DateTimeFormat('id-ID', { month: 'short', year: 'numeric' });
+  const mfLong = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' });
+  const monthLabel = (m, long) => { const [y, mo] = m.split('-').map(Number); return (long ? mfLong : mf).format(new Date(y, mo - 1, 1)); };
+
+  const ARRIVE = {
+    today: 'Dijadwalkan hari ini', week: 'Dalam 7 hari ke depan', month: 'Dijadwalkan bulan ini',
+    late: 'Lewat jadwal, belum datang', none: 'Belum ada jadwal',
+  };
+  function matchArrive(r, v) {
+    if (!v) return true;
+    if (r.status === 'done') return false;   // baris yang sudah lengkap tidak menunggu kedatangan lagi
+    const t = todayStr();
+    const d = r.pendingDates;
+    if (v === 'none') return r.status !== 'done' && !d.length;
+    if (v === 'late') return d.some((x) => x < t);
+    if (v === 'today') return d.includes(t);
+    if (v === 'week') { const e = ymd(new Date(Date.now() + 7 * 86400000)); return d.some((x) => x >= t && x <= e); }
+    if (v === 'month') { const m = t.slice(0, 7); return d.some((x) => x.slice(0, 7) === m); }
+    return true;
+  }
+
+  // Semua saringan kecuali bulan (dipakai juga untuk angka di tab bulan)
+  function filteredNoMonth() {
     const q = $('q').value.trim().toLowerCase();
-    const jenis = $('fJenis').value, sup = $('fSupplier').value;
+    const jenis = $('fJenis').value, sup = $('fSupplier').value, kurs = $('fKurs').value, arr = $('fArrive').value;
     return state.rows.filter((r) =>
       (!q || q.split(/\s+/).every((w) => r.search.includes(w))) &&
       (!jenis || r.jenis === jenis) &&
-      (!sup || r.supplier === sup));
+      (!sup || r.supplier === sup) &&
+      (!kurs || r.kurs === kurs) &&
+      matchArrive(r, arr));
   }
+  const byMonth = (rows) => { const m = activeMonth(); return m === 'all' ? rows : rows.filter((r) => r.month === m); };
 
   const byStatus = (rows, st) => st === 'all' ? rows
     : st === 'open' ? rows.filter((r) => r.status !== 'done')
     : rows.filter((r) => r.status === st);
 
+  const SORTS = {
+    'date-asc': (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.po < b.po ? -1 : a.po > b.po ? 1 : a.idx - b.idx),
+    'date-desc': (a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : a.po > b.po ? -1 : a.po < b.po ? 1 : a.idx - b.idx),
+    'next-asc': (a, b) => { const x = a.next ? a.next.date : '9999', y = b.next ? b.next.date : '9999'; return x < y ? -1 : x > y ? 1 : SORTS['date-asc'](a, b); },
+    'sisa-desc': (a, b) => (b.sisa - a.sisa) || SORTS['date-asc'](a, b),
+    'amount-desc': (a, b) => (b.amount - a.amount) || SORTS['date-asc'](a, b),
+  };
+
+  function renderMonthBar(rowsNoMonth) {
+    const count = new Map();
+    rowsNoMonth.forEach((r) => count.set(r.month, (count.get(r.month) || 0) + 1));
+    const cur = curMonth();
+    const months = [...new Set(state.rows.map((r) => r.month).filter(Boolean).concat([cur]))].sort();
+    const act = activeMonth();
+    const btn = (key, label, n, extra) =>
+      `<button class="month${key === act ? ' is-active' : ''}${extra || ''}" data-month="${key}" aria-pressed="${key === act}">
+        <span class="month-name">${label}</span><span class="month-count">${nf.format(n)} baris</span></button>`;
+    $('monthBar').innerHTML =
+      btn('all', 'Semua bulan', rowsNoMonth.length, ' month-all') +
+      months.map((m) => btn(m, monthLabel(m) + (m === cur ? ' · berjalan' : ''), count.get(m) || 0, m === cur ? ' is-current' : '')).join('');
+    const a = $('monthBar').querySelector('.is-active');
+    if (a && a.scrollIntoView && !state.monthScrolled) { a.scrollIntoView({ block: 'nearest', inline: 'center' }); state.monthScrolled = true; }
+  }
+
+  function renderActiveFilters() {
+    const chips = [];
+    const m = activeMonth();
+    if (m !== 'all') chips.push(['month', `Bulan order: ${monthLabel(m, true)}`]);
+    if (state.status !== 'all') chips.push(['status', 'Status: ' + { open: 'Belum lengkap diterima', late: 'Jadwal lewat, belum datang', done: 'Sudah lengkap' }[state.status]]);
+    if ($('q').value.trim()) chips.push(['q', `Cari: "${$('q').value.trim()}"`]);
+    if ($('fSupplier').value) chips.push(['fSupplier', 'Supplier: ' + $('fSupplier').value]);
+    if ($('fJenis').value) chips.push(['fJenis', 'Jenis: ' + $('fJenis').value]);
+    if ($('fArrive').value) chips.push(['fArrive', 'Jadwal: ' + ARRIVE[$('fArrive').value]]);
+    if ($('fKurs').value) chips.push(['fKurs', 'Kurs: ' + $('fKurs').value]);
+    $('activeFilters').innerHTML = chips.length
+      ? '<span class="af-label">Saringan aktif:</span>' + chips.map(([k, t]) =>
+          `<button class="chip" data-clear="${k}" title="Hapus saringan ini">${esc(t)}<span class="chip-x" aria-hidden="true">×</span><span class="sr">hapus</span></button>`).join('')
+      : '<span class="af-label">Tidak ada saringan, semua baris ditampilkan.</span>';
+  }
+
   /* ---------- Tampilan ---------- */
   function render() {
-    const base = filtered();
+    const noMonth = filteredNoMonth();
+    renderMonthBar(noMonth);
+    renderActiveFilters();
+    const base = byMonth(noMonth);
     $('cAll').textContent = nf.format(base.length);
     $('cOpen').textContent = nf.format(byStatus(base, 'open').length);
     $('cLate').textContent = nf.format(byStatus(base, 'late').length);
     $('cDone').textContent = nf.format(byStatus(base, 'done').length);
     document.querySelectorAll('.stat').forEach((b) => b.classList.toggle('is-active', b.dataset.status === state.status));
 
-    const rows = byStatus(base, state.status);
+    const rows = byStatus(base, state.status).slice().sort(SORTS[$('fSort').value] || SORTS['date-asc']);
     const view = rows.slice(0, state.shown);
-    const label = { all: 'semua status', open: 'belum lengkap diterima', late: 'terlambat', done: 'sudah lengkap' }[state.status];
-    $('resultInfo').textContent = `Menampilkan ${nf.format(view.length)} dari ${nf.format(rows.length)} baris (${label})`;
+    const m = activeMonth();
+    const where = m === 'all' ? 'semua bulan order' : 'order ' + monthLabel(m, true);
+    $('resultInfo').textContent = `Menampilkan ${nf.format(view.length)} dari ${nf.format(rows.length)} baris · ${where}`;
 
     if (!rows.length) {
-      $('rows').innerHTML = '<tr class="empty"><td colspan="10">Tidak ada baris yang cocok. Ubah pencarian atau tekan "Reset saringan".</td></tr>';
+      const hint = m !== 'all' ? ' Coba pilih "Semua bulan" atau bulan lain di atas.' : ' Ubah pencarian atau tekan "Reset saringan".';
+      $('rows').innerHTML = `<tr class="empty"><td colspan="10">Tidak ada baris yang cocok.${hint}</td></tr>`;
     } else {
       $('rows').innerHTML = view.map(rowHtml).join('');
     }
@@ -301,11 +378,27 @@
   });
   let t;
   $('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.shown = PAGE; render(); }, 200); });
-  $('fJenis').addEventListener('change', () => { state.shown = PAGE; render(); });
-  $('fSupplier').addEventListener('change', () => { state.shown = PAGE; render(); });
+  ['fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fSort'].forEach((id) =>
+    $(id).addEventListener('change', () => { state.shown = PAGE; render(); }));
+
+  $('monthBar').addEventListener('click', (e) => {
+    const b = e.target.closest('.month'); if (!b) return;
+    state.month = b.dataset.month; state.shown = PAGE; state.openKey = null; render();
+  });
+
+  $('activeFilters').addEventListener('click', (e) => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    const k = c.dataset.clear;
+    if (k === 'month') state.month = 'all';
+    else if (k === 'status') state.status = 'all';
+    else $(k).value = '';
+    state.shown = PAGE; render();
+  });
+
   $('btnReset').addEventListener('click', () => {
-    $('q').value = ''; $('fJenis').value = ''; $('fSupplier').value = '';
-    state.status = 'all'; state.shown = PAGE; state.openKey = null; render();
+    ['q', 'fJenis', 'fSupplier', 'fKurs', 'fArrive'].forEach((id) => { $(id).value = ''; });
+    $('fSort').value = 'date-asc';
+    state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
   $('btnMore').addEventListener('click', () => { state.shown += PAGE; render(); });
   $('btnReload').addEventListener('click', loadData);
