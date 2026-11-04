@@ -679,7 +679,7 @@
     vbars($('dMonth'), months.map((m) => {
       const rs = rows.filter((r) => r.month === m);
       const v = rs.filter(isIdr).reduce((t, r) => t + r.amount, 0);
-      return { label: monthLabel(m).replace(' 20', " '"), value: v, cls: m === cur ? 'is-current' : '',
+      return { label: new Intl.DateTimeFormat('id-ID', { month: 'short' }).format(new Date(m + '-01T00:00:00')), value: v, cls: m === cur ? 'is-current' : '',
         tip: `${monthLabel(m, true)}: ${fmtRp(v)} · ${nf.format(new Set(rs.map((r) => r.po)).size)} PO`, go: { month: m } };
     }), fmtRp);
 
