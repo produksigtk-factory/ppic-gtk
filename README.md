@@ -1,6 +1,6 @@
 # PPIC GTK
 
-Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (saat ini: Purchase Order → Monitoring PO, Update Data PO).
+Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Monitoring PO, Update Data PO, Riwayat Edit PO; Database Material → Supplier & MoQ).
 
 Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-...">` untuk isinya, dan satu baris di `ROUTES` (app.js).
 
@@ -31,3 +31,10 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 - Edit manual (Mode edit, cukup PIN): tambah/ubah/hapus baris PO dan jadwal, tambah PO manual. Setiap edit tercatat (waktu, aksi, nilai lama → baru) di tab LOG_EDIT dan halaman Riwayat Edit PO; PO yang diedit ditandai di tab PO_MANUAL.
 - Upload setelah edit manual: website menampilkan PO yang bentrok dan meminta pilihan per PO (pakai data Odoo / pertahankan edit). "Pertahankan" berarti bagian yang diedit tidak dikirim dari file.
 - Status: Lengkap (sisa 0), Terlambat (ada jadwal belum Done yang tanggalnya sudah lewat), Dijadwalkan (ada jadwal belum Done), Belum dijadwalkan.
+
+## Supplier & MoQ
+
+- Tab `SUPPLIER_MATERIAL` di DATABASE PPIC dihitung otomatis oleh Apps Script: satu baris per material RM/PM + supplier, dari PO_LINE dan PO_SCHEDULE (jumlah PO, total qty, qty terkecil/terbesar, PO terakhir, harga terakhir, lead time rata-rata Order Date → kedatangan pertama yang Done, supplier utama = PO terbanyak). Material tanpa PO tetap tampil sebagai "Belum ada riwayat PO". Jangan diketik.
+- Tab `SUPPLIER_INPUT` di DATABASE PPIC berisi isian manual: MoQ, catatan, dan supplier tambahan (kolom TAMBAHAN MANUAL = Ya). Diisi lewat Mode edit di website atau langsung di Sheet (lalu tekan "Muat ulang data" di halaman Supplier & MoQ).
+- Dihitung ulang otomatis setelah upload atau edit PO (saat halaman dibuka), setelah edit MoQ, atau lewat tombol "Muat ulang data". Bisa juga menjalankan fungsi `rebuildSupplierNow` di editor Apps Script.
+- Monitoring PO memberi tanda "Di bawah MoQ supplier" bila qty baris PO lebih kecil dari MoQ supplier tersebut.

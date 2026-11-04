@@ -33,6 +33,15 @@
           <a class="menu-item sub" href="#/po/riwayat" data-route="po/riwayat">Riwayat Edit PO</a>
         </div>
       </div>
+
+      <div class="menu-group is-open" data-group="material">
+        <button class="menu-group-head" aria-expanded="true">
+          <span>Database Material</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <div class="submenu">
+          <a class="menu-item sub" href="#/material/supplier" data-route="material/supplier">Supplier &amp; MoQ</a>
+        </div>
+      </div>
     </nav>
 
     <p class="menu-foot">Menu pekerjaan lain akan ditambahkan di sini.</p>
@@ -49,9 +58,9 @@
         <p class="sub" id="dataInfo">Memuat data…</p>
       </div>
       <div class="top-actions" id="poActions" hidden>
-        <button class="btn btn-ghost" id="btnEditMode" title="Aktifkan untuk menambah, mengubah, atau menghapus data PO secara manual">Mode edit</button>
-        <button class="btn" id="btnReload" title="Ambil ulang data terbaru dari Google Sheet MONITORING PO">Muat ulang data</button>
-        <a class="btn btn-ghost" id="lnkSheet" target="_blank" rel="noopener" title="Buka Google Sheet MONITORING PO di tab baru">Buka Google Sheet</a>
+        <button class="btn btn-ghost" id="btnEditMode" title="Aktifkan untuk menambah, mengubah, atau menghapus data secara manual">Mode edit</button>
+        <button class="btn" id="btnReload" title="Ambil ulang data terbaru dari Google Sheet">Muat ulang data</button>
+        <a class="btn btn-ghost" id="lnkSheet" target="_blank" rel="noopener" title="Buka Google Sheet halaman ini di tab baru">Buka Google Sheet</a>
       </div>
     </header>
 
@@ -70,6 +79,18 @@
               <div><dt>Belum lengkap diterima</dt><dd id="hOpen">–</dd></div>
               <div class="late"><dt>Jadwal lewat, belum datang</dt><dd id="hLate">–</dd></div>
               <div><dt>Jadwal 7 hari ke depan</dt><dd id="hWeek">–</dd></div>
+            </dl>
+          </a>
+          <a class="module" href="#/material/supplier">
+            <div class="module-head">
+              <h2>Supplier &amp; MoQ</h2>
+              <span class="module-link">Buka Supplier &amp; MoQ</span>
+            </div>
+            <p class="module-desc">Supplier yang dipakai untuk tiap material RM dan PM, dihitung dari riwayat PO, beserta MoQ.</p>
+            <dl class="module-stats">
+              <div><dt>Material punya supplier</dt><dd id="hSupHas">–</dd></div>
+              <div><dt>Belum ada riwayat PO</dt><dd id="hSupNone">–</dd></div>
+              <div class="late"><dt>MoQ belum diisi</dt><dd id="hSupMoq">–</dd></div>
             </dl>
           </a>
         </div>
@@ -243,6 +264,93 @@
           </ol>
         </div>
       </section>
+      <!-- ================= SUPPLIER & MOQ ================= -->
+      <section id="view-material-supplier" class="view" hidden>
+        <div class="edit-bar" id="supEditBar" hidden>
+          <p><b>Mode edit aktif.</b> Klik "Isi MoQ" pada baris untuk mengisi MoQ dan catatan. Supplier yang belum pernah dipakai bisa ditambahkan manual. Perubahan tersimpan di tab SUPPLIER_INPUT (DATABASE PPIC) dan tercatat di Riwayat Edit PO.</p>
+          <div class="edit-bar-actions">
+            <button class="btn" id="btnAddSup" title="Tambah supplier untuk material secara manual">Tambah supplier</button>
+            <button class="btn btn-ghost" id="btnSupEditOff" title="Matikan mode edit">Keluar mode edit</button>
+          </div>
+        </div>
+
+        <div class="status-row" id="supStatusRow" role="group" aria-label="Saring material">
+          <button class="stat" data-sv="all"><span class="stat-num" id="sAll">–</span><span class="stat-label">Material RM &amp; PM</span></button>
+          <button class="stat stat-done" data-sv="has"><span class="stat-num" id="sHas">–</span><span class="stat-label">Punya supplier</span></button>
+          <button class="stat" data-sv="none"><span class="stat-num" id="sNone">–</span><span class="stat-label">Belum ada riwayat PO</span></button>
+          <button class="stat stat-late" data-sv="moq"><span class="stat-num" id="sMoq">–</span><span class="stat-label">MoQ belum diisi</span></button>
+        </div>
+        <p class="hint">Angka dihitung per material. Klik kotak untuk menampilkan kelompok itu saja.</p>
+
+        <div class="filter-panel">
+          <div class="filter-grid">
+            <label class="field span-2">
+              <span>Cari</span>
+              <input type="search" id="sq" placeholder="Kode, nama material, atau supplier">
+            </label>
+            <label class="field">
+              <span>Kategori</span>
+              <select id="sCat"><option value="">RM dan PM</option><option>RM (Raw)</option><option>PM (Pack)</option></select>
+            </label>
+            <label class="field">
+              <span>Supplier</span>
+              <select id="sSup"><option value="">Semua supplier</option></select>
+            </label>
+            <label class="field">
+              <span>Jumlah supplier</span>
+              <select id="sMulti">
+                <option value="">Semua</option>
+                <option value="1">Hanya 1 supplier</option>
+                <option value="2">2 supplier atau lebih</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Urutkan</span>
+              <select id="sSort">
+                <option value="kode">Kode material</option>
+                <option value="nama">Nama material</option>
+                <option value="supplier">Nama supplier</option>
+                <option value="last">PO terakhir terbaru</option>
+                <option value="count">Jumlah PO terbanyak</option>
+                <option value="lead">Lead time terlama</option>
+              </select>
+            </label>
+            <div class="filter-actions">
+              <button class="btn btn-ghost" id="sReset" title="Kosongkan pencarian dan semua saringan">Reset saringan</button>
+              <button class="btn" id="sExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
+            </div>
+          </div>
+          <div class="active-filters" id="sChips" aria-live="polite"></div>
+        </div>
+
+        <div class="result-bar">
+          <span id="sInfo"></span>
+          <span class="hint">Supplier utama = paling sering di-PO. Lead time = rata-rata hari dari Order Date sampai kedatangan pertama.</span>
+        </div>
+
+        <div class="table-wrap">
+          <table class="po-table sup-table">
+            <thead>
+              <tr>
+                <th>Material</th>
+                <th>Supplier</th>
+                <th class="num">Jumlah PO</th>
+                <th class="num">Total qty PO</th>
+                <th class="num">Qty PO terkecil–terbesar</th>
+                <th>PO terakhir</th>
+                <th class="num">Harga terakhir</th>
+                <th class="num">Lead time</th>
+                <th class="num">MoQ</th>
+                <th>Catatan</th>
+                <th class="col-act"></th>
+              </tr>
+            </thead>
+            <tbody id="sRows"><tr class="empty"><td colspan="11">Memuat data supplier…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="more"><button class="btn btn-ghost" id="sMore" hidden>Tampilkan 100 baris lagi</button></div>
+      </section>
+
       <!-- ================= RIWAYAT EDIT PO ================= -->
       <section id="view-po-riwayat" class="view" hidden>
         <p class="lead">Semua perubahan yang dibuat lewat Mode edit, terbaru di atas. Riwayat lengkap juga tersimpan di tab LOG_EDIT pada Google Sheet MONITORING PO.</p>

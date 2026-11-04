@@ -17,7 +17,8 @@
     raw: { lines: [], schedules: [] },
     manual: new Map(),
     editLog: [],
-    edit: { on: false, user: 'Website', pin: '' },   // Apps Script mewajibkan isian user; nama pengedit tidak dipakai
+    edit: { on: false, user: 'Website', pin: '' },
+    sup: { rows: [], loaded: false, view: 'all', shown: 100, dbUrl: '', moq: new Map() },   // Apps Script mewajibkan isian user; nama pengedit tidak dipakai
     shown: PAGE,
     openKey: null,
     parsedDet: null,
@@ -56,10 +57,12 @@
   /* ---------- Menu & halaman ---------- */
   // Menu baru cukup ditambah di sini + <section id="view-..."> di index.html + link di menu samping.
   const ROUTES = {
-    'beranda':       { view: 'view-beranda',       crumb: 'Monitoring Pekerjaan PPIC', title: 'Beranda',        po: false },
-    'po/monitoring': { view: 'view-po-monitoring', crumb: 'Purchase Order',            title: 'Monitoring PO',  po: true },
-    'po/update':     { view: 'view-po-update',     crumb: 'Purchase Order',            title: 'Update Data PO', po: true },
-    'po/riwayat':    { view: 'view-po-riwayat',    crumb: 'Purchase Order',            title: 'Riwayat Edit PO', po: true },
+    // actions: 'po' / 'sup' = tampilkan tombol Mode edit, Muat ulang, Buka Google Sheet untuk modul itu
+    'beranda':           { view: 'view-beranda',           crumb: 'Monitoring Pekerjaan PPIC', title: 'Beranda',         actions: '' },
+    'po/monitoring':     { view: 'view-po-monitoring',     crumb: 'Purchase Order',            title: 'Monitoring PO',   actions: 'po' },
+    'po/update':         { view: 'view-po-update',         crumb: 'Purchase Order',            title: 'Update Data PO',  actions: 'po' },
+    'po/riwayat':        { view: 'view-po-riwayat',        crumb: 'Purchase Order',            title: 'Riwayat Edit PO', actions: 'po' },
+    'material/supplier': { view: 'view-material-supplier', crumb: 'Database Material',         title: 'Supplier & MoQ',  actions: 'sup' },
   };
   function route() {
     const key = location.hash.replace(/^#\/?/, '') || 'beranda';
@@ -72,7 +75,13 @@
     });
     $('crumb').textContent = r.crumb;
     $('pageTitle').textContent = r.title;
-    $('poActions').hidden = !r.po;
+    state.route = r;
+    $('poActions').hidden = !r.actions;
+    const sheet = r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
+    $('lnkSheet').hidden = !sheet;
+    if (sheet) $('lnkSheet').href = sheet;
+    $('lnkSheet').title = r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
+    $('btnReload').title = r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
     closeMenu();
     window.scrollTo(0, 0);
@@ -108,7 +117,6 @@
     $('hWeek').textContent = nf.format(week);
   }
 
-  if (CFG.SHEET_URL) $('lnkSheet').href = CFG.SHEET_URL; else $('lnkSheet').hidden = true;
 
   /* ---------- Ambil data ---------- */
   async function loadData() {
@@ -365,7 +373,9 @@
 
   function rowHtml(r) {
     const st = STATUS[r.status];
-    const note = r.dupCount > 1 ? `<span class="note">Kode ini muncul ${r.dupCount}× di PO ini</span>` : '';
+    let note = r.dupCount > 1 ? `<span class="note">Kode ini muncul ${r.dupCount}× di PO ini</span>` : '';
+    const moq = state.sup.moq.get(r.code + '|' + r.supplier);
+    if (moq && r.qty < moq) note += `<span class="note note-moq">Di bawah MoQ supplier (${fmtNum(moq)} ${esc(r.uom)})</span>`;
     const next = r.next ? `${fmtDate(r.next.date)}<div class="strip-cap">${fmtNum(r.next.qty)} ${esc(r.uom)}</div>` : '–';
     const open = state.openKey === r.key;
     const man = r.manual ? `<span class="tag-manual" title="Terakhir diedit ${esc(r.manual.time)}">Diedit manual</span>` : '';
@@ -448,7 +458,7 @@
     state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
   $('btnMore').addEventListener('click', () => { state.shown += PAGE; render(); });
-  $('btnReload').addEventListener('click', loadData);
+  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true) : loadData()));
 
   const toggleRow = (tr) => { const k = tr.dataset.key; state.openKey = state.openKey === k ? null : k; render(); };
   $('rows').addEventListener('click', (e) => { const tr = e.target.closest('tr.row'); if (tr) toggleRow(tr); });
@@ -530,9 +540,11 @@
     state.edit.on = on;
     if (!on) state.edit.pin = '';
     $('editBar').hidden = !on;
+    $('supEditBar').hidden = !on;
     $('btnEditMode').textContent = on ? 'Keluar mode edit' : 'Mode edit';
     $('btnEditMode').classList.toggle('is-on', on);
     render();
+    renderSup();
   }
 
   $('btnEditMode').addEventListener('click', () => {
@@ -655,6 +667,250 @@
        editSched: () => editSched(r, s), delSched: () => deleteSched(r, s) })[b.dataset.act]();
   });
   $('btnAddLine').addEventListener('click', () => editLine(null));
+
+  /* ================= SUPPLIER & MOQ ================= */
+  // Baris dari Apps Script (?view=supplier), satu per material + supplier:
+  // 0 kode, 1 nama, 2 kategori, 3 uom, 4 supplier, 5 utama, 6 sumber, 7 jumlah PO, 8 total qty, 9 qty terkecil,
+  // 10 qty terbesar, 11 no PO terakhir, 12 tgl PO terakhir, 13 harga terakhir, 14 kurs, 15 lead time, 16 MoQ, 17 catatan, 18 dihitung
+  const SUP = state.sup;
+
+  function setSupRows(rows, builtAt, dbUrl) {
+    SUP.rows = rows.map((r, i) => ({
+      i, code: String(r[0]), name: r[1], cat: r[2], uom: r[3], supplier: String(r[4] || ''), main: r[5] === 'Ya', src: r[6],
+      count: Number(r[7]) || 0, total: Number(r[8]) || 0, min: r[9], max: r[10], lastPo: r[11], lastDate: normDate(r[12]),
+      price: r[13], kurs: r[14], lead: r[15] === '' ? null : Number(r[15]), moq: r[16] === '' || r[16] === null ? '' : Number(r[16]), note: r[17] || '',
+      search: (r[0] + ' ' + r[1] + ' ' + r[4]).toLowerCase(),
+    }));
+    SUP.moq = new Map(SUP.rows.filter((x) => x.supplier && x.moq !== '').map((x) => [x.code + '|' + x.supplier, x.moq]));
+    SUP.byCode = new Map();
+    SUP.rows.forEach((x) => { if (!SUP.byCode.has(x.code)) SUP.byCode.set(x.code, []); if (x.supplier) SUP.byCode.get(x.code).push(x); });
+    SUP.builtAt = builtAt; if (dbUrl) SUP.dbUrl = dbUrl;
+    SUP.loaded = true;
+    fillSupOptions();
+    renderSup();
+    renderSupHome();
+    render();          // tanda "di bawah MoQ" di Monitoring PO
+    if (state.route && state.route.actions === 'sup' && SUP.dbUrl) $('lnkSheet').href = SUP.dbUrl;
+  }
+
+  async function loadSupplier(rebuild) {
+    if (!CFG.APPS_SCRIPT_URL) return;
+    SUP.loading = true;
+    $('btnReload').disabled = true;
+    if (!SUP.loaded) $('sRows').innerHTML = '<tr class="empty"><td colspan="11">Menghitung daftar supplier dari data PO, biasanya 5–15 detik…</td></tr>';
+    if (rebuild) $('sInfo').textContent = 'Menghitung ulang dari data PO terbaru…';
+    try {
+      const res = await fetch(CFG.APPS_SCRIPT_URL + '?view=supplier' + (rebuild ? '&rebuild=1' : ''));
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
+      setSupRows(data.rows, data.builtAt, data.databaseUrl);
+    } catch (err) {
+      const msg = /view|supplier|rows/i.test(err.message) || state.oldScript ? 'Apps Script belum versi terbaru. ' : '';
+      $('sRows').innerHTML = `<tr class="empty"><td colspan="11">Data supplier tidak bisa dimuat. ${msg}${esc(err.message)}</td></tr>`;
+    } finally {
+      SUP.loading = false;
+      $('btnReload').disabled = false;
+    }
+  }
+
+  function fillSupOptions() {
+    const cur = $('sSup').value;
+    const list = [...new Set(SUP.rows.map((x) => x.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    $('sSup').innerHTML = '<option value="">Semua supplier</option>' + list.map((v) => `<option>${esc(v)}</option>`).join('');
+    $('sSup').value = list.includes(cur) ? cur : '';
+  }
+
+  // Saringan tingkat material (kotak status & jumlah supplier) dihitung dari semua baris material itu
+  function supMaterialInfo(code) {
+    const list = SUP.byCode.get(code) || [];
+    return { n: list.length, moqMissing: list.some((x) => x.moq === '') };
+  }
+
+  function supFiltered() {
+    const q = $('sq').value.trim().toLowerCase(), cat = $('sCat').value, sup = $('sSup').value, multi = $('sMulti').value;
+    return SUP.rows.filter((x) => {
+      if (q && !q.split(/\s+/).every((w) => x.search.includes(w))) return false;
+      if (cat && x.cat !== cat) return false;
+      if (sup && x.supplier !== sup) return false;
+      if (multi) { const n = supMaterialInfo(x.code).n; if (multi === '1' ? n !== 1 : n < 2) return false; }
+      return true;
+    });
+  }
+  const supByView = (rows, v) => v === 'all' ? rows
+    : v === 'has' ? rows.filter((x) => x.supplier)
+    : v === 'none' ? rows.filter((x) => !x.supplier)
+    : rows.filter((x) => x.supplier && x.moq === '');
+  const countCodes = (rows) => new Set(rows.map((x) => x.code)).size;
+
+  const SUP_SORT = {
+    kode: (a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }) || a.i - b.i,
+    nama: (a, b) => String(a.name).localeCompare(String(b.name), 'id') || a.i - b.i,
+    supplier: (a, b) => (a.supplier ? 0 : 1) - (b.supplier ? 0 : 1) || a.supplier.localeCompare(b.supplier, 'id') || SUP_SORT.kode(a, b),
+    last: (a, b) => (b.lastDate || '').localeCompare(a.lastDate || '') || SUP_SORT.kode(a, b),
+    count: (a, b) => b.count - a.count || SUP_SORT.kode(a, b),
+    lead: (a, b) => (b.lead ?? -1) - (a.lead ?? -1) || SUP_SORT.kode(a, b),
+  };
+
+  function renderSup() {
+    if (!SUP.loaded) return;
+    const base = supFiltered();
+    $('sAll').textContent = nf.format(countCodes(base));
+    $('sHas').textContent = nf.format(countCodes(supByView(base, 'has')));
+    $('sNone').textContent = nf.format(countCodes(supByView(base, 'none')));
+    $('sMoq').textContent = nf.format(countCodes(supByView(base, 'moq')));
+    document.querySelectorAll('#supStatusRow .stat').forEach((b) => b.classList.toggle('is-active', b.dataset.sv === SUP.view));
+
+    const sortKey = $('sSort').value;
+    const rows = supByView(base, SUP.view).slice().sort(SUP_SORT[sortKey] || SUP_SORT.kode);
+    const view = rows.slice(0, SUP.shown);
+    $('sInfo').textContent = `Menampilkan ${nf.format(view.length)} dari ${nf.format(rows.length)} baris (${nf.format(countCodes(rows))} material)`
+      + (SUP.builtAt ? ` · dihitung ${SUP.builtAt}` : '');
+    renderSupChips();
+
+    const ed = state.edit.on;
+    document.querySelectorAll('.sup-table .col-act').forEach((c) => { c.hidden = !ed; });
+    const grouped = sortKey === 'kode' || sortKey === 'nama';
+    let prev = null;
+    $('sRows').innerHTML = rows.length ? view.map((x) => {
+      const cont = grouped && prev === x.code; prev = x.code;
+      const tags = (x.main ? '<span class="tag tag-main">Utama</span>' : '') + (x.src === 'Manual' ? '<span class="tag tag-manualsup">Ditambah manual</span>' : '');
+      const range = x.min === '' ? '–' : (x.min === x.max ? fmtNum(x.min) : `${fmtNum(x.min)} – ${fmtNum(x.max)}`);
+      const act = ed ? `<td class="row-actions">${x.supplier
+          ? `<button type="button" class="btn-link" data-sact="moq" data-i="${x.i}">Isi MoQ</button>${x.src === 'Manual' ? `<button type="button" class="btn-link danger" data-sact="del" data-i="${x.i}">Hapus</button>` : ''}`
+          : `<button type="button" class="btn-link" data-sact="add" data-i="${x.i}">Tambah supplier</button>`}</td>` : '';
+      return `<tr class="${cont ? 'cont' : ''}${x.supplier ? '' : ' no-sup'}">
+        <td class="mat"><div class="mat-name">${esc(x.name)}</div><div class="mat-code">${esc(x.code)} · ${esc(x.cat)}</div></td>
+        <td class="supplier">${x.supplier ? esc(x.supplier) + tags : '<span class="muted">Belum ada riwayat PO</span>'}</td>
+        <td class="num">${x.supplier ? fmtNum(x.count) : '–'}</td>
+        <td class="num">${x.count ? fmtNum(x.total) + ' ' + esc(x.uom) : '–'}</td>
+        <td class="num">${range}</td>
+        <td class="date">${x.lastPo ? `${esc(x.lastPo)}<div class="strip-cap">${fmtDate(x.lastDate)}</div>` : '–'}</td>
+        <td class="num">${x.price === '' || x.price === null ? '–' : fmtNum(x.price) + ' ' + esc(x.kurs)}</td>
+        <td class="num">${x.lead === null ? '–' : fmtNum(x.lead) + ' hari'}</td>
+        <td class="num moq">${x.moq === '' ? (x.supplier ? '<span class="muted">Belum diisi</span>' : '–') : fmtNum(x.moq) + ' ' + esc(x.uom)}</td>
+        <td class="note-cell">${esc(x.note)}</td>${act}</tr>`;
+    }).join('') : '<tr class="empty"><td colspan="11">Tidak ada material yang cocok. Ubah pencarian atau tekan "Reset saringan".</td></tr>';
+    $('sMore').hidden = rows.length <= SUP.shown;
+    SUP.lastRows = rows;
+  }
+
+  function renderSupChips() {
+    const chips = [];
+    const viewLabel = { has: 'Punya supplier', none: 'Belum ada riwayat PO', moq: 'MoQ belum diisi' }[SUP.view];
+    if (viewLabel) chips.push(['view', viewLabel]);
+    if ($('sq').value.trim()) chips.push(['sq', `Cari: "${$('sq').value.trim()}"`]);
+    if ($('sCat').value) chips.push(['sCat', 'Kategori: ' + $('sCat').value]);
+    if ($('sSup').value) chips.push(['sSup', 'Supplier: ' + $('sSup').value]);
+    if ($('sMulti').value) chips.push(['sMulti', $('sMulti').value === '1' ? 'Hanya 1 supplier' : '2 supplier atau lebih']);
+    $('sChips').innerHTML = chips.length
+      ? '<span class="af-label">Saringan aktif:</span>' + chips.map(([k, t]) =>
+          `<button class="chip" data-clear="${k}" title="Hapus saringan ini">${esc(t)}<span class="chip-x" aria-hidden="true">×</span><span class="sr">hapus</span></button>`).join('')
+      : '<span class="af-label">Tidak ada saringan, semua material RM dan PM ditampilkan.</span>';
+  }
+
+  function renderSupHome() {
+    const has = new Set(SUP.rows.filter((x) => x.supplier).map((x) => x.code));
+    const all = new Set(SUP.rows.map((x) => x.code));
+    $('hSupHas').textContent = nf.format(has.size);
+    $('hSupNone').textContent = nf.format(all.size - has.size);
+    $('hSupMoq').textContent = nf.format(countCodes(SUP.rows.filter((x) => x.supplier && x.moq === '')));
+  }
+
+  $('supStatusRow').addEventListener('click', (e) => {
+    const b = e.target.closest('.stat'); if (!b) return;
+    SUP.view = b.dataset.sv; SUP.shown = PAGE; renderSup();
+  });
+  let st;
+  $('sq').addEventListener('input', () => { clearTimeout(st); st = setTimeout(() => { SUP.shown = PAGE; renderSup(); }, 200); });
+  ['sCat', 'sSup', 'sMulti', 'sSort'].forEach((id) => $(id).addEventListener('change', () => { SUP.shown = PAGE; renderSup(); }));
+  $('sChips').addEventListener('click', (e) => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    if (c.dataset.clear === 'view') SUP.view = 'all'; else $(c.dataset.clear).value = '';
+    SUP.shown = PAGE; renderSup();
+  });
+  $('sReset').addEventListener('click', () => {
+    ['sq', 'sCat', 'sSup', 'sMulti'].forEach((id) => { $(id).value = ''; });
+    $('sSort').value = 'kode'; SUP.view = 'all'; SUP.shown = PAGE; renderSup();
+  });
+  $('sMore').addEventListener('click', () => { SUP.shown += PAGE; renderSup(); });
+  $('sExport').addEventListener('click', () => {
+    const rows = SUP.lastRows || [];
+    if (!rows.length) return;
+    const data = rows.map((x) => ({
+      'Kode': x.code, 'Nama Material': x.name, 'Kategori': x.cat, 'UoM': x.uom, 'Supplier': x.supplier || 'Belum ada riwayat PO',
+      'Supplier Utama': x.main ? 'Ya' : '', 'Sumber': x.src, 'Jumlah PO': x.count, 'Total Qty PO': x.total,
+      'Qty PO Terkecil': x.min, 'Qty PO Terbesar': x.max, 'No PO Terakhir': x.lastPo, 'Tgl PO Terakhir': x.lastDate,
+      'Harga Terakhir': x.price, 'Kurs': x.kurs, 'Lead Time (hari)': x.lead ?? '', 'MoQ': x.moq, 'Catatan': x.note,
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Supplier & MoQ');
+    XLSX.writeFile(wb, `Supplier_MoQ_${todayStr()}.xlsx`);
+  });
+
+  /* ---------- Edit MoQ & supplier manual ---------- */
+  async function supApi(action, payload) {
+    const res = await api(action, payload);
+    setSupRows(res.rows, res.builtAt, res.databaseUrl);
+    if (res.editLog) { state.editLog = res.editLog; renderLog(); }
+  }
+
+  function editMoq(x) {
+    openDialog({
+      title: `MoQ · ${x.supplier}`, ok: 'Simpan',
+      body: `<p class="dlg-lead">${esc(x.code)} · ${esc(x.name)}</p>
+        <p class="hint">Acuan dari riwayat PO: qty terkecil ${x.min === '' ? '–' : fmtNum(x.min)}, terbesar ${x.max === '' ? '–' : fmtNum(x.max)} ${esc(x.uom)}. Kosongkan MoQ bila belum diketahui.</p>
+        <div class="form-grid">${fld('moq', `MoQ (${esc(x.uom)})`, x.moq, { type: 'number', step: 'any' })}
+        ${fld('note', 'Catatan', x.note, { wide: true })}</div>`,
+      onSubmit: async (fd) => supApi('saveSupplier', { data: { code: x.code, supplier: x.supplier, moq: fd.moq.trim(), note: fd.note } }),
+    });
+  }
+
+  function addSupplier(code) {
+    const mats = [...new Map(SUP.rows.map((x) => [x.code, x])).values()];
+    const sups = [...new Set(SUP.rows.map((x) => x.supplier).concat(state.rows.map((r) => r.supplier)).filter(Boolean))];
+    const pre = code ? mats.find((m) => m.code === code) : null;
+    openDialog({
+      title: 'Tambah supplier untuk material', ok: 'Tambah supplier',
+      body: `<p class="hint">Untuk supplier yang belum pernah di-PO, misalnya supplier alternatif yang sudah disetujui. Supplier dari riwayat PO masuk otomatis.</p>
+        <div class="form-grid">
+          ${fld('code', 'Kode material', code || '', { required: true, list: 'dlMat' })}
+          <label class="field"><span>Nama material</span><input id="f_matname" value="${esc(pre ? pre.name : '')}" readonly></label>
+          ${fld('supplier', 'Supplier', '', { required: true, list: 'dlSupAll', wide: true })}
+          ${fld('moq', 'MoQ', '', { type: 'number', step: 'any' })}
+          ${fld('note', 'Catatan', '')}
+        </div>
+        <datalist id="dlMat">${mats.map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('')}</datalist>
+        ${datalist('dlSupAll', sups)}`,
+      onSubmit: async (fd) => {
+        const c = fd.code.trim(), s = fd.supplier.trim();
+        if (!mats.some((m) => m.code === c)) throw new Error('Kode ' + c + ' bukan material RM atau PM di master material.');
+        if (SUP.rows.some((x) => x.code === c && x.supplier === s)) throw new Error('Supplier ini sudah tercatat untuk material tersebut. Gunakan "Isi MoQ" pada barisnya.');
+        await supApi('saveSupplier', { data: { code: c, supplier: s, moq: fd.moq.trim(), note: fd.note, addManual: true } });
+      },
+    });
+  }
+  // Kode material di form tambah supplier → tampilkan nama
+  $('dlgBody').addEventListener('input', (e) => {
+    if (e.target.id !== 'f_code' || !$('f_matname')) return;
+    const m = SUP.rows.find((x) => x.code === e.target.value.trim());
+    $('f_matname').value = m ? m.name : '';
+  });
+
+  function deleteSupplier(x) {
+    openDialog({
+      title: 'Hapus supplier tambahan?', ok: 'Hapus', danger: true,
+      body: `<p><b>${esc(x.supplier)}</b> akan dihapus dari daftar supplier ${esc(x.code)} · ${esc(x.name)}, termasuk MoQ dan catatannya.</p>`,
+      onSubmit: async () => supApi('deleteSupplier', { code: x.code, supplier: x.supplier }),
+    });
+  }
+
+  $('sRows').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sact]'); if (!b || !state.edit.on) return;
+    const x = SUP.rows[Number(b.dataset.i)]; if (!x) return;
+    ({ moq: () => editMoq(x), add: () => addSupplier(x.code), del: () => deleteSupplier(x) })[b.dataset.sact]();
+  });
+  $('btnAddSup').addEventListener('click', () => addSupplier(''));
+  $('btnSupEditOff').addEventListener('click', () => setEditMode(false));
 
   /* ---------- Riwayat edit ---------- */
   function renderLog() {
@@ -897,4 +1153,5 @@
 
   route();
   loadData();
+  loadSupplier(false);
 })();
