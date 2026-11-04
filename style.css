@@ -138,23 +138,23 @@ main { padding: 22px 28px 48px; width: 100%; max-width: 1440px; }
 .po-table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .po-table th {
   position: sticky; top: 0; z-index: 1; text-align: left; font-size: 12.5px; font-weight: 600; color: var(--muted);
-  background: #f8fafc; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  background: #f8fafc; padding: 10px; border-bottom: 1px solid var(--line); line-height: 1.3;
 }
-.po-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.po-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .po-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .po-table tr.row { cursor: pointer; }
 .po-table tr.row:hover td { background: #f9fbfd; }
 .po-table tr.row.is-open td { background: var(--brand-soft); }
 .po { font-weight: 700; white-space: nowrap; }
 .date { white-space: nowrap; }
-.supplier { max-width: 170px; }
+.supplier { max-width: 150px; }
 .mat-name { font-weight: 500; }
 .mat-code { color: var(--muted); font-size: 12.5px; }
 .note { display: inline-block; margin-top: 3px; font-size: 12px; color: #8a5a00; }
 .empty td { text-align: center; color: var(--muted); padding: 40px 12px; cursor: default; }
 
 /* Strip pengiriman: satu ruas per jadwal, panjangnya mengikuti qty */
-.strip { display: flex; gap: 2px; width: 150px; height: 10px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.strip { display: flex; gap: 2px; width: 110px; height: 10px; border-radius: 3px; overflow: hidden; background: var(--line); }
 .seg { height: 100%; border-radius: 2px; }
 .seg-done { background: var(--done); }
 .seg-late { background: var(--late); }
