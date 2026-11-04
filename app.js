@@ -556,14 +556,23 @@
 
   // Bar vertikal: [{label, value, sub, cls, tip, go}]
   function vbars(el, items, fmt) {
-    const max = Math.max(1, ...items.map((x) => x.value));
-    const top = items.reduce((m, x, i) => (x.value > items[m].value ? i : m), 0);
-    el.innerHTML = items.map((x, i) => `
-      <button class="vbar ${x.cls || ''}" data-i="${i}" data-tip="${esc(x.tip)}" aria-label="${esc(x.label + ': ' + x.tip)}">
+    // Batang "lewat jadwal" yang jauh lebih besar tidak ikut menentukan skala; batangnya dipotong (tanda putus)
+    const rest = items.filter((x) => x.cls !== 'is-late').map((x) => x.value);
+    const restMax = Math.max(1, ...rest);
+    const lateMax = Math.max(0, ...items.filter((x) => x.cls === 'is-late').map((x) => x.value));
+    const capped = lateMax > restMax * 1.6;
+    const max = capped ? restMax * 1.25 : Math.max(restMax, lateMax);
+    const top = items.reduce((m, x, i) => (x.cls !== 'is-late' && x.value > (items[m].cls === 'is-late' ? -1 : items[m].value) ? i : m), 0);
+    el.innerHTML = items.map((x, i) => {
+      const cut = capped && x.cls === 'is-late';
+      const h = cut ? 100 : (x.value ? Math.max(2, x.value / max * 100) : 0);
+      return `
+      <button class="vbar ${x.cls || ''}${cut ? ' is-cut' : ''}" data-i="${i}" data-tip="${esc(x.tip)}" aria-label="${esc(x.label + ': ' + x.tip)}">
         <span class="vbar-val">${i === top || x.cls === 'is-late' ? (x.value ? fmt(x.value) : '') : ''}</span>
-        <span class="vbar-track"><span class="vbar-fill" style="height:${x.value ? Math.max(2, x.value / max * 100) : 0}%"></span></span>
+        <span class="vbar-track"><span class="vbar-fill" style="height:${h}%"></span></span>
         <span class="vbar-label">${esc(x.label)}</span>
-      </button>`).join('');
+      </button>`;
+    }).join('');
     el._items = items;
   }
   // Bar horizontal: [{label, value, text, cls, tip, go}]

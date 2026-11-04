@@ -451,3 +451,8 @@ tr.detail td { background: #fbfcfe; padding: 0; }
   .vbar-label { font-size: 10.5px; }
 }
 @media (max-width: 480px) { .kpis { grid-template-columns: minmax(0, 1fr); } }
+.vbar.is-cut .vbar-fill { position: relative; }
+.vbar.is-cut .vbar-fill::after {
+  content: ""; position: absolute; left: -2px; right: -2px; top: 18%; height: 6px;
+  background: var(--surface); transform: skewY(-12deg);
+}
