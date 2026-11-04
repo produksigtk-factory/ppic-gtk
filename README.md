@@ -1,6 +1,8 @@
 # PPIC GTK
 
-Website monitoring pekerjaan PPIC GTK.
+Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (saat ini: Purchase Order → Monitoring PO, Update Data PO).
+
+Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-...">` untuk isinya, dan satu baris di `ROUTES` (app.js).
 
 ## Struktur
 
@@ -12,7 +14,8 @@ Website monitoring pekerjaan PPIC GTK.
 
 | File | Isi |
 |---|---|
-| `index.html` | Halaman website (menu Monitoring PO dan Update data) |
+| `index.html` | Kerangka website: menu samping, Beranda, halaman Purchase Order |
+| `assets/` | Logo Gondowangi dan ikon tab |
 | `style.css` | Tampilan |
 | `app.js` | Hitung status PO, saringan, unduh Excel, baca file export Odoo dan kirim ke Google Sheet |
 | `config.js` | Alamat Web App Apps Script |

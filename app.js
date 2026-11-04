@@ -48,11 +48,59 @@
     none: { label: 'Belum dijadwalkan', cls: 'b-none' },
   };
 
-  /* ---------- Tabs ---------- */
-  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((x) => { x.classList.toggle('is-active', x === t); x.setAttribute('aria-selected', x === t); });
-    document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== 'view-' + t.dataset.view; });
+  /* ---------- Menu & halaman ---------- */
+  // Menu baru cukup ditambah di sini + <section id="view-..."> di index.html + link di menu samping.
+  const ROUTES = {
+    'beranda':       { view: 'view-beranda',       crumb: 'Monitoring Pekerjaan PPIC', title: 'Beranda',        po: false },
+    'po/monitoring': { view: 'view-po-monitoring', crumb: 'Purchase Order',            title: 'Monitoring PO',  po: true },
+    'po/update':     { view: 'view-po-update',     crumb: 'Purchase Order',            title: 'Update Data PO', po: true },
+  };
+  function route() {
+    const key = location.hash.replace(/^#\/?/, '') || 'beranda';
+    const r = ROUTES[key] || ROUTES.beranda;
+    document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== r.view; });
+    document.querySelectorAll('.menu-item').forEach((a) => {
+      const on = a.dataset.route === (ROUTES[key] ? key : 'beranda');
+      a.classList.toggle('is-active', on);
+      if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    $('crumb').textContent = r.crumb;
+    $('pageTitle').textContent = r.title;
+    $('poActions').hidden = !r.po;
+    document.title = `${r.title} · PPIC Gondowangi`;
+    closeMenu();
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener('hashchange', route);
+
+  document.querySelectorAll('.menu-group-head').forEach((h) => h.addEventListener('click', () => {
+    const g = h.closest('.menu-group');
+    g.classList.toggle('is-open');
+    h.setAttribute('aria-expanded', g.classList.contains('is-open'));
   }));
+
+  // Menu samping di layar kecil
+  function openMenu() { $('sidebar').classList.add('is-open'); $('scrim').hidden = false; $('btnMenu').setAttribute('aria-expanded', 'true'); }
+  function closeMenu() { $('sidebar').classList.remove('is-open'); $('scrim').hidden = true; $('btnMenu').setAttribute('aria-expanded', 'false'); }
+  $('btnMenu').addEventListener('click', () => ($('sidebar').classList.contains('is-open') ? closeMenu() : openMenu()));
+  $('scrim').addEventListener('click', closeMenu);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+  function renderHome() {
+    const rows = state.rows;
+    const today = todayStr();
+    const plus7 = ymd(new Date(Date.now() + 7 * 86400000));
+    let week = 0;
+    const seen = new Set();
+    rows.forEach((r) => {
+      const k = r.po + '|' + r.code;
+      if (seen.has(k)) return; seen.add(k);
+      r.sched.forEach((s) => { if (s.status !== 'Done' && s.date >= today && s.date <= plus7) week++; });
+    });
+    $('hOpen').textContent = nf.format(rows.filter((r) => r.status !== 'done').length);
+    $('hLate').textContent = nf.format(rows.filter((r) => r.status === 'late').length);
+    $('hWeek').textContent = nf.format(week);
+  }
 
   if (CFG.SHEET_URL) $('lnkSheet').href = CFG.SHEET_URL; else $('lnkSheet').hidden = true;
 
@@ -71,6 +119,7 @@
       $('dataInfo').textContent = `${up} · Data dibaca ${data.readAt}`;
       fillFilterOptions();
       render();
+      renderHome();
     } catch (err) {
       $('dataInfo').textContent = 'Gagal memuat data. Periksa koneksi lalu tekan "Muat ulang data".';
       $('rows').innerHTML = `<tr class="empty"><td colspan="10">Data tidak bisa dimuat: ${esc(err.message)}</td></tr>`;
@@ -438,5 +487,6 @@
     }
   });
 
+  route();
   loadData();
 })();
