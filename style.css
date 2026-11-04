@@ -152,7 +152,8 @@ main { padding: 22px 28px 48px; width: 100%; max-width: 1440px; }
 .month-name { font-weight: 700; white-space: nowrap; }
 .month-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .month.is-current .month-name { color: var(--brand); }
-.month.month-all { border-style: dashed; }
+.month.month-all { border-style: dashed; position: sticky; left: 0; z-index: 2; box-shadow: 8px 0 8px -6px rgba(27,43,63,.18); }
+.month.month-all:not(.is-active) { background: var(--surface); }
 .month.is-active { background: var(--brand); border-color: var(--brand); }
 .month.is-active .month-name, .month.is-active .month-count { color: #fff; }
 
@@ -164,7 +165,7 @@ main { padding: 22px 28px 48px; width: 100%; max-width: 1440px; }
 .filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; align-items: end; }
 .filter-grid .field { min-width: 0; }
 .filter-grid .span-2 { grid-column: span 2; }
-.filter-grid .filter-actions { grid-column: span 2; justify-content: flex-end; }
+.filter-grid .filter-actions { grid-column: 1 / -1; justify-content: flex-end; }
 .active-filters {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
   margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
