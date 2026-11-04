@@ -1,6 +1,6 @@
 # PPIC GTK
 
-Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Monitoring PO, Update Data PO, Riwayat Edit PO; Database Material → Supplier & MoQ).
+Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Monitoring PO, Update Data PO, Supplier & MoQ, Riwayat Edit PO).
 
 Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-...">` untuk isinya, dan satu baris di `ROUTES` (app.js).
 
@@ -34,7 +34,6 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 
 ## Supplier & MoQ
 
-- Tab `SUPPLIER_MATERIAL` di DATABASE PPIC dihitung otomatis oleh Apps Script: satu baris per material RM/PM + supplier, dari PO_LINE dan PO_SCHEDULE (jumlah PO, total qty, qty terkecil/terbesar, PO terakhir, harga terakhir, lead time rata-rata Order Date → kedatangan pertama yang Done, supplier utama = PO terbanyak). Material tanpa PO tetap tampil sebagai "Belum ada riwayat PO". Jangan diketik.
-- Tab `SUPPLIER_INPUT` di DATABASE PPIC berisi isian manual: MoQ, catatan, dan supplier tambahan (kolom TAMBAHAN MANUAL = Ya). Diisi lewat Mode edit di website atau langsung di Sheet (lalu tekan "Muat ulang data" di halaman Supplier & MoQ).
-- Dihitung ulang otomatis setelah upload atau edit PO (saat halaman dibuka), setelah edit MoQ, atau lewat tombol "Muat ulang data". Bisa juga menjalankan fungsi `rebuildSupplierNow` di editor Apps Script.
-- Monitoring PO memberi tanda "Di bawah MoQ supplier" bila qty baris PO lebih kecil dari MoQ supplier tersebut.
+- Menu Purchase Order → Supplier & MoQ. Semua dari histori PO, tidak ada isian manual.
+- Tab `SUPPLIER_MATERIAL` di DATABASE PPIC dihitung otomatis oleh Apps Script: satu baris per material RM/PM + supplier. MoQ = qty terkecil dalam satu PO untuk material + supplier itu; juga qty PO terbesar, jumlah PO, total qty, PO terakhir, harga terakhir, lead time rata-rata (Order Date → kedatangan pertama yang Done), supplier utama (PO terbanyak). Material tanpa PO tetap tampil sebagai "Belum ada riwayat PO". Jangan diketik.
+- Dihitung ulang otomatis setelah upload atau edit PO (saat halaman dibuka), lewat tombol "Muat ulang data", atau fungsi `rebuildSupplierNow` di editor Apps Script.

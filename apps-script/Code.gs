@@ -3,7 +3,7 @@
  *
  * Dipasang di: MONITORING PO → Extensions → Apps Script.
  * - doGet  : website membaca PO_LINE, PO_SCHEDULE, tanda edit manual, dan riwayat edit.
- *            ?view=supplier → daftar supplier & MoQ per material RM/PM (tab SUPPLIER_MATERIAL di DATABASE PPIC).
+ *            ?view=supplier → daftar supplier & MoQ (histori) per material RM/PM (tab SUPPLIER_MATERIAL di DATABASE PPIC).
  * - doPost : upload export Odoo dan edit manual dari website (dilindungi PIN).
  *
  * PIN diatur di: Project Settings → Script Properties → UPLOAD_PIN.
@@ -19,7 +19,6 @@ const CONFIG = {
   MANUAL_SHEET: 'PO_MANUAL',   // PO yang pernah diedit manual (dipakai untuk konfirmasi saat upload)
   EDIT_LOG_SHEET: 'LOG_EDIT',  // riwayat edit manual
   SUPPLIER_SHEET: 'SUPPLIER_MATERIAL',  // di DATABASE PPIC: hasil hitung otomatis (jangan diketik)
-  SUPPLIER_INPUT_SHEET: 'SUPPLIER_INPUT', // di DATABASE PPIC: isian manual MoQ, catatan, supplier tambahan
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
 };
 const LINE_COLS = 13;   // A–M PO_LINE
@@ -82,11 +81,6 @@ function doPost(e) {
     }
 
     const user = String(body.user || '').trim() || 'Website';
-
-    if (action === 'saveSupplier' || action === 'deleteSupplier') {
-      (action === 'saveSupplier' ? saveSupplier_ : deleteSupplier_)(ss, body, user, stamp, tz);
-      return json_(Object.assign(supplierView_(ss, tz, true), { time: stamp, editLog: readEditLog_(ss, tz, 300) }));
-    }
 
     const handlers = { saveLine: saveLine_, deleteLine: deleteLine_, saveSched: saveSched_, deleteSched: deleteSched_ };
     if (!handlers[action]) return json_({ ok: false, error: 'Aksi tidak dikenal: ' + action });
@@ -337,11 +331,11 @@ function readEditLog_(ss, tz, limit) {
 }
 
 /* ================= Supplier & MoQ per material ================= */
-// SUPPLIER_INPUT  : KODE | SUPPLIER | MOQ | CATATAN | TAMBAHAN MANUAL | UPDATE TERAKHIR
-// SUPPLIER_MATERIAL (hasil hitung, satu baris per material + supplier):
+// SUPPLIER_MATERIAL (di DATABASE PPIC, hasil hitung — jangan diketik): satu baris per material RM/PM + supplier.
+// MoQ = histori, yaitu qty terkecil dalam satu PO untuk material + supplier tersebut.
 const SUP_HEAD = ['KODE', 'NAMA MATERIAL', 'KATEGORI', 'UoM', 'SUPPLIER', 'SUPPLIER UTAMA', 'SUMBER',
-  'JUMLAH PO', 'TOTAL QTY PO', 'QTY PO TERKECIL', 'QTY PO TERBESAR', 'NO PO TERAKHIR', 'TGL PO TERAKHIR',
-  'HARGA TERAKHIR', 'KURS', 'LEAD TIME RATA-RATA (HARI)', 'MOQ', 'CATATAN', 'DIHITUNG'];
+  'JUMLAH PO', 'TOTAL QTY PO', 'MOQ (QTY PO TERKECIL)', 'QTY PO TERBESAR', 'NO PO TERAKHIR', 'TGL PO TERAKHIR',
+  'HARGA TERAKHIR', 'KURS', 'LEAD TIME RATA-RATA (HARI)', 'DIHITUNG'];
 const SUP_COLS = SUP_HEAD.length;
 
 function supplierView_(ss, tz, forceRebuild) {
@@ -349,8 +343,8 @@ function supplierView_(ss, tz, forceRebuild) {
   let sh = db.getSheetByName(CONFIG.SUPPLIER_SHEET);
   const stale = PropertiesService.getScriptProperties().getProperty('SUPPLIER_STALE') === '1';
   if (!sh || forceRebuild || stale || sh.getLastRow() < 2) sh = rebuildSupplier_(ss, db, tz);
-  const rows = readRows_(sh, SUP_COLS).map(r => r.map((v, i) => (i === 12 ? fmtDate_(v, tz) : (i === 18 ? show_(v, tz) : v))));
-  return { ok: true, rows: rows, builtAt: rows.length ? String(rows[0][18]) : '', databaseUrl: db.getUrl() };
+  const rows = readRows_(sh, SUP_COLS).map(r => r.map((v, i) => (i === 12 ? fmtDate_(v, tz) : (i === 16 ? show_(v, tz) : v))));
+  return { ok: true, rows: rows, builtAt: rows.length ? String(rows[0][16]) : '', databaseUrl: db.getUrl() };
 }
 
 function markSupplierStale_() {
@@ -361,17 +355,6 @@ function markSupplierStale_() {
 function rebuildSupplierNow() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   rebuildSupplier_(ss, SpreadsheetApp.openById(CONFIG.DATABASE_ID), ss.getSpreadsheetTimeZone());
-}
-
-function supplierInputSheet_(db) {
-  let sh = db.getSheetByName(CONFIG.SUPPLIER_INPUT_SHEET);
-  if (!sh) {
-    sh = db.insertSheet(CONFIG.SUPPLIER_INPUT_SHEET);
-    sh.getRange(1, 1, 1, 6).setValues([['KODE', 'SUPPLIER', 'MOQ', 'CATATAN', 'TAMBAHAN MANUAL', 'UPDATE TERAKHIR']]).setFontWeight('bold');
-    sh.setFrozenRows(1);
-    sh.getRange('A2:A').setNumberFormat('@');
-  }
-  return sh;
 }
 
 function rebuildSupplier_(ss, db, tz) {
@@ -390,16 +373,16 @@ function rebuildSupplier_(ss, db, tz) {
   });
 
   // Ringkas riwayat PO per material + supplier
-  const pairs = {};
+  const pairs = {}, byCode = {};
   readRows_(ss.getSheetByName(CONFIG.LINE_SHEET), 10).forEach(r => {
     const kode = str_(r[3]), sup = str_(r[2]);
     if (!inMaster[kode] || !sup) return;
     const k = kode + '|' + sup;
-    const p = pairs[k] || (pairs[k] = { pos: {}, total: 0, min: null, max: null, last: null, leads: {} });
+    let p = pairs[k];
+    if (!p) { p = pairs[k] = { sup: sup, poQty: {}, total: 0, last: null, leads: {} }; (byCode[kode] = byCode[kode] || []).push(p); }
     const po = str_(r[0]), qty = Number(r[6]) || 0, date = isDate_(r[1]) ? r[1] : toDate_(r[1]);
-    p.pos[po] = true;
+    p.poQty[po] = (p.poQty[po] || 0) + qty;   // satu PO bisa punya beberapa baris kode yang sama
     p.total += qty;
-    if (qty > 0) { p.min = p.min === null ? qty : Math.min(p.min, qty); p.max = p.max === null ? qty : Math.max(p.max, qty); }
     if (!p.last || (date && (date > p.last.date || (+date === +p.last.date && po > p.last.po)))) {
       p.last = { po: po, date: date, price: r[8], kurs: r[9] };
     }
@@ -407,37 +390,25 @@ function rebuildSupplier_(ss, db, tz) {
     if (fd && date) p.leads[po] = Math.max(0, Math.round((fd - date) / 86400000));
   });
 
-  // Isian manual (MoQ, catatan, supplier tambahan)
-  const input = {};
-  readRows_(supplierInputSheet_(db), 6).forEach(r => {
-    input[str_(r[0]) + '|' + str_(r[1])] = { moq: r[2], note: r[3], manual: str_(r[4]) === 'Ya' };
-  });
-
   const out = [];
   master.forEach(m => {
     const kode = str_(m[0]);
-    const list = [];
-    Object.keys(pairs).forEach(k => { if (k.split('|')[0] === kode) list.push({ sup: k.slice(kode.length + 1), p: pairs[k], src: 'Riwayat PO' }); });
-    Object.keys(input).forEach(k => {
-      const sup = k.slice(k.indexOf('|') + 1);
-      if (k.split('|')[0] === kode && input[k].manual && !pairs[k] && sup) list.push({ sup: sup, p: null, src: 'Manual' });
-    });
+    const list = (byCode[kode] || []).slice();
     if (!list.length) {
-      out.push([kode, m[1], m[3], m[2], '', '', 'Belum ada riwayat PO', 0, 0, '', '', '', '', '', '', '', '', '', stamp]);
+      out.push([kode, m[1], m[3], m[2], '', '', 'Belum ada riwayat PO', 0, 0, '', '', '', '', '', '', '', stamp]);
       return;
     }
     // Supplier utama: PO terbanyak, lalu PO paling baru
-    const score = x => (x.p ? Object.keys(x.p.pos).length : 0);
-    const lastT = x => (x.p && x.p.last && x.p.last.date ? +x.p.last.date : 0);
-    list.sort((a, b) => score(b) - score(a) || lastT(b) - lastT(a) || a.sup.localeCompare(b.sup));
-    list.forEach((x, i) => {
-      const p = x.p, inp = input[kode + '|' + x.sup] || {};
-      const leads = p ? Object.keys(p.leads).map(k => p.leads[k]) : [];
+    const nPo = p => Object.keys(p.poQty).length;
+    const lastT = p => (p.last && p.last.date ? +p.last.date : 0);
+    list.sort((a, b) => nPo(b) - nPo(a) || lastT(b) - lastT(a) || a.sup.localeCompare(b.sup));
+    list.forEach((p, i) => {
+      const qtys = Object.keys(p.poQty).map(k => p.poQty[k]).filter(q => q > 0);
+      const leads = Object.keys(p.leads).map(k => p.leads[k]);
       const lead = leads.length ? Math.round(leads.reduce((a, b) => a + b, 0) / leads.length) : '';
-      out.push([kode, m[1], m[3], m[2], x.sup, i === 0 && p ? 'Ya' : '', x.src,
-        p ? Object.keys(p.pos).length : 0, p ? p.total : 0, p && p.min !== null ? p.min : '', p && p.max !== null ? p.max : '',
-        p ? p.last.po : '', p && p.last.date ? p.last.date : '', p ? p.last.price : '', p ? p.last.kurs : '',
-        lead, inp.moq === undefined ? '' : inp.moq, inp.note || '', stamp]);
+      out.push([kode, m[1], m[3], m[2], p.sup, i === 0 ? 'Ya' : '', 'Riwayat PO',
+        nPo(p), p.total, qtys.length ? Math.min.apply(null, qtys) : '', qtys.length ? Math.max.apply(null, qtys) : '',
+        p.last.po, p.last.date || '', p.last.price, p.last.kurs, lead, stamp]);
     });
   });
 
@@ -450,42 +421,6 @@ function rebuildSupplier_(ss, db, tz) {
   writeTable_(sh, out, SUP_COLS, [['A', '@'], ['M', 'yyyy-mm-dd']]);
   PropertiesService.getScriptProperties().deleteProperty('SUPPLIER_STALE');
   return sh;
-}
-
-function saveSupplier_(ss, body, user, stamp, tz) {
-  const d = body.data || {};
-  const kode = str_(d.code), sup = str_(d.supplier);
-  if (!kode || !sup) throw new Error('Kode material dan supplier wajib diisi.');
-  if (d.moq !== '' && d.moq !== undefined && isNaN(Number(d.moq))) throw new Error('MoQ harus berupa angka.');
-  const db = SpreadsheetApp.openById(CONFIG.DATABASE_ID);
-  const known = readRows_(db.getSheetByName(CONFIG.MASTER_SHEET), 4).find(r => str_(r[0]) === kode);
-  if (!known) throw new Error('Kode ' + kode + ' tidak ada di MASTER_MATERIAL.');
-  const sh = supplierInputSheet_(db);
-  const rows = readRows_(sh, 6);
-  let r = rows.find(x => str_(x[0]) === kode && str_(x[1]) === sup);
-  const old = r ? r.slice() : ['', '', '', '', '', ''];
-  if (!r) { r = [kode, sup, '', '', d.addManual ? 'Ya' : '', '']; rows.push(r); }
-  r[2] = d.moq === '' || d.moq === undefined ? '' : Number(d.moq);
-  r[3] = String(d.note || '').trim();
-  r[5] = stamp;
-  writeTable_(sh, rows, 6, [['A', '@']]);
-  const log = [];
-  if (!old[0] && d.addManual) log.push([stamp, user, 'Tambah supplier', '', kode, 'Supplier', '', sup]);
-  if (String(old[2]) !== String(r[2])) log.push([stamp, user, 'Ubah MoQ', '', kode, 'MoQ · ' + sup, String(old[2]), String(r[2])]);
-  if (String(old[3]) !== String(r[3])) log.push([stamp, user, 'Ubah catatan supplier', '', kode, 'Catatan · ' + sup, String(old[3]), String(r[3])]);
-  logEdit_(ss, log);
-}
-
-function deleteSupplier_(ss, body, user, stamp, tz) {
-  const kode = str_(body.code), sup = str_(body.supplier);
-  const db = SpreadsheetApp.openById(CONFIG.DATABASE_ID);
-  const sh = supplierInputSheet_(db);
-  const rows = readRows_(sh, 6);
-  const idx = rows.findIndex(x => str_(x[0]) === kode && str_(x[1]) === sup);
-  if (idx < 0 || str_(rows[idx][4]) !== 'Ya') throw new Error('Hanya supplier yang ditambahkan manual yang bisa dihapus.');
-  rows.splice(idx, 1);
-  writeTable_(sh, rows, 6, [['A', '@']]);
-  logEdit_(ss, [[stamp, user, 'Hapus supplier', '', kode, 'Supplier', sup, '']]);
 }
 
 /* ================= Helper ================= */

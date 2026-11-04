@@ -30,16 +30,8 @@
         <div class="submenu">
           <a class="menu-item sub" href="#/po/monitoring" data-route="po/monitoring">Monitoring PO</a>
           <a class="menu-item sub" href="#/po/update" data-route="po/update">Update Data PO</a>
+          <a class="menu-item sub" href="#/po/supplier" data-route="po/supplier">Supplier &amp; MoQ</a>
           <a class="menu-item sub" href="#/po/riwayat" data-route="po/riwayat">Riwayat Edit PO</a>
-        </div>
-      </div>
-
-      <div class="menu-group is-open" data-group="material">
-        <button class="menu-group-head" aria-expanded="true">
-          <span>Database Material</span><span class="chev" aria-hidden="true"></span>
-        </button>
-        <div class="submenu">
-          <a class="menu-item sub" href="#/material/supplier" data-route="material/supplier">Supplier &amp; MoQ</a>
         </div>
       </div>
     </nav>
@@ -81,16 +73,16 @@
               <div><dt>Jadwal 7 hari ke depan</dt><dd id="hWeek">–</dd></div>
             </dl>
           </a>
-          <a class="module" href="#/material/supplier">
+          <a class="module" href="#/po/supplier">
             <div class="module-head">
               <h2>Supplier &amp; MoQ</h2>
               <span class="module-link">Buka Supplier &amp; MoQ</span>
             </div>
-            <p class="module-desc">Supplier yang dipakai untuk tiap material RM dan PM, dihitung dari riwayat PO, beserta MoQ.</p>
+            <p class="module-desc">Supplier yang dipakai untuk tiap material RM dan PM beserta MoQ, semuanya dari histori PO.</p>
             <dl class="module-stats">
               <div><dt>Material punya supplier</dt><dd id="hSupHas">–</dd></div>
+              <div><dt>Lebih dari 1 supplier</dt><dd id="hSupMulti">–</dd></div>
               <div><dt>Belum ada riwayat PO</dt><dd id="hSupNone">–</dd></div>
-              <div class="late"><dt>MoQ belum diisi</dt><dd id="hSupMoq">–</dd></div>
             </dl>
           </a>
         </div>
@@ -265,20 +257,14 @@
         </div>
       </section>
       <!-- ================= SUPPLIER & MOQ ================= -->
-      <section id="view-material-supplier" class="view" hidden>
-        <div class="edit-bar" id="supEditBar" hidden>
-          <p><b>Mode edit aktif.</b> Klik "Isi MoQ" pada baris untuk mengisi MoQ dan catatan. Supplier yang belum pernah dipakai bisa ditambahkan manual. Perubahan tersimpan di tab SUPPLIER_INPUT (DATABASE PPIC) dan tercatat di Riwayat Edit PO.</p>
-          <div class="edit-bar-actions">
-            <button class="btn" id="btnAddSup" title="Tambah supplier untuk material secara manual">Tambah supplier</button>
-            <button class="btn btn-ghost" id="btnSupEditOff" title="Matikan mode edit">Keluar mode edit</button>
-          </div>
-        </div>
+      <section id="view-po-supplier" class="view" hidden>
+        <p class="lead">Supplier yang pernah dipakai untuk tiap material RM dan PM, dihitung otomatis dari histori PO. MoQ adalah qty terkecil yang pernah dipesan dalam satu PO ke supplier tersebut.</p>
 
         <div class="status-row" id="supStatusRow" role="group" aria-label="Saring material">
           <button class="stat" data-sv="all"><span class="stat-num" id="sAll">–</span><span class="stat-label">Material RM &amp; PM</span></button>
           <button class="stat stat-done" data-sv="has"><span class="stat-num" id="sHas">–</span><span class="stat-label">Punya supplier</span></button>
+          <button class="stat stat-open" data-sv="multi"><span class="stat-num" id="sMultiN">–</span><span class="stat-label">Lebih dari 1 supplier</span></button>
           <button class="stat" data-sv="none"><span class="stat-num" id="sNone">–</span><span class="stat-label">Belum ada riwayat PO</span></button>
-          <button class="stat stat-late" data-sv="moq"><span class="stat-num" id="sMoq">–</span><span class="stat-label">MoQ belum diisi</span></button>
         </div>
         <p class="hint">Angka dihitung per material. Klik kotak untuk menampilkan kelompok itu saja.</p>
 
@@ -295,14 +281,6 @@
             <label class="field">
               <span>Supplier</span>
               <select id="sSup"><option value="">Semua supplier</option></select>
-            </label>
-            <label class="field">
-              <span>Jumlah supplier</span>
-              <select id="sMulti">
-                <option value="">Semua</option>
-                <option value="1">Hanya 1 supplier</option>
-                <option value="2">2 supplier atau lebih</option>
-              </select>
             </label>
             <label class="field">
               <span>Urutkan</span>
@@ -334,18 +312,16 @@
               <tr>
                 <th>Material</th>
                 <th>Supplier</th>
+                <th class="num">MoQ</th>
+                <th class="num">Qty PO terbesar</th>
                 <th class="num">Jumlah PO</th>
                 <th class="num">Total qty PO</th>
-                <th class="num">Qty PO terkecil–terbesar</th>
                 <th>PO terakhir</th>
                 <th class="num">Harga terakhir</th>
                 <th class="num">Lead time</th>
-                <th class="num">MoQ</th>
-                <th>Catatan</th>
-                <th class="col-act"></th>
               </tr>
             </thead>
-            <tbody id="sRows"><tr class="empty"><td colspan="11">Memuat data supplier…</td></tr></tbody>
+            <tbody id="sRows"><tr class="empty"><td colspan="9">Memuat data supplier…</td></tr></tbody>
           </table>
         </div>
         <div class="more"><button class="btn btn-ghost" id="sMore" hidden>Tampilkan 100 baris lagi</button></div>
