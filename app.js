@@ -61,6 +61,7 @@
     if (!CFG.APPS_SCRIPT_URL) { showSetup(); return; }
     $('dataInfo').textContent = 'Memuat data dari Google Sheet…';
     $('btnReload').disabled = true;
+    if (!state.rows.length) $('rows').innerHTML = '<tr class="empty"><td colspan="10">Memuat data dari Google Sheet, biasanya 5–10 detik…</td></tr>';
     try {
       const res = await fetch(CFG.APPS_SCRIPT_URL, { method: 'GET' });
       const data = await res.json();
