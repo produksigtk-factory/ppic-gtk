@@ -18,6 +18,8 @@ const CONFIG = {
   LOG_SHEET: 'LOG_UPLOAD',
   MANUAL_SHEET: 'PO_MANUAL',   // PO yang pernah diedit manual (dipakai untuk konfirmasi saat upload)
   EDIT_LOG_SHEET: 'LOG_EDIT',  // riwayat edit manual
+  FOLLOWUP_SHEET: 'PO_FOLLOWUP',   // tindak lanjut per PO + kode (tidak tersentuh upload)
+  CHANGE_SHEET: 'LOG_PERUBAHAN',   // perubahan yang terdeteksi di setiap upload export Odoo
   SUPPLIER_SHEET: 'SUPPLIER_MATERIAL',  // di DATABASE PPIC: hasil hitung otomatis (jangan diketik)
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
 };
@@ -42,6 +44,8 @@ function doGet(e) {
     schedules: readRows_(ss.getSheetByName(CONFIG.SCHED_SHEET), 8).map(r => schedOut_(r, tz)),
     manual: readManual_(ss, tz),
     editLog: readEditLog_(ss, tz, 300),
+    followups: readFollowups_(ss, tz),
+    changes: readChanges_(ss, 4000),
     lastUpload: lastUpload_(ss, tz),
     readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
   });
@@ -82,6 +86,11 @@ function doPost(e) {
 
     const user = String(body.user || '').trim() || 'Website';
 
+    if (action === 'saveFollowup') {
+      saveFollowup_(ss, body, user, stamp, tz);
+      return json_({ ok: true, time: stamp, followups: readFollowups_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
+    }
+
     const handlers = { saveLine: saveLine_, deleteLine: deleteLine_, saveSched: saveSched_, deleteSched: deleteSched_ };
     if (!handlers[action]) return json_({ ok: false, error: 'Aksi tidak dikenal: ' + action });
 
@@ -98,6 +107,9 @@ function doPost(e) {
 /* ---------- Upload export Odoo ---------- */
 
 function upload_(ss, body, stamp) {
+  const tz = ss.getSpreadsheetTimeZone();
+  const prev = lastUpload_(ss, tz);
+  const changes = computeChanges_(ss, body, stamp, prev ? prev.time : '', tz);   // dibandingkan sebelum data ditimpa
   const result = {};
   if (Array.isArray(body.lines) && body.lines.length) {
     result.lines = upsertLines_(ss, body.lines, body.detName || 'PO-DET', stamp);
@@ -108,6 +120,9 @@ function upload_(ss, body, stamp) {
     clearManual_(ss, body.delPOs.map(str_), 'sched');
   }
   if (!result.lines && !result.schedules) return { ok: false, error: 'Tidak ada data yang dikirim.' };
+  writeChanges_(ss, changes);
+  result.changes = {};
+  changes.forEach(c => { result.changes[c[2]] = (result.changes[c[2]] || 0) + 1; });
   writeLog_(ss, stamp, body, result);
   return { ok: true, result: result, time: stamp };
 }
@@ -330,6 +345,138 @@ function readEditLog_(ss, tz, limit) {
     .map(r => r.map(v => (isDate_(v) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd HH:mm') : String(v))));
 }
 
+/* ================= Perubahan per upload (LOG_PERUBAHAN) ================= */
+// Kolom: WAKTU UPLOAD | UPLOAD SEBELUMNYA | JENIS | NO PO | KODE | NAMA MATERIAL | SUPPLIER | NILAI LAMA | NILAI BARU | TGL JADWAL | QTY
+// Jenis: PO baru, Baris baru, Baris dihapus, Qty order berubah, Jadwal baru, Jadwal berubah, Jadwal dihapus, Diterima
+const CHANGE_HEAD = ['WAKTU UPLOAD', 'UPLOAD SEBELUMNYA', 'JENIS', 'NO PO', 'KODE', 'NAMA MATERIAL', 'SUPPLIER',
+  'NILAI LAMA', 'NILAI BARU', 'TGL JADWAL', 'QTY'];
+
+function computeChanges_(ss, body, stamp, prevTime, tz) {
+  const out = [];
+  const oldLines = readRows_(ss.getSheetByName(CONFIG.LINE_SHEET), 11);
+  if (!oldLines.length) return out;   // sheet masih kosong: upload ini menjadi data awal, belum ada pembanding
+  const info = {};   // PO|kode → {name, sup}
+  const add = (jenis, po, kode, lama, baru, tgl, qty) => {
+    const i = info[po + '|' + kode] || {};
+    out.push([stamp, prevTime, jenis, po, kode, i.name || '', i.sup || '', fmtVal_(lama), fmtVal_(baru), tgl || '', qty === undefined ? '' : qty]);
+  };
+  oldLines.forEach(r => { info[str_(r[0]) + '|' + str_(r[3])] = { name: r[4], sup: r[2] }; });
+  (body.lines || []).forEach(r => { info[str_(r[0]) + '|' + str_(r[3])] = { name: r[4], sup: r[2] }; });
+
+  // Baris PO (PO-DET)
+  if (Array.isArray(body.lines) && body.lines.length) {
+    const oldByPo = {};
+    oldLines.forEach(r => { (oldByPo[str_(r[0])] = oldByPo[str_(r[0])] || {})[str_(r[3]) + '|' + Number(r[10] || 1)] = r; });
+    const newByPo = {};
+    body.lines.forEach(r => { (newByPo[str_(r[0])] = newByPo[str_(r[0])] || {})[str_(r[3]) + '|' + Number(r[9] || 1)] = r; });
+    Object.keys(newByPo).forEach(po => {
+      const o = oldByPo[po], n = newByPo[po];
+      if (!o) { Object.keys(n).forEach(k => add('PO baru', po, k.split('|')[0], '', n[k][5] + ' ' + n[k][6], n[k][1], n[k][5])); return; }
+      Object.keys(n).forEach(k => {
+        const kode = k.split('|')[0];
+        if (!o[k]) add('Baris baru', po, kode, '', n[k][5] + ' ' + n[k][6], '', n[k][5]);
+        else if (Number(o[k][6]) !== Number(n[k][5])) add('Qty order berubah', po, kode, o[k][6], n[k][5], '', Number(n[k][5]) - Number(o[k][6]));
+      });
+      Object.keys(o).forEach(k => { if (!n[k]) add('Baris dihapus', po, k.split('|')[0], o[k][6] + ' ' + o[k][7], '', '', ''); });
+    });
+  }
+
+  // Jadwal (PO-DEL), dicocokkan per PO + kode + jadwal ke
+  if (Array.isArray(body.delPOs) && body.delPOs.length) {
+    const pos = new Set(body.delPOs.map(str_));
+    const oldS = {}, newS = {};
+    readRows_(ss.getSheetByName(CONFIG.SCHED_SHEET), 8).forEach(r => {
+      if (pos.has(str_(r[0]))) oldS[str_(r[0]) + '|' + str_(r[1]) + '|' + Number(r[3])] = r;
+    });
+    (body.schedules || []).forEach(r => { newS[str_(r[0]) + '|' + str_(r[1]) + '|' + Number(r[3])] = r; });
+    const isNewPo = {};
+    out.forEach(c => { if (c[2] === 'PO baru') isNewPo[c[3]] = true; });
+    Object.keys(newS).forEach(k => {
+      const n = newS[k], [po, kode] = k.split('|');
+      const nDate = String(n[6] || ''), nRec = Number(n[5]) || 0;
+      const o = oldS[k];
+      if (!o) {
+        if (!isNewPo[po]) add('Jadwal baru', po, kode, '', nDate + ' · ' + n[4], nDate, Number(n[4]) || 0);
+        if (nRec > 0) add('Diterima', po, kode, 0, nRec, nDate, nRec);
+        return;
+      }
+      const oDate = fmtDate_(o[6], tz), oRec = Number(o[5]) || 0;
+      if (oDate !== nDate) add('Jadwal berubah', po, kode, oDate, nDate, nDate, Number(n[4]) || 0);
+      if (nRec > oRec) add('Diterima', po, kode, oRec, nRec, nDate, nRec - oRec);
+    });
+    Object.keys(oldS).forEach(k => {
+      if (newS[k]) return;
+      const o = oldS[k], [po, kode] = k.split('|');
+      add('Jadwal dihapus', po, kode, fmtDate_(o[6], tz) + ' · ' + o[4], '', fmtDate_(o[6], tz), Number(o[4]) || 0);
+    });
+  }
+  return out;
+}
+
+function fmtVal_(v) { return v === undefined || v === null ? '' : String(v); }
+
+function writeChanges_(ss, rows) {
+  if (!rows.length) return;
+  let sh = ss.getSheetByName(CONFIG.CHANGE_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.CHANGE_SHEET);
+    sh.getRange(1, 1, 1, CHANGE_HEAD.length).setValues([CHANGE_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  const start = sh.getLastRow() + 1;
+  if (sh.getMaxRows() < start + rows.length) sh.insertRowsAfter(sh.getMaxRows(), start + rows.length - sh.getMaxRows() + 200);
+  sh.getRange(start, 1, rows.length, CHANGE_HEAD.length).setNumberFormat('@').setValues(rows.map(r => r.map(v => String(v ?? ''))));
+}
+
+function readChanges_(ss, limit) {
+  const sh = ss.getSheetByName(CONFIG.CHANGE_SHEET);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const n = Math.min(limit, sh.getLastRow() - 1);
+  return sh.getRange(sh.getLastRow() - n + 1, 1, n, CHANGE_HEAD.length).getDisplayValues();
+}
+
+/* ================= Tindak lanjut (PO_FOLLOWUP) ================= */
+// Kolom: NO PO | KODE | STATUS | JANJI KIRIM | CATATAN | UPDATE TERAKHIR
+const FOLLOW_STATUS = ['Belum dihubungi', 'Sudah dihubungi', 'Eskalasi', 'Selesai'];
+
+function followSheet_(ss) {
+  let sh = ss.getSheetByName(CONFIG.FOLLOWUP_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.FOLLOWUP_SHEET);
+    sh.getRange(1, 1, 1, 6).setValues([['NO PO', 'KODE', 'STATUS', 'JANJI KIRIM', 'CATATAN', 'UPDATE TERAKHIR']]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function readFollowups_(ss, tz) {
+  const sh = ss.getSheetByName(CONFIG.FOLLOWUP_SHEET);
+  if (!sh) return [];
+  return readRows_(sh, 6).map(r => [str_(r[0]), str_(r[1]), str_(r[2]), fmtDate_(r[3], tz), String(r[4] || ''), show_(r[5], tz)]);
+}
+
+function saveFollowup_(ss, body, user, stamp, tz) {
+  const d = body.data || {};
+  const po = str_(d.po), kode = str_(d.code);
+  if (!po || !kode) throw new Error('No PO dan kode wajib ada.');
+  const status = FOLLOW_STATUS.indexOf(d.status) >= 0 ? d.status : 'Belum dihubungi';
+  const promise = /^\d{4}-\d{2}-\d{2}$/.test(String(d.promise || '')) ? d.promise : '';
+  const note = String(d.note || '').trim();
+  const sh = followSheet_(ss);
+  const rows = readRows_(sh, 6).map(r => [str_(r[0]), str_(r[1]), str_(r[2]), fmtDate_(r[3], tz), String(r[4] || ''), show_(r[5], tz)]);
+  let r = rows.find(x => x[0] === po && x[1] === kode);
+  const old = r ? r.slice() : [po, kode, '', '', '', ''];
+  if (!r) { r = [po, kode, '', '', '', '']; rows.push(r); }
+  r[2] = status; r[3] = promise; r[4] = note; r[5] = stamp;
+  const keep = rows.filter(x => x[2] !== 'Belum dihubungi' || x[3] || x[4]);   // baris kosong tidak disimpan
+  writeTable_(sh, keep, 6, [['A', '@'], ['B', '@'], ['D', '@'], ['F', '@']]);
+  const log = [];
+  if (old[2] !== r[2]) log.push([stamp, user, 'Ubah follow-up', po, kode, 'Status', old[2], r[2]]);
+  if (old[3] !== r[3]) log.push([stamp, user, 'Ubah follow-up', po, kode, 'Janji kirim', old[3], r[3]]);
+  if (old[4] !== r[4]) log.push([stamp, user, 'Ubah follow-up', po, kode, 'Catatan', old[4], r[4]]);
+  logEdit_(ss, log);
+}
+
 /* ================= Supplier & MoQ per material ================= */
 // SUPPLIER_MATERIAL (di DATABASE PPIC, hasil hitung — jangan diketik): satu baris per material RM/PM + supplier.
 // MoQ = histori, yaitu qty terkecil dalam satu PO untuk material + supplier tersebut.
@@ -418,7 +565,7 @@ function rebuildSupplier_(ss, db, tz) {
     sh.setFrozenRows(1);
   }
   sh.getRange(1, 1, 1, SUP_COLS).setValues([SUP_HEAD]).setFontWeight('bold');
-  writeTable_(sh, out, SUP_COLS, [['A', '@'], ['M', 'yyyy-mm-dd']]);
+  writeTable_(sh, out, SUP_COLS, [['A', '@'], ['M', 'yyyy-mm-dd'], ['Q', '@']]);
   PropertiesService.getScriptProperties().deleteProperty('SUPPLIER_STALE');
   return sh;
 }

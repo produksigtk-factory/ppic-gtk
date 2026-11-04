@@ -1,6 +1,6 @@
 # PPIC GTK
 
-Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Dashboard PO, Monitoring PO, Update Data PO, Supplier & MoQ, Riwayat Edit PO).
+Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Dashboard PO, Monitoring PO, Kalender Kedatangan, Perubahan Data, Update Data PO, Supplier & MoQ, Riwayat Edit PO).
 
 Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-...">` untuk isinya, dan satu baris di `ROUTES` (app.js).
 
@@ -39,3 +39,11 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 - Menu Purchase Order → Supplier & MoQ. Semua dari histori PO, tidak ada isian manual.
 - Tab `SUPPLIER_MATERIAL` di DATABASE PPIC dihitung otomatis oleh Apps Script: satu baris per material RM/PM + supplier. MoQ = qty terkecil dalam satu PO untuk material + supplier itu; juga qty PO terbesar, jumlah PO, total qty, PO terakhir, harga terakhir, lead time rata-rata (Order Date → kedatangan pertama yang Done), supplier utama (PO terbanyak). Material tanpa PO tetap tampil sebagai "Belum ada riwayat PO". Jangan diketik.
 - Dihitung ulang otomatis setelah upload atau edit PO (saat halaman dibuka), lewat tombol "Muat ulang data", atau fungsi `rebuildSupplierNow` di editor Apps Script.
+
+## Follow-up, perubahan data, kalender
+
+- Saringan jenis bawaan = RM dan PM (Monitoring PO, Dashboard, Kalender, Beranda). Reset kembali ke RM dan PM; pilih "Semua jenis" untuk melihat FG/Service/Ekstrak.
+- Follow-up per PO + kode (tab `PO_FOLLOWUP` di MONITORING PO): status (Belum dihubungi / Sudah dihubungi / Eskalasi / Selesai), janji kirim baru, catatan. Diisi lewat Mode edit di detail baris; tidak tersentuh upload. Saringan "Follow-up" dan kolom di tabel Perlu ditindaklanjuti.
+- Perubahan per upload (tab `LOG_PERUBAHAN`): PO baru, baris baru/dihapus, qty order berubah, jadwal baru/berubah/dihapus, diterima. Dibandingkan dengan isi sheet sebelum ditimpa. Upload ke sheet kosong tidak dicatat (data awal).
+- Ketepatan kirim supplier (estimasi): penerimaan yang terdeteksi antar-upload; terlambat bila upload sebelumnya sudah melewati tanggal jadwal tetapi barang belum diterima.
+- Kalender Kedatangan: jadwal belum Done per tanggal (hijau = dijadwalkan, merah = lewat jadwal) dan janji kirim dari follow-up (emas).

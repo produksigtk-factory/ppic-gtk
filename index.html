@@ -30,6 +30,8 @@
         <div class="submenu">
           <a class="menu-item sub" href="#/po/dashboard" data-route="po/dashboard">Dashboard PO</a>
           <a class="menu-item sub" href="#/po/monitoring" data-route="po/monitoring">Monitoring PO</a>
+          <a class="menu-item sub" href="#/po/kalender" data-route="po/kalender">Kalender Kedatangan</a>
+          <a class="menu-item sub" href="#/po/perubahan" data-route="po/perubahan">Perubahan Data</a>
           <a class="menu-item sub" href="#/po/update" data-route="po/update">Update Data PO</a>
           <a class="menu-item sub" href="#/po/supplier" data-route="po/supplier">Supplier &amp; MoQ</a>
           <a class="menu-item sub" href="#/po/riwayat" data-route="po/riwayat">Riwayat Edit PO</a>
@@ -67,7 +69,7 @@
               <h2>Purchase Order</h2>
               <span class="module-link">Buka Dashboard PO</span>
             </div>
-            <p class="module-desc">Kedatangan material dari supplier berdasarkan export PO-DET dan PO-DEL Odoo.</p>
+            <p class="module-desc">Kedatangan material RM dan PM dari supplier, berdasarkan export PO-DET dan PO-DEL Odoo.</p>
             <dl class="module-stats">
               <div><dt>Belum lengkap diterima</dt><dd id="hOpen">–</dd></div>
               <div class="late"><dt>Baris shortage</dt><dd id="hLate">–</dd></div>
@@ -94,7 +96,7 @@
         <div class="dash-filters">
           <label class="field">
             <span>Jenis material</span>
-            <select id="dJenis"><option value="">Semua jenis</option></select>
+            <select id="dJenis"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
           </label>
           <label class="field">
             <span>Supplier</span>
@@ -164,6 +166,21 @@
             <div class="vbars vbars-sm" id="dMonth"></div>
           </article>
 
+          <article class="card">
+            <header class="card-head">
+              <h2>Sejak upload terakhir</h2>
+              <a class="btn btn-ghost btn-sm" href="#/po/perubahan">Lihat semua perubahan</a>
+            </header>
+            <p class="card-sub" id="dChgSub">Perubahan yang terdeteksi saat export Odoo terakhir di-upload.</p>
+            <div class="hbars" id="dChanges"></div>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Ketepatan kirim supplier (estimasi)</h2></header>
+            <p class="card-sub">Dari penerimaan yang terdeteksi antar-upload. Terlambat bila barang belum diterima pada upload sesudah tanggal jadwal. Makin sering upload, makin akurat.</p>
+            <div class="hbars" id="dOtd"></div>
+          </article>
+
           <article class="card span-2">
             <header class="card-head">
               <h2>Perlu ditindaklanjuti</h2>
@@ -172,8 +189,8 @@
             <p class="card-sub">Shortage paling lama terlambat. Klik baris untuk membuka PO-nya.</p>
             <div class="table-wrap">
               <table class="po-table action-table">
-                <thead><tr><th data-sk="po">No PO</th><th data-sk="supplier">Supplier</th><th data-sk="name">Material</th><th class="num" data-sk="shortage">Shortage</th><th class="num" data-sk="lateDays">Terlambat</th><th class="num" data-sk="shortValue">Nilai</th></tr></thead>
-                <tbody id="dAction"><tr class="empty"><td colspan="6">Memuat data…</td></tr></tbody>
+                <thead><tr><th data-sk="po">No PO</th><th data-sk="supplier">Supplier</th><th data-sk="name">Material</th><th class="num" data-sk="shortage">Shortage</th><th class="num" data-sk="lateDays">Terlambat</th><th class="num" data-sk="shortValue">Nilai</th><th data-sk="follow">Follow-up</th></tr></thead>
+                <tbody id="dAction"><tr class="empty"><td colspan="7">Memuat data…</td></tr></tbody>
               </table>
             </div>
           </article>
@@ -187,7 +204,7 @@
         <div class="setup-note" id="setupNote" hidden></div>
 
         <div class="edit-bar" id="editBar" hidden>
-          <p><b>Mode edit aktif.</b> Klik sebuah baris untuk mengubah atau menghapus baris PO dan jadwalnya. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
+          <p><b>Mode edit aktif.</b> Klik sebuah baris untuk mengisi follow-up, atau mengubah dan menghapus baris PO dan jadwalnya. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
           <div class="edit-bar-actions">
             <button class="btn" id="btnAddLine" title="Tambah baris PO baru secara manual">Tambah baris PO</button>
             <button class="btn btn-ghost" id="btnEditOff" title="Matikan mode edit">Keluar mode edit</button>
@@ -225,7 +242,7 @@
             </label>
             <label class="field">
               <span>Jenis material</span>
-              <select id="fJenis"><option value="">Semua jenis</option></select>
+              <select id="fJenis"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
             </label>
             <label class="field">
               <span>Jadwal kedatangan</span>
@@ -241,6 +258,18 @@
             <label class="field">
               <span>Kurs</span>
               <select id="fKurs"><option value="">Semua kurs</option></select>
+            </label>
+            <label class="field">
+              <span>Follow-up</span>
+              <select id="fFollow">
+                <option value="">Semua</option>
+                <option value="todo">Shortage belum di-follow up</option>
+                <option value="Sudah dihubungi">Sudah dihubungi</option>
+                <option value="Eskalasi">Eskalasi</option>
+                <option value="Selesai">Selesai</option>
+                <option value="promise-late">Janji kirim sudah lewat</option>
+                <option value="has">Ada catatan follow-up</option>
+              </select>
             </label>
             <label class="field">
               <span>Edit manual</span>
@@ -422,6 +451,56 @@
           </table>
         </div>
         <div class="more"><button class="btn btn-ghost" id="sMore" hidden>Tampilkan 100 baris lagi</button></div>
+      </section>
+
+      <!-- ================= KALENDER KEDATANGAN ================= -->
+      <section id="view-po-kalender" class="view" hidden>
+        <div class="cal-bar">
+          <div class="cal-nav">
+            <button class="btn btn-ghost btn-sm" id="cPrev" aria-label="Bulan sebelumnya">‹</button>
+            <h2 id="cTitle">–</h2>
+            <button class="btn btn-ghost btn-sm" id="cNext" aria-label="Bulan berikutnya">›</button>
+            <button class="btn btn-ghost btn-sm" id="cToday">Hari ini</button>
+          </div>
+          <div class="cal-filters">
+            <label class="field"><span>Jenis material</span><select id="cJenis"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select></label>
+            <label class="field"><span>Supplier</span><select id="cSup"><option value="">Semua supplier</option></select></label>
+          </div>
+        </div>
+        <p class="hint cal-legend">
+          <span><i class="dot dot-wait"></i>Dijadwalkan</span>
+          <span><i class="dot dot-late"></i>Lewat jadwal, belum datang</span>
+          <span><i class="dot dot-promise"></i>Janji kirim baru (dari follow-up)</span>
+          <span>Klik tanggal untuk melihat daftarnya.</span>
+        </p>
+        <div class="cal-wrap">
+          <div class="cal" id="cGrid" role="grid" aria-label="Kalender kedatangan"></div>
+          <aside class="cal-day" id="cDay" aria-live="polite"></aside>
+        </div>
+      </section>
+
+      <!-- ================= PERUBAHAN DATA ================= -->
+      <section id="view-po-perubahan" class="view" hidden>
+        <p class="lead">Perubahan yang terdeteksi setiap kali export Odoo di-upload: PO baru, qty berubah, jadwal baru atau bergeser, dan barang yang baru diterima. Edit manual lewat website tidak masuk di sini (lihat Riwayat Edit PO).</p>
+        <div class="filters">
+          <label class="field">
+            <span>Upload</span>
+            <select id="gUpload"></select>
+          </label>
+          <label class="field grow">
+            <span>Cari</span>
+            <input type="search" id="gq" placeholder="No PO, kode, material, atau supplier">
+          </label>
+        </div>
+        <div class="chg-types" id="gTypes" role="group" aria-label="Saring jenis perubahan"></div>
+        <div class="result-bar"><span id="gInfo"></span></div>
+        <div class="table-wrap">
+          <table class="po-table chg-table">
+            <thead><tr><th data-sk="2">Jenis</th><th data-sk="3">No PO</th><th data-sk="5">Material</th><th data-sk="6">Supplier</th><th data-sk="7">Sebelum</th><th data-sk="8">Sesudah</th><th data-sk="9">Tgl jadwal</th></tr></thead>
+            <tbody id="gRows"><tr class="empty"><td colspan="7">Memuat…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="more"><button class="btn btn-ghost" id="gMore" hidden>Tampilkan 200 baris lagi</button></div>
       </section>
 
       <!-- ================= RIWAYAT EDIT PO ================= -->

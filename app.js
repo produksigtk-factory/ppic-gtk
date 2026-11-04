@@ -18,6 +18,8 @@
     manual: new Map(),
     editLog: [],
     edit: { on: false, user: 'Website', pin: '' },
+    follow: new Map(),   // PO|kode → { status, promise, note, time }
+    changes: [],
     sup: { rows: [], loaded: false, view: 'all', shown: 100, dbUrl: '', nSup: new Map() },   // Apps Script mewajibkan isian user; nama pengedit tidak dipakai
     shown: PAGE,
     openKey: null,
@@ -58,7 +60,7 @@
 
   /* ---------- Urutkan lewat judul kolom (semua tabel) ---------- */
   // Klik pertama: arah bawaan kolom; klik kedua: dibalik; klik ketiga: kembali ke urutan semula.
-  const colSort = { po: null, sup: null, act: null, log: null };
+  const colSort = { po: null, sup: null, act: null, log: null, chg: null };
   const DESC_FIRST = new Set(['qty', 'sisa', 'shortage', 'nsched', 'moq', 'max', 'count', 'total', 'price', 'lead', 'lateDays', 'shortValue', '0']);
   const isBlankV = (v) => v === null || v === undefined || v === '' || (typeof v === 'number' && isNaN(v));
   function applyColSort(rows, cs, getters) {
@@ -98,6 +100,7 @@
     po: (r) => r.po, date: (r) => r.date, supplier: (r) => r.supplier, name: (r) => r.name, qty: (r) => r.qty,
     sisa: (r) => Math.max(0, r.sisa), shortage: (r) => r.shortage || null, nsched: (r) => r.sched.length,
     next: (r) => (r.next ? r.next.date : null), status: (r) => STATUS_ORDER[r.status],
+    follow: (r) => (r.follow ? ({ Eskalasi: 0, 'Belum dihubungi': 1, 'Sudah dihubungi': 2, Selesai: 3 })[r.follow.status] : (r.shortage > 0 ? 1 : null)),
   };
   const SUP_GET = {
     name: (x) => x.name, supplier: (x) => x.supplier || null, moq: (x) => x.moq, max: (x) => x.max,
@@ -105,12 +108,28 @@
     price: (x) => (x.price === '' || x.price === null ? null : Number(x.price)), lead: (x) => x.lead,
   };
 
+
+  /* ---------- Saringan jenis bawaan: RM dan PM ---------- */
+  // Setiap membuka website, Monitoring PO, Dashboard, Kalender, dan Beranda menampilkan RM dan PM saja.
+  const RMPM = '__RMPM';
+  const RMPM_SET = new Set(['RM (Raw)', 'PM (Pack)']);
+  const jenisOk = (r, v) => !v || (v === RMPM ? RMPM_SET.has(r.jenis) : r.jenis === v);
+  const jenisLabel = (v) => (v === RMPM ? 'RM dan PM' : v);
+  function fillJenis(sel, list) {
+    const cur = sel.dataset.ready ? sel.value : RMPM;
+    sel.innerHTML = `<option value="${RMPM}">RM dan PM</option><option value="">Semua jenis</option>` + list.map((v) => `<option>${esc(v)}</option>`).join('');
+    sel.value = cur === RMPM || cur === '' || list.includes(cur) ? cur : RMPM;
+    sel.dataset.ready = '1';
+  }
+
   /* ---------- Menu & halaman ---------- */
   // Menu baru cukup ditambah di sini + <section id="view-..."> di index.html + link di menu samping.
   const ROUTES = {
     // actions: 'po' / 'sup' = tampilkan tombol Mode edit, Muat ulang, Buka Google Sheet untuk modul itu
     'beranda':           { view: 'view-beranda',           crumb: 'Monitoring Pekerjaan PPIC', title: 'Beranda',         actions: '' },
     'po/dashboard':      { view: 'view-po-dashboard',      crumb: 'Purchase Order',            title: 'Dashboard PO',    actions: 'po' },
+    'po/kalender':       { view: 'view-po-kalender',       crumb: 'Purchase Order',            title: 'Kalender Kedatangan', actions: 'po' },
+    'po/perubahan':      { view: 'view-po-perubahan',      crumb: 'Purchase Order',            title: 'Perubahan Data',  actions: 'po' },
     'po/monitoring':     { view: 'view-po-monitoring',     crumb: 'Purchase Order',            title: 'Monitoring PO',   actions: 'po' },
     'po/update':         { view: 'view-po-update',         crumb: 'Purchase Order',            title: 'Update Data PO',  actions: 'po' },
     'po/riwayat':        { view: 'view-po-riwayat',        crumb: 'Purchase Order',            title: 'Riwayat Edit PO', actions: 'po' },
@@ -156,7 +175,7 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
 
   function renderHome() {
-    const rows = state.rows;
+    const rows = state.rows.filter((r) => RMPM_SET.has(r.jenis));
     const today = todayStr();
     const plus7 = ymd(new Date(Date.now() + 7 * 86400000));
     let week = 0;
@@ -185,6 +204,9 @@
       state.raw = { lines: data.lines, schedules: data.schedules };
       setManual(data.manual);
       state.editLog = data.editLog || [];
+      setFollow(data.followups);
+      state.changes = data.changes || [];
+      state.noFollowScript = !Array.isArray(data.followups);
       if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
       const up = data.lastUpload ? `Upload terakhir ${data.lastUpload.time}` : 'Belum ada upload lewat website';
       $('dataInfo').textContent = `${up} · Data dibaca ${data.readAt}`;
@@ -208,6 +230,10 @@
   }
 
   // Tanda PO yang pernah diedit manual: Map po → { lines, sched, time, by }
+  function setFollow(list) {
+    state.follow = new Map((list || []).map((f) => [f[0] + '|' + f[1], { status: f[2], promise: normDate(f[3]), note: f[4], time: f[5] }]));
+  }
+
   function setManual(list) {
     state.manual = new Map((list || []).map((m) => [m[0], { lines: !!m[1], sched: !!m[2], time: m[3], by: m[4] }]));
   }
@@ -218,6 +244,8 @@
     render();
     renderHome();
     renderDash();
+    renderChanges();
+    renderCal();
     renderLog();
   }
 
@@ -298,6 +326,7 @@
           amount: l[8] === '' ? 0 : qty * Number(l[8]),
           pendingDates: pending.map((s) => s.date).filter(Boolean),
           manual: state.manual ? state.manual.get(l[0]) || null : null,
+          follow: state.follow ? state.follow.get(k) || null : null,
           rec, sisa, status, sched, next, today, first: i === 0,
           shortage: short, lateDays: short ? lateDays : 0, oldestLate: short ? oldest : '',
           sisaValue: Math.max(0, sisa) * price, shortValue: short * price,
@@ -320,7 +349,7 @@
       sel.value = values.includes(cur) ? cur : '';
     };
     const uniq = (f) => [...new Set(state.rows.map(f).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
-    fill($('fJenis'), uniq((r) => r.jenis), 'Semua jenis');
+    fillJenis($('fJenis'), uniq((r) => r.jenis));
     fill($('fSupplier'), uniq((r) => r.supplier), 'Semua supplier');
     fill($('fKurs'), uniq((r) => r.kurs), 'Semua kurs');
   }
@@ -348,6 +377,15 @@
     return true;
   }
 
+  const FOLLOW_LABEL = { todo: 'Shortage belum di-follow up', 'promise-late': 'Janji kirim sudah lewat', has: 'Ada catatan follow-up' };
+  function matchFollow(r, v) {
+    const f = r.follow;
+    if (v === 'todo') return r.shortage > 0 && (!f || f.status === 'Belum dihubungi');
+    if (v === 'promise-late') return r.status !== 'done' && f && f.promise && f.promise < todayStr();
+    if (v === 'has') return !!f;
+    return f && f.status === v;
+  }
+
   // Saringan khusus dari klik grafik di Dashboard PO
   function matchDrill(r, dr) {
     if (dr.type === 'arrive') {          // ada jadwal belum Done pada rentang tanggal
@@ -361,13 +399,14 @@
   function filteredNoMonth() {
     const q = $('q').value.trim().toLowerCase();
     const jenis = $('fJenis').value, sup = $('fSupplier').value, kurs = $('fKurs').value, arr = $('fArrive').value;
-    const man = $('fManual').value;
+    const man = $('fManual').value, fol = $('fFollow').value;
     const dr = state.drill;
     return state.rows.filter((r) =>
       (!dr || matchDrill(r, dr)) &&
+      (!fol || matchFollow(r, fol)) &&
       (!q || q.split(/\s+/).every((w) => r.search.includes(w))) &&
       (!man || (man === 'yes' ? !!r.manual : !r.manual)) &&
-      (!jenis || r.jenis === jenis) &&
+      jenisOk(r, jenis) &&
       (!sup || r.supplier === sup) &&
       (!kurs || r.kurs === kurs) &&
       matchArrive(r, arr));
@@ -412,10 +451,11 @@
     if (state.status !== 'all') chips.push(['status', 'Status: ' + { open: 'Belum lengkap diterima', late: 'Shortage (lewat jadwal / kurang kirim)', done: 'Sudah lengkap' }[state.status]]);
     if ($('q').value.trim()) chips.push(['q', `Cari: "${$('q').value.trim()}"`]);
     if ($('fSupplier').value) chips.push(['fSupplier', 'Supplier: ' + $('fSupplier').value]);
-    if ($('fJenis').value) chips.push(['fJenis', 'Jenis: ' + $('fJenis').value]);
+    if ($('fJenis').value) chips.push(['fJenis', 'Jenis: ' + jenisLabel($('fJenis').value)]);
     if ($('fArrive').value) chips.push(['fArrive', 'Jadwal: ' + ARRIVE[$('fArrive').value]]);
     if ($('fKurs').value) chips.push(['fKurs', 'Kurs: ' + $('fKurs').value]);
     if (state.drill) chips.push(['drill', state.drill.label]);
+    if ($('fFollow').value) chips.push(['fFollow', 'Follow-up: ' + (FOLLOW_LABEL[$('fFollow').value] || $('fFollow').value)]);
     if ($('fManual').value) chips.push(['fManual', $('fManual').value === 'yes' ? 'Hanya PO yang diedit manual' : 'Hanya PO tanpa edit manual']);
     $('activeFilters').innerHTML = chips.length
       ? '<span class="af-label">Saringan aktif:</span>' + chips.map(([k, t]) =>
@@ -479,10 +519,56 @@
       <td class="num">${r.shortage > 0 ? `<span class="short-qty">${fmtNum(r.shortage)}</span><div class="strip-cap short-cap">${r.lateDays ? r.lateDays + ' hari' : 'kurang kirim'}</div>` : '<span class="muted">–</span>'}</td>
       <td>${stripHtml(r)}</td>
       <td class="date">${next}</td>
-      <td><span class="badge ${st.cls}">${st.label}</span></td>
+      <td><span class="badge ${st.cls}">${st.label}</span>${followChip(r)}</td>
     </tr>`;
     if (open) html += detailHtml(r);
     return html;
+  }
+
+  function followChip(r) {
+    const f = r.follow;
+    if (!f) return r.shortage > 0 ? '<div class="fu fu-todo">Belum di-follow up</div>' : '';
+    const late = f.promise && f.promise < todayStr() && r.status !== 'done';
+    const cls = f.status === 'Eskalasi' ? 'fu-esc' : f.status === 'Selesai' ? 'fu-done' : f.status === 'Belum dihubungi' ? 'fu-todo' : 'fu-ok';
+    return `<div class="fu ${cls}" title="${esc(f.note || '')}">${esc(f.status)}</div>`
+      + (f.promise ? `<div class="fu-promise${late ? ' is-late' : ''}">Janji ${fmtDate(f.promise)}${late ? ' · lewat' : ''}</div>` : '');
+  }
+
+  function followBox(r) {
+    const f = r.follow, ed = state.edit.on;
+    const body = f
+      ? `<dl class="fu-box-list"><div><dt>Status</dt><dd>${esc(f.status)}</dd></div>
+          <div><dt>Janji kirim baru</dt><dd>${f.promise ? fmtDate(f.promise) : '–'}</dd></div>
+          <div class="wide"><dt>Catatan</dt><dd>${f.note ? esc(f.note) : '–'}</dd></div></dl>
+         <p class="hint">Terakhir diubah ${esc(f.time)}. Tetap tersimpan walaupun data Odoo di-upload ulang.</p>`
+      : `<p class="hint">Belum ada follow-up untuk ${esc(r.po)} / ${esc(r.code)}.</p>`;
+    return `<div class="fu-box"><div class="fu-box-head"><h4>Follow-up</h4>
+      ${ed ? '<button type="button" class="btn btn-sm" data-act="follow">Isi follow-up</button>' : '<span class="hint">Aktifkan Mode edit untuk mengisi.</span>'}</div>${body}</div>`;
+  }
+
+  function editFollow(r) {
+    if (state.noFollowScript) {
+      openDialog({ title: 'Apps Script perlu diperbarui', ok: 'Mengerti', onSubmit: async () => {},
+        body: '<p>Follow-up membutuhkan Apps Script versi terbaru. Tempel Code.gs terbaru lalu buat versi deployment baru.</p>' });
+      return;
+    }
+    const f = r.follow || { status: 'Belum dihubungi', promise: '', note: '' };
+    openDialog({
+      title: `Follow-up · ${r.po}`, ok: 'Simpan follow-up',
+      body: `<p class="dlg-lead">${esc(r.code)} · ${esc(r.name)} · ${esc(r.supplier)}${r.shortage > 0 ? ` · shortage ${fmtNum(r.shortage)} ${esc(r.uom)}` : ''}</p>
+        <div class="form-grid">
+          ${sel('status', 'Status', f.status, ['Belum dihubungi', 'Sudah dihubungi', 'Eskalasi', 'Selesai'])}
+          ${fld('promise', 'Janji kirim baru', f.promise, { type: 'date' })}
+          <label class="field span-2"><span>Catatan</span><textarea name="note" rows="3" placeholder="Misal: sudah telepon Pak Budi, kirim Jumat pagi">${esc(f.note)}</textarea></label>
+        </div>
+        <p class="hint">Berlaku untuk semua baris ${esc(r.code)} di ${esc(r.po)}. Kosongkan tanggal bila belum ada janji.</p>`,
+      onSubmit: async (fd) => {
+        const res = await api('saveFollowup', { data: { po: r.po, code: r.code, status: fd.status, promise: fd.promise, note: fd.note } });
+        setFollow(res.followups);
+        if (res.editLog) state.editLog = res.editLog;
+        refreshAll();
+      },
+    });
   }
 
   function detailHtml(r) {
@@ -514,6 +600,7 @@
         <span>Progres <b>${r.qty ? Math.round(Math.min(r.rec, r.qty) / r.qty * 100) : 0}%</b></span>
         ${r.shortage > 0 ? `<span>Shortage <b class="short-qty">${fmtNum(r.shortage)} ${esc(r.uom)}</b>${r.lateDays ? `, terlambat ${r.lateDays} hari sejak ${fmtDate(r.oldestLate)}` : ' (kurang kirim)'}${r.shortValue ? ` · nilai ${fmtNum(Math.round(r.shortValue))} ${esc(r.kurs)}` : ''}</span>` : ''}
       </div>
+      ${followBox(r)}
       <table class="sched"><thead><tr><th>Jadwal ke</th><th>Tanggal</th><th class="num">Qty jadwal</th><th class="num">Qty diterima</th><th>Status</th>${ed ? '<th></th>' : ''}</tr></thead>
       <tbody>${rows}</tbody></table>${dup}${man}
     </div></td></tr>`;
@@ -526,7 +613,7 @@
   });
   let t;
   $('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.shown = PAGE; render(); }, 200); });
-  ['fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fSort'].forEach((id) =>
+  ['fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fFollow', 'fSort'].forEach((id) =>
     $(id).addEventListener('change', () => { if (id === 'fSort') colSort.po = null; state.shown = PAGE; render(); }));
   initSortHeaders($('rows').closest('table'), 'po', () => {
     $('fSort').value = colSort.po ? 'col' : 'date-asc';
@@ -549,7 +636,8 @@
   });
 
   $('btnReset').addEventListener('click', () => {
-    ['q', 'fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual'].forEach((id) => { $(id).value = ''; });
+    ['q', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fFollow'].forEach((id) => { $(id).value = ''; });
+    $('fJenis').value = RMPM;
     $('fSort').value = 'date-asc';
     colSort.po = null;
     state.drill = null;
@@ -572,7 +660,9 @@
       'No PO': r.po, 'Order Date': r.date, 'Supplier': r.supplier, 'Kode': r.code, 'Nama Material': r.name,
       'Jenis': r.jenis, 'Qty Order': r.qty, 'UoM': r.uom, 'Unit Price': r.price, 'Kurs': r.kurs,
       'Diterima': r.rec, 'Sisa': Math.max(0, r.sisa), 'Shortage': r.shortage || '', 'Hari Terlambat': r.lateDays || '',
-      'Nilai Shortage': r.shortValue ? Math.round(r.shortValue) : '', 'Jumlah Jadwal': r.sched.length,
+      'Nilai Shortage': r.shortValue ? Math.round(r.shortValue) : '',
+      'Follow-up': r.follow ? r.follow.status : '', 'Janji Kirim': r.follow ? r.follow.promise : '', 'Catatan Follow-up': r.follow ? r.follow.note : '',
+      'Jumlah Jadwal': r.sched.length,
       'Jadwal Berikutnya': r.next ? r.next.date : '', 'Qty Jadwal Berikutnya': r.next ? r.next.qty : '',
       'Status': STATUS[r.status].label,
     }));
@@ -596,7 +686,7 @@
 
   function dashRows() {
     const j = $('dJenis').value, sp = $('dSup').value;
-    return state.rows.filter((r) => (!j || r.jenis === j) && (!sp || r.supplier === sp));
+    return state.rows.filter((r) => jenisOk(r, j) && (!sp || r.supplier === sp));
   }
 
   function fillDashOptions() {
@@ -606,7 +696,7 @@
       sel.value = list.includes(cur) ? cur : '';
     };
     const uniq = (f) => [...new Set(state.rows.map(f).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
-    keep($('dJenis'), uniq((r) => r.jenis), 'Semua jenis');
+    fillJenis($('dJenis'), uniq((r) => r.jenis));
     keep($('dSup'), uniq((r) => r.supplier), 'Semua supplier');
   }
 
@@ -663,7 +753,8 @@
       : 'semua PO berkurs IDR';
     const sh = rows.filter((r) => r.shortage > 0);
     $('kShort').textContent = fmtRp(sh.filter(isIdr).reduce((t, r) => t + r.shortValue, 0));
-    $('kShortSub').textContent = `${nf.format(sh.length)} baris · ${nf.format(new Set(sh.map((r) => r.supplier)).size)} supplier`;
+    const todo = sh.filter((r) => !r.follow || r.follow.status === 'Belum dihubungi').length;
+    $('kShortSub').innerHTML = `${nf.format(sh.length)} baris · ${nf.format(new Set(sh.map((r) => r.supplier)).size)} supplier<br><span class="kpi-warn" data-go="todo">${nf.format(todo)} belum di-follow up</span>`;
 
     // Jadwal belum Done per minggu (dihitung sekali per PO + kode)
     const groupsFirst = rows.filter((r) => r.first);
@@ -739,6 +830,8 @@
         tip: `${monthLabel(m, true)}: ${fmtRp(v)} · ${nf.format(new Set(rs.map((r) => r.po)).size)} PO`, go: { month: m } };
     }), fmtRp);
 
+    renderDashChanges();
+
     // Perlu ditindaklanjuti
     const act = applyColSort(sh.slice().sort((a, b) => b.lateDays - a.lateDays || b.shortValue - a.shortValue).slice(0, 12), colSort.act, PO_GET);
     paintSortHeaders($('dAction').closest('table'), 'act');
@@ -747,13 +840,15 @@
         <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}</div></td>
         <td class="num"><span class="short-qty">${fmtNum(r.shortage)}</span> ${esc(r.uom)}</td>
         <td class="num">${r.lateDays} hari</td>
-        <td class="num">${r.shortValue ? fmtNum(Math.round(r.shortValue)) + ' ' + esc(r.kurs) : '–'}</td></tr>`).join('')
-      : '<tr class="empty"><td colspan="6">Tidak ada shortage. Semua jadwal yang sudah lewat sudah diterima.</td></tr>';
+        <td class="num">${r.shortValue ? fmtNum(Math.round(r.shortValue)) + ' ' + esc(r.kurs) : '–'}</td>
+        <td>${followChip(r)}</td></tr>`).join('')
+      : '<tr class="empty"><td colspan="7">Tidak ada shortage. Semua jadwal yang sudah lewat sudah diterima.</td></tr>';
   }
 
   // Buka Monitoring PO dengan saringan dari Dashboard
   function goMonitor(go) {
-    ['q', 'fArrive', 'fKurs', 'fManual'].forEach((id) => { $(id).value = ''; });
+    ['q', 'fArrive', 'fKurs', 'fManual', 'fFollow'].forEach((id) => { $(id).value = ''; });
+    if (go.follow) $('fFollow').value = go.follow;
     $('fJenis').value = go.jenis !== undefined ? go.jenis : $('dJenis').value;
     $('fSupplier').value = go.supplier !== undefined ? go.supplier : $('dSup').value;
     if (go.arrive) $('fArrive').value = go.arrive;
@@ -771,7 +866,7 @@
 
   ['dJenis', 'dSup'].forEach((id) => $(id).addEventListener('change', renderDash));
   initSortHeaders($('dAction').closest('table'), 'act', renderDash);
-  $('dReset').addEventListener('click', () => { $('dJenis').value = ''; $('dSup').value = ''; renderDash(); });
+  $('dReset').addEventListener('click', () => { $('dJenis').value = RMPM; $('dSup').value = ''; renderDash(); });
   document.querySelectorAll('[data-arrmode]').forEach((b) => b.addEventListener('click', () => {
     DASH.arrMode = b.dataset.arrmode;
     document.querySelectorAll('[data-arrmode]').forEach((x) => x.classList.toggle('is-on', x === b));
@@ -781,10 +876,16 @@
     const k = e.target.closest('[data-go]');
     if (k) {
       const g = k.dataset.go;
-      return goMonitor(g === 'short' ? { status: 'late', sort: 'late-desc' } : g === 'week' ? { arrive: 'week', sort: 'next-asc' } : { status: 'open' });
+      return goMonitor(g === 'short' ? { status: 'late', sort: 'late-desc' } : g === 'todo' ? { status: 'late', follow: 'todo', sort: 'late-desc' }
+        : g === 'week' ? { arrive: 'week', sort: 'next-asc' } : { status: 'open' });
     }
     const bar = e.target.closest('.vbar, .hbar');
-    if (bar) { const it = bar.parentElement._items[Number(bar.dataset.i)]; if (it && it.go) goMonitor(it.go); return; }
+    if (bar) {
+      const it = bar.parentElement._items[Number(bar.dataset.i)];
+      if (it && it.chg) { CHG.upload = null; CHG.type = it.chg; CHG.shown = 200; location.hash = '#/po/perubahan'; renderChanges(); return; }
+      if (it && it.go) goMonitor(it.go);
+      return;
+    }
     const tr = e.target.closest('#dAction tr.row');
     if (tr) { const r = state.rows.find((x) => x.key === tr.dataset.key); if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' }); }
   });
@@ -809,6 +910,204 @@
     const b = el.getBoundingClientRect(); showTip(el, b.left + b.width / 2, b.top);
   });
   $('view-po-dashboard').addEventListener('focusout', () => { tip.hidden = true; });
+
+  /* ================= PERUBAHAN DATA (per upload) ================= */
+  // Baris LOG_PERUBAHAN: 0 waktu upload, 1 upload sebelumnya, 2 jenis, 3 PO, 4 kode, 5 nama, 6 supplier, 7 lama, 8 baru, 9 tgl jadwal, 10 qty
+  const CHG_TYPES = ['PO baru', 'Baris baru', 'Qty order berubah', 'Baris dihapus', 'Jadwal baru', 'Jadwal berubah', 'Jadwal dihapus', 'Diterima'];
+  const CHG_CLS = { 'Diterima': 'b-done', 'Baris dihapus': 'b-late', 'Jadwal dihapus': 'b-late', 'Jadwal berubah': 'b-wait', 'Qty order berubah': 'b-wait' };
+  const CHG = { upload: null, type: '', shown: 200 };
+  const dtf = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const fmtStamp = (t) => { const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})/); return m ? dtf.format(new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5])) : t; };
+  const uploadsList = () => [...new Set(state.changes.map((c) => c[0]))].sort().reverse();
+  const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+
+  function chgBase() {
+    const up = CHG.upload === null ? uploadsList()[0] : CHG.upload;
+    return state.changes.filter((c) => !up || c[0] === up);
+  }
+
+  function renderChanges() {
+    const ups = uploadsList();
+    const count = new Map();
+    state.changes.forEach((c) => count.set(c[0], (count.get(c[0]) || 0) + 1));
+    const cur = CHG.upload === null ? (ups[0] || '') : CHG.upload;
+    $('gUpload').innerHTML = ups.length
+      ? ups.map((u, i) => `<option value="${esc(u)}"${u === cur ? ' selected' : ''}>${esc(fmtStamp(u))}${i === 0 ? ' (terakhir)' : ''} · ${nf.format(count.get(u))} perubahan</option>`).join('')
+        + `<option value=""${cur === '' && ups.length ? ' selected' : ''}>Semua upload</option>`
+      : '<option value="">Belum ada</option>';
+
+    const base = chgBase();
+    const q = $('gq').value.trim().toLowerCase();
+    const searched = base.filter((c) => !q || [c[3], c[4], c[5], c[6]].join(' ').toLowerCase().includes(q));
+    const tc = new Map(); searched.forEach((c) => tc.set(c[2], (tc.get(c[2]) || 0) + 1));
+    $('gTypes').innerHTML = `<button class="chg-type${CHG.type ? '' : ' is-on'}" data-t="">Semua <b>${nf.format(searched.length)}</b></button>`
+      + CHG_TYPES.filter((t) => tc.get(t)).map((t) => `<button class="chg-type${CHG.type === t ? ' is-on' : ''}" data-t="${esc(t)}">${esc(t)} <b>${nf.format(tc.get(t))}</b></button>`).join('');
+
+    let rows = searched.filter((c) => !CHG.type || c[2] === CHG.type);
+    rows = applyColSort(rows.slice().sort((a, b) => CHG_TYPES.indexOf(a[2]) - CHG_TYPES.indexOf(b[2]) || a[3].localeCompare(b[3])), colSort.chg, {});
+    paintSortHeaders($('gRows').closest('table'), 'chg');
+    const view = rows.slice(0, CHG.shown);
+    if (!state.changes.length) {
+      $('gInfo').textContent = '';
+      $('gRows').innerHTML = `<tr class="empty"><td colspan="7">${state.noFollowScript ? 'Apps Script belum versi terbaru, jadi perubahan belum dicatat.' : 'Belum ada perubahan tercatat.'} Perubahan mulai tercatat pada upload export Odoo berikutnya.</td></tr>`;
+      $('gMore').hidden = true;
+      return;
+    }
+    const prev = base[0] && base[0][1];
+    $('gInfo').textContent = `Menampilkan ${nf.format(view.length)} dari ${nf.format(rows.length)} perubahan` + (cur && prev ? ` · dibanding upload ${fmtStamp(prev)}` : '');
+    $('gRows').innerHTML = rows.length ? view.map((c) => {
+      let after = esc(c[8]);
+      if (c[2] === 'Jadwal berubah' && /^\d{4}-\d{2}-\d{2}$/.test(c[7]) && /^\d{4}-\d{2}-\d{2}$/.test(c[8])) {
+        const d = daysBetween(c[7], c[8]);
+        after = `${fmtDate(c[8])}<div class="strip-cap ${d > 0 ? 'short-cap' : ''}">${d > 0 ? 'mundur ' + d : 'maju ' + -d} hari</div>`;
+      } else if (c[2] === 'Diterima') after = `${esc(c[8])}<div class="strip-cap">+${esc(c[10])}</div>`;
+      const before = c[2] === 'Jadwal berubah' && /^\d{4}-/.test(c[7]) ? fmtDate(c[7]) : esc(c[7]);
+      return `<tr class="row" data-po="${esc(c[3])}" tabindex="0">
+        <td><span class="badge ${CHG_CLS[c[2]] || 'b-none'}">${esc(c[2])}</span>${cur ? '' : `<div class="strip-cap">${esc(fmtStamp(c[0]))}</div>`}</td>
+        <td class="po">${esc(c[3])}</td>
+        <td><div class="mat-name">${esc(c[5])}</div><div class="mat-code">${esc(c[4])}</div></td>
+        <td class="supplier">${esc(c[6])}</td>
+        <td class="num old-val">${before || '–'}</td><td class="num">${after || '–'}</td>
+        <td class="date">${/^\d{4}-/.test(c[9]) ? fmtDate(c[9]) : '–'}</td></tr>`;
+    }).join('') : '<tr class="empty"><td colspan="7">Tidak ada perubahan yang cocok.</td></tr>';
+    $('gMore').hidden = rows.length <= CHG.shown;
+  }
+
+  $('gUpload').addEventListener('change', () => { CHG.upload = $('gUpload').value; CHG.type = ''; CHG.shown = 200; renderChanges(); });
+  let gt;
+  $('gq').addEventListener('input', () => { clearTimeout(gt); gt = setTimeout(() => { CHG.shown = 200; renderChanges(); }, 200); });
+  $('gTypes').addEventListener('click', (e) => { const b = e.target.closest('.chg-type'); if (!b) return; CHG.type = b.dataset.t; CHG.shown = 200; renderChanges(); });
+  $('gMore').addEventListener('click', () => { CHG.shown += 200; renderChanges(); });
+  initSortHeaders($('gRows').closest('table'), 'chg', renderChanges);
+  $('gRows').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.row'); if (!tr) return;
+    goMonitor({ q: tr.dataset.po, jenis: '', supplier: '' });
+  });
+
+  // Kartu dashboard: perubahan upload terakhir & ketepatan kirim
+  function renderDashChanges() {
+    const j = $('dJenis').value, sp = $('dSup').value;
+    const jenisOf = new Map(state.rows.map((r) => [r.code, r.jenis]));
+    const keep = (c) => jenisOk({ jenis: jenisOf.get(c[4]) || '' }, j) && (!sp || c[6] === sp);
+    const ups = uploadsList();
+    if (!ups.length) {
+      $('dChgSub').textContent = 'Perubahan mulai tercatat pada upload export Odoo berikutnya.';
+      hbars($('dChanges'), [], 'Belum ada data perubahan.');
+    } else {
+      const last = state.changes.filter((c) => c[0] === ups[0] && keep(c));
+      const prev = last[0] && last[0][1];
+      $('dChgSub').textContent = `Upload ${fmtStamp(ups[0])}` + (prev ? ` dibanding ${fmtStamp(prev)}` : '') + '.';
+      const tc = new Map(); last.forEach((c) => tc.set(c[2], (tc.get(c[2]) || 0) + 1));
+      hbars($('dChanges'), CHG_TYPES.filter((t) => tc.get(t)).map((t) => ({
+        label: t, value: tc.get(t), text: nf.format(tc.get(t)), cls: /dihapus/.test(t) ? 'is-late' : '',
+        tip: `${nf.format(tc.get(t))} ${t.toLowerCase()} pada upload terakhir`, chg: t,
+      })), 'Tidak ada perubahan untuk saringan ini.');
+    }
+    // Ketepatan kirim (estimasi): terlambat bila upload sebelumnya sudah melewati tanggal jadwal
+    const bySup = new Map();
+    state.changes.forEach((c) => {
+      if (c[2] !== 'Diterima' || !c[1] || !/^\d{4}-\d{2}-\d{2}/.test(c[9]) || !keep(c)) return;
+      const x = bySup.get(c[6]) || { n: 0, ok: 0 };
+      x.n++; if (c[1].slice(0, 10) <= c[9]) x.ok++;
+      bySup.set(c[6], x);
+    });
+    hbars($('dOtd'), [...bySup.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 8).map(([sup, x]) => {
+      const pct = Math.round(x.ok / x.n * 100);
+      return { label: sup, value: pct, text: `${pct}% · ${x.ok}/${x.n}`, cls: pct < 70 ? 'is-late' : '',
+        tip: `${x.ok} dari ${x.n} penerimaan tepat waktu`, go: { supplier: sup, jenis: '' } };
+    }), 'Belum ada data. Angka muncul setelah ada penerimaan yang terdeteksi di antara dua upload.');
+  }
+
+  /* ================= KALENDER KEDATANGAN ================= */
+  const CAL = { month: null, day: null };
+  const dayLong = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  function calItems() {
+    const j = $('cJenis').value, sp = $('cSup').value, today = todayStr();
+    const out = [];
+    state.rows.forEach((r) => {
+      if (!jenisOk(r, j) || (sp && r.supplier !== sp) || r.status === 'done') return;
+      if (r.first) r.sched.forEach((s) => {
+        if (s.status === 'Done' || !s.date) return;
+        const gap = Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0));
+        if (gap) out.push({ date: s.date, r, qty: gap, kind: s.date < today ? 'late' : 'wait' });
+      });
+      if (r.first && r.follow && r.follow.promise) out.push({ date: r.follow.promise, r, qty: r.shortage || Math.max(0, r.sisa), kind: 'promise' });
+    });
+    return out;
+  }
+
+  function renderCal() {
+    if (!state.rows.length) return;
+    const uniqS = [...new Set(state.rows.map((r) => r.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    fillJenis($('cJenis'), [...new Set(state.rows.map((r) => r.jenis).filter(Boolean))].sort());
+    const cs = $('cSup').value;
+    $('cSup').innerHTML = '<option value="">Semua supplier</option>' + uniqS.map((v) => `<option>${esc(v)}</option>`).join('');
+    $('cSup').value = uniqS.includes(cs) ? cs : '';
+
+    const today = todayStr();
+    const month = CAL.month || today.slice(0, 7);
+    const sel = CAL.day || today;
+    const items = calItems();
+    const byDate = new Map();
+    items.forEach((it) => { if (!byDate.has(it.date)) byDate.set(it.date, []); byDate.get(it.date).push(it); });
+
+    $('cTitle').textContent = monthLabel(month, true);
+    const first = month + '-01';
+    const start = dayAdd(first, -((new Date(first + 'T00:00:00').getDay() + 6) % 7));
+    const lastDay = new Date(+month.slice(0, 4), +month.slice(5, 7), 0).getDate();
+    const end = dayAdd(month + '-' + String(lastDay).padStart(2, '0'), 6 - ((new Date(month + '-' + String(lastDay).padStart(2, '0') + 'T00:00:00').getDay() + 6) % 7));
+    let html = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((d) => `<div class="cal-dow" role="columnheader">${d}</div>`).join('');
+    for (let d = start; d <= end; d = dayAdd(d, 1)) {
+      const list = byDate.get(d) || [];
+      const n = { wait: 0, late: 0, promise: 0 };
+      list.forEach((it) => { n[it.kind]++; });
+      const cls = ['cal-cell', d.slice(0, 7) !== month ? 'is-other' : '', d === today ? 'is-today' : '', d === sel ? 'is-sel' : '', list.length ? 'has' : ''].join(' ');
+      const label = `${dayLong.format(new Date(d + 'T00:00:00'))}: ${n.wait} dijadwalkan, ${n.late} lewat jadwal, ${n.promise} janji kirim`;
+      html += `<button class="${cls}" data-d="${d}" role="gridcell" aria-label="${esc(label)}" aria-pressed="${d === sel}">
+        <span class="cal-num">${+d.slice(8)}</span>
+        <span class="cal-counts">${n.late ? `<span class="cc cc-late">${n.late}</span>` : ''}${n.wait ? `<span class="cc cc-wait">${n.wait}</span>` : ''}${n.promise ? `<span class="cc cc-promise">${n.promise}</span>` : ''}</span>
+      </button>`;
+    }
+    $('cGrid').innerHTML = html;
+
+    // Daftar hari terpilih
+    const list = (byDate.get(sel) || []).slice().sort((a, b) => ({ late: 0, promise: 1, wait: 2 })[a.kind] - ({ late: 0, promise: 1, wait: 2 })[b.kind] || a.r.supplier.localeCompare(b.r.supplier));
+    const olderLate = items.filter((it) => it.kind === 'late' && it.date < first).length;
+    const KIND = { late: ['Lewat jadwal', 'b-late'], wait: ['Dijadwalkan', 'b-wait'], promise: ['Janji kirim baru', 'b-promise'] };
+    $('cDay').innerHTML = `<h3>${esc(dayLong.format(new Date(sel + 'T00:00:00')))}</h3>
+      <p class="hint">${list.length ? nf.format(list.length) + ' kedatangan · ' + nf.format(new Set(list.map((x) => x.r.supplier)).size) + ' supplier' : 'Tidak ada kedatangan di tanggal ini.'}</p>
+      <div class="cal-list">${list.map((it) => `<button class="cal-item" data-key="${esc(it.r.key)}">
+          <span class="badge ${KIND[it.kind][1]}">${KIND[it.kind][0]}</span>
+          <span class="cal-item-main"><b>${esc(it.r.po)}</b> · ${esc(it.r.supplier)}<br><span class="mat-name">${esc(it.r.name)}</span> <span class="mat-code">${esc(it.r.code)}</span></span>
+          <span class="cal-item-qty">${fmtNum(it.qty)} ${esc(it.r.uom)}</span>
+        </button>`).join('')}</div>
+      ${olderLate ? `<p class="cal-older"><button class="btn btn-ghost btn-sm" data-go-late>${nf.format(olderLate)} jadwal lewat sebelum bulan ini</button></p>` : ''}`;
+  }
+
+  $('cGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('.cal-cell'); if (!b) return;
+    CAL.day = b.dataset.d;
+    if (b.dataset.d.slice(0, 7) !== (CAL.month || todayStr().slice(0, 7))) CAL.month = b.dataset.d.slice(0, 7);
+    renderCal();
+  });
+  const shiftMonth = (n) => {
+    const m = CAL.month || todayStr().slice(0, 7);
+    const d = new Date(m + '-01T00:00:00'); d.setMonth(d.getMonth() + n);
+    CAL.month = ymd(d).slice(0, 7);
+    CAL.day = CAL.month === todayStr().slice(0, 7) ? todayStr() : CAL.month + '-01';
+    renderCal();
+  };
+  $('cPrev').addEventListener('click', () => shiftMonth(-1));
+  $('cNext').addEventListener('click', () => shiftMonth(1));
+  $('cToday').addEventListener('click', () => { CAL.month = null; CAL.day = null; renderCal(); });
+  ['cJenis', 'cSup'].forEach((id) => $(id).addEventListener('change', renderCal));
+  $('cDay').addEventListener('click', (e) => {
+    if (e.target.closest('[data-go-late]')) return goMonitor({ status: 'late', sort: 'late-desc', jenis: $('cJenis').value, supplier: $('cSup').value });
+    const it = e.target.closest('.cal-item'); if (!it) return;
+    const r = state.rows.find((x) => x.key === it.dataset.key);
+    if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' });
+  });
 
   /* ================= EDIT MANUAL ================= */
 
@@ -989,7 +1288,7 @@
     const b = e.target.closest('[data-act]'); if (!b || !state.edit.on) return;
     const box = b.closest('[data-key]'); const r = box && findRow(box.dataset.key); if (!r) return;
     const s = b.dataset.n ? r.sched.find((x) => String(x.n) === b.dataset.n) : null;
-    ({ editLine: () => editLine(r), delLine: () => deleteLine(r), addSched: () => editSched(r, null),
+    ({ follow: () => editFollow(r), editLine: () => editLine(r), delLine: () => deleteLine(r), addSched: () => editSched(r, null),
        editSched: () => editSched(r, s), delSched: () => deleteSched(r, s) })[b.dataset.act]();
   });
   $('btnAddLine').addEventListener('click', () => editLine(null));
