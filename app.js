@@ -28,7 +28,17 @@
     const [y, m, d] = s.split('-').map(Number);
     return df.format(new Date(y, m - 1, d));
   };
-  const todayStr = () => new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd, zona waktu perangkat
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayStr = () => ymd(new Date()); // yyyy-mm-dd, zona waktu perangkat
+  // Tanggal dari Apps Script bisa "2026-11-03" atau teks panjang "Tue Nov 03 2026 00:00:00 GMT+0700"
+  const normDate = (v) => {
+    const s = String(v ?? '').trim();
+    if (!s) return '';
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    const d = new Date(s);
+    return isNaN(d) ? '' : ymd(d);
+  };
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const STATUS = {
@@ -85,7 +95,7 @@
     schedules.forEach((s) => {
       const k = s[0] + '|' + s[1];
       if (!schedBy.has(k)) schedBy.set(k, []);
-      schedBy.get(k).push({ n: s[3], qty: s[4], rec: s[5], date: s[6], status: s[7], name: s[2] });
+      schedBy.get(k).push({ n: s[3], qty: s[4], rec: s[5], date: normDate(s[6]), status: s[7], name: s[2] });
     });
     schedBy.forEach((list) => list.sort((a, b) => a.n - b.n));
 
@@ -120,7 +130,7 @@
 
         rows.push({
           key: k + '|' + l[10], idx,
-          po: l[0], date: l[1], supplier: l[2], code: l[3], name: l[4], jenis: l[5],
+          po: l[0], date: normDate(l[1]), supplier: l[2], code: l[3], name: l[4], jenis: l[5],
           qty, uom: l[7], price: l[8], kurs: l[9], lineKe: l[10], dupCount: items.length,
           rec, sisa, status, sched, next, today,
           search: (l[0] + ' ' + l[2] + ' ' + l[3] + ' ' + l[4]).toLowerCase(),

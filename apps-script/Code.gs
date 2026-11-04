@@ -184,17 +184,19 @@ function lastUpload_(ss, tz) {
   const sh = ss.getSheetByName(CONFIG.LOG_SHEET);
   if (!sh || sh.getLastRow() < 2) return null;
   const v = sh.getRange(sh.getLastRow(), 1, 1, 3).getValues()[0];
-  return { time: v[0] instanceof Date ? Utilities.formatDate(v[0], tz, 'yyyy-MM-dd HH:mm') : String(v[0]), det: v[1], del: v[2] };
+  return { time: isDate_(v[0]) ? Utilities.formatDate(v[0], tz, 'yyyy-MM-dd HH:mm') : String(v[0]), det: v[1], del: v[2] };
 }
 
+function isDate_(v) { return Object.prototype.toString.call(v) === '[object Date]'; }
+
 function toDate_(s) {
-  if (s instanceof Date) return s;
+  if (isDate_(s)) return s;
   const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : '';
 }
 
 function fmtDate_(v, tz) {
-  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  if (isDate_(v)) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
   return v ? String(v) : '';
 }
 
