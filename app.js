@@ -14,6 +14,10 @@
     knownPOs: new Set(),
     status: 'all',
     month: null,       // 'yyyy-mm' atau 'all'; null = bulan berjalan
+    raw: { lines: [], schedules: [] },
+    manual: new Map(),
+    editLog: [],
+    edit: { on: false, user: '', pin: '' },
     shown: PAGE,
     openKey: null,
     parsedDet: null,
@@ -55,6 +59,7 @@
     'beranda':       { view: 'view-beranda',       crumb: 'Monitoring Pekerjaan PPIC', title: 'Beranda',        po: false },
     'po/monitoring': { view: 'view-po-monitoring', crumb: 'Purchase Order',            title: 'Monitoring PO',  po: true },
     'po/update':     { view: 'view-po-update',     crumb: 'Purchase Order',            title: 'Update Data PO', po: true },
+    'po/riwayat':    { view: 'view-po-riwayat',    crumb: 'Purchase Order',            title: 'Riwayat Edit PO', po: true },
   };
   function route() {
     const key = location.hash.replace(/^#\/?/, '') || 'beranda';
@@ -115,12 +120,13 @@
       const res = await fetch(CFG.APPS_SCRIPT_URL, { method: 'GET' });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
-      buildRows(data.lines, data.schedules);
+      state.raw = { lines: data.lines, schedules: data.schedules };
+      setManual(data.manual);
+      state.editLog = data.editLog || [];
+      if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
       const up = data.lastUpload ? `Upload terakhir ${data.lastUpload.time}` : 'Belum ada upload lewat website';
       $('dataInfo').textContent = `${up} · Data dibaca ${data.readAt}`;
-      fillFilterOptions();
-      render();
-      renderHome();
+      refreshAll();
     } catch (err) {
       $('dataInfo').textContent = 'Gagal memuat data. Periksa koneksi lalu tekan "Muat ulang data".';
       $('rows').innerHTML = `<tr class="empty"><td colspan="10">Data tidak bisa dimuat: ${esc(err.message)}</td></tr>`;
@@ -137,6 +143,29 @@
       <p>Pasang Apps Script penghubung satu kali, lalu kirim alamat Web App-nya agar dimasukkan ke website.</p>`;
     $('rows').innerHTML = '<tr class="empty"><td colspan="10">Data akan tampil di sini setelah website terhubung.</td></tr>';
     $('btnReload').disabled = true;
+  }
+
+  // Tanda PO yang pernah diedit manual: Map po → { lines, sched, time, by }
+  function setManual(list) {
+    state.manual = new Map((list || []).map((m) => [m[0], { lines: !!m[1], sched: !!m[2], time: m[3], by: m[4] }]));
+  }
+
+  function refreshAll() {
+    buildRows(state.raw.lines, state.raw.schedules);
+    fillFilterOptions();
+    render();
+    renderHome();
+    renderLog();
+  }
+
+  // Hasil simpan/hapus dari Apps Script: ganti data PO yang berubah saja, tanpa memuat ulang semuanya
+  function applyServerUpdate(res) {
+    const pos = new Set(res.pos || []);
+    state.raw.lines = state.raw.lines.filter((l) => !pos.has(l[0])).concat(res.lines || []);
+    state.raw.schedules = state.raw.schedules.filter((s) => !pos.has(s[0])).concat(res.schedules || []);
+    setManual(res.manual);
+    state.editLog = res.editLog || state.editLog;
+    refreshAll();
   }
 
   /* ---------- Hitung status per baris ---------- */
@@ -186,6 +215,7 @@
           qty, uom: l[7], price: l[8], kurs: l[9], lineKe: l[10], dupCount: items.length,
           amount: l[8] === '' ? 0 : qty * Number(l[8]),
           pendingDates: pending.map((s) => s.date).filter(Boolean),
+          manual: state.manual ? state.manual.get(l[0]) || null : null,
           rec, sisa, status, sched, next, today,
           search: (l[0] + ' ' + l[2] + ' ' + l[3] + ' ' + l[4]).toLowerCase(),
         });
@@ -238,8 +268,10 @@
   function filteredNoMonth() {
     const q = $('q').value.trim().toLowerCase();
     const jenis = $('fJenis').value, sup = $('fSupplier').value, kurs = $('fKurs').value, arr = $('fArrive').value;
+    const man = $('fManual').value;
     return state.rows.filter((r) =>
       (!q || q.split(/\s+/).every((w) => r.search.includes(w))) &&
+      (!man || (man === 'yes' ? !!r.manual : !r.manual)) &&
       (!jenis || r.jenis === jenis) &&
       (!sup || r.supplier === sup) &&
       (!kurs || r.kurs === kurs) &&
@@ -285,6 +317,7 @@
     if ($('fJenis').value) chips.push(['fJenis', 'Jenis: ' + $('fJenis').value]);
     if ($('fArrive').value) chips.push(['fArrive', 'Jadwal: ' + ARRIVE[$('fArrive').value]]);
     if ($('fKurs').value) chips.push(['fKurs', 'Kurs: ' + $('fKurs').value]);
+    if ($('fManual').value) chips.push(['fManual', $('fManual').value === 'yes' ? 'Hanya PO yang diedit manual' : 'Hanya PO tanpa edit manual']);
     $('activeFilters').innerHTML = chips.length
       ? '<span class="af-label">Saringan aktif:</span>' + chips.map(([k, t]) =>
           `<button class="chip" data-clear="${k}" title="Hapus saringan ini">${esc(t)}<span class="chip-x" aria-hidden="true">×</span><span class="sr">hapus</span></button>`).join('')
@@ -335,8 +368,9 @@
     const note = r.dupCount > 1 ? `<span class="note">Kode ini muncul ${r.dupCount}× di PO ini</span>` : '';
     const next = r.next ? `${fmtDate(r.next.date)}<div class="strip-cap">${fmtNum(r.next.qty)} ${esc(r.uom)}</div>` : '–';
     const open = state.openKey === r.key;
+    const man = r.manual ? `<span class="tag-manual" title="Diedit manual ${esc(r.manual.time)} oleh ${esc(r.manual.by)}">Diedit manual</span>` : '';
     let html = `<tr class="row${open ? ' is-open' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
-      <td class="po">${esc(r.po)}</td>
+      <td class="po">${esc(r.po)}${man}</td>
       <td class="date">${fmtDate(r.date)}</td>
       <td class="supplier">${esc(r.supplier)}</td>
       <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}${r.jenis ? ' · ' + esc(r.jenis) : ''}</div>${note}</td>
@@ -353,21 +387,34 @@
 
   function detailHtml(r) {
     const amount = r.price === '' ? '–' : fmtNum(r.qty * r.price);
+    const ed = state.edit.on;
+    const cols = ed ? 6 : 5;
     const rows = r.sched.length ? r.sched.map((s) => {
       const late = s.status !== 'Done' && s.date && s.date < r.today;
+      const act = ed ? `<td class="row-actions">
+          <button type="button" class="btn-link" data-act="editSched" data-n="${s.n}">Ubah</button>
+          <button type="button" class="btn-link danger" data-act="delSched" data-n="${s.n}">Hapus</button></td>` : '';
       return `<tr class="${late ? 'is-late' : ''}"><td>${s.n}</td><td>${fmtDate(s.date)}</td>
-        <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td><td>${esc(s.status)}${late ? ' (lewat jadwal)' : ''}</td></tr>`;
-    }).join('') : '<tr><td colspan="5">Belum ada jadwal pengiriman di Odoo.</td></tr>';
+        <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td><td>${esc(s.status)}${late ? ' (lewat jadwal)' : ''}</td>${act}</tr>`;
+    }).join('') : `<tr><td colspan="${cols}">Belum ada jadwal pengiriman.</td></tr>`;
     const dup = r.dupCount > 1
       ? `<p class="hint">Kode ${esc(r.code)} muncul ${r.dupCount}× di ${esc(r.po)}. Odoo tidak membedakan jadwalnya, jadwal di bawah adalah gabungan; qty diterima dibagi berurutan ke tiap baris.</p>` : '';
-    return `<tr class="detail"><td colspan="10"><div class="detail-box">
+    const man = r.manual
+      ? `<p class="manual-note">PO ini pernah diedit manual (${[r.manual.lines && 'baris PO', r.manual.sched && 'jadwal'].filter(Boolean).join(' dan ')}) pada ${esc(r.manual.time)} oleh ${esc(r.manual.by)}. Saat upload export Odoo berikutnya, Anda akan ditanya mau memakai data Odoo atau mempertahankan edit ini.</p>` : '';
+    const tools = ed ? `<div class="detail-tools" data-key="${esc(r.key)}">
+        <button type="button" class="btn btn-sm" data-act="editLine">Ubah baris PO</button>
+        <button type="button" class="btn btn-sm" data-act="addSched">Tambah jadwal</button>
+        <button type="button" class="btn btn-sm btn-danger" data-act="delLine">Hapus baris PO</button>
+      </div>` : '';
+    return `<tr class="detail"><td colspan="10"><div class="detail-box" data-key="${esc(r.key)}">
+      ${tools}
       <div class="detail-meta">
         <span>Harga satuan <b>${r.price === '' ? '–' : fmtNum(r.price)} ${esc(r.kurs)}</b></span>
         <span>Nilai PO baris ini <b>${amount} ${esc(r.kurs)}</b></span>
         <span>Progres <b>${r.qty ? Math.round(Math.min(r.rec, r.qty) / r.qty * 100) : 0}%</b></span>
       </div>
-      <table class="sched"><thead><tr><th>Jadwal ke</th><th>Tanggal</th><th class="num">Qty jadwal</th><th class="num">Qty diterima</th><th>Status Odoo</th></tr></thead>
-      <tbody>${rows}</tbody></table>${dup}
+      <table class="sched"><thead><tr><th>Jadwal ke</th><th>Tanggal</th><th class="num">Qty jadwal</th><th class="num">Qty diterima</th><th>Status</th>${ed ? '<th></th>' : ''}</tr></thead>
+      <tbody>${rows}</tbody></table>${dup}${man}
     </div></td></tr>`;
   }
 
@@ -378,7 +425,7 @@
   });
   let t;
   $('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.shown = PAGE; render(); }, 200); });
-  ['fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fSort'].forEach((id) =>
+  ['fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fSort'].forEach((id) =>
     $(id).addEventListener('change', () => { state.shown = PAGE; render(); }));
 
   $('monthBar').addEventListener('click', (e) => {
@@ -396,7 +443,7 @@
   });
 
   $('btnReset').addEventListener('click', () => {
-    ['q', 'fJenis', 'fSupplier', 'fKurs', 'fArrive'].forEach((id) => { $(id).value = ''; });
+    ['q', 'fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual'].forEach((id) => { $(id).value = ''; });
     $('fSort').value = 'date-asc';
     state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
@@ -424,6 +471,261 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Monitoring PO');
     XLSX.writeFile(wb, `Monitoring_PO_${todayStr()}.xlsx`);
   });
+
+  /* ================= EDIT MANUAL ================= */
+
+  const SCHED_STATUS = ['Confirmed', 'Waiting for Shipment', 'Done'];
+  const store = {
+    get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* abaikan */ } },
+  };
+
+  async function api(action, payload) {
+    const res = await fetch(CFG.APPS_SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action, pin: state.edit.pin, user: state.edit.user }, payload)),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Gagal menyimpan.');
+    return data;
+  }
+
+  /* ---------- Jendela form ---------- */
+  let dlgSubmit = null;
+  function openDialog({ title, body, ok = 'Simpan', danger = false, onSubmit }) {
+    $('dlgTitle').textContent = title;
+    $('dlgBody').innerHTML = body;
+    $('dlgError').textContent = '';
+    $('dlgOk').textContent = ok;
+    $('dlgOk').className = 'btn' + (danger ? ' btn-danger' : '');
+    $('dlgOk').disabled = false;
+    dlgSubmit = onSubmit;
+    $('dlg').showModal();
+    const first = $('dlgBody').querySelector('input:not([readonly]), select');
+    if (first) first.focus();
+  }
+  const closeDialog = () => { $('dlg').close(); dlgSubmit = null; };
+  $('dlgCancel').addEventListener('click', closeDialog);
+  $('dlgForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!dlgSubmit) return closeDialog();
+    const fd = Object.fromEntries(new FormData($('dlgForm')).entries());
+    $('dlgOk').disabled = true; $('dlgError').textContent = '';
+    const label = $('dlgOk').textContent; $('dlgOk').textContent = 'Menyimpan…';
+    try { await dlgSubmit(fd); closeDialog(); }
+    catch (err) { $('dlgError').textContent = err.message; $('dlgOk').disabled = false; $('dlgOk').textContent = label; }
+  });
+
+  const fld = (name, label, value, opt = {}) => {
+    const attrs = [`name="${name}"`, `id="f_${name}"`, `value="${esc(value ?? '')}"`];
+    if (opt.type) attrs.push(`type="${opt.type}"`); else attrs.push('type="text"');
+    if (opt.step) attrs.push(`step="${opt.step}"`);
+    if (opt.required) attrs.push('required');
+    if (opt.readonly) attrs.push('readonly');
+    if (opt.list) attrs.push(`list="${opt.list}"`);
+    return `<label class="field${opt.wide ? ' span-2' : ''}"><span>${label}${opt.required ? ' *' : ''}</span><input ${attrs.join(' ')}></label>`;
+  };
+  const sel = (name, label, value, options) =>
+    `<label class="field"><span>${label}</span><select name="${name}">${options.map((o) => `<option${o === value ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+  const datalist = (id, values) => `<datalist id="${id}">${[...new Set(values.filter(Boolean))].sort().map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
+
+  /* ---------- Mode edit ---------- */
+  function setEditMode(on) {
+    state.edit.on = on;
+    if (!on) state.edit.pin = '';
+    $('editBar').hidden = !on;
+    $('editUser').textContent = state.edit.user;
+    $('btnEditMode').textContent = on ? 'Keluar mode edit' : 'Mode edit';
+    $('btnEditMode').classList.toggle('is-on', on);
+    render();
+  }
+
+  $('btnEditMode').addEventListener('click', () => {
+    if (state.edit.on) return setEditMode(false);
+    if (state.oldScript) {
+      openDialog({
+        title: 'Apps Script perlu diperbarui', ok: 'Mengerti', onSubmit: async () => {},
+        body: '<p>Fitur edit membutuhkan Apps Script versi terbaru di Google Sheet MONITORING PO. Tempel kode Code.gs terbaru lalu buat versi deployment baru (Deploy → Manage deployments → Edit → New version).</p>',
+      });
+      return;
+    }
+    openDialog({
+      title: 'Masuk mode edit', ok: 'Masuk',
+      body: `<p class="dlg-lead">Nama Anda dicatat di setiap perubahan. PIN sama dengan PIN upload.</p>
+        <div class="form-grid">${fld('user', 'Nama pengedit', store.get('ppic_user'), { required: true })}
+        ${fld('pin', 'PIN', '', { type: 'password', required: true })}</div>`,
+      onSubmit: async (fd) => {
+        state.edit.user = fd.user.trim(); state.edit.pin = fd.pin.trim();
+        if (!state.edit.user || !state.edit.pin) throw new Error('Isi nama dan PIN.');
+        try { await api('verify', {}); } catch (err) { state.edit.pin = ''; throw err; }
+        store.set('ppic_user', state.edit.user);
+        setEditMode(true);
+      },
+    });
+  });
+  $('btnEditOff').addEventListener('click', () => setEditMode(false));
+
+  const findRow = (key) => state.rows.find((r) => r.key === key);
+
+  function lineForm(r) {
+    const all = state.rows;
+    return `<div class="form-grid">
+      ${fld('po', 'No PO', r ? r.po : '', { required: true })}
+      ${fld('date', 'Order Date', r ? r.date : todayStr(), { type: 'date', required: true })}
+      ${fld('supplier', 'Supplier', r ? r.supplier : '', { list: 'dlSup', wide: true })}
+      ${fld('code', 'Kode material', r ? r.code : '', { required: true, list: 'dlCode' })}
+      ${fld('name', 'Nama material', r ? r.name : '', { wide: true })}
+      ${fld('qty', 'Qty order', r ? r.qty : '', { type: 'number', step: 'any', required: true })}
+      ${fld('uom', 'UoM', r ? r.uom : '', { list: 'dlUom' })}
+      ${fld('price', 'Harga satuan', r ? r.price : '', { type: 'number', step: 'any' })}
+      ${fld('kurs', 'Kurs', r ? r.kurs : 'IDR', { list: 'dlKurs' })}
+    </div>
+    ${datalist('dlSup', all.map((x) => x.supplier))}${datalist('dlCode', all.map((x) => x.code))}
+    ${datalist('dlUom', all.map((x) => x.uom))}${datalist('dlKurs', all.map((x) => x.kurs))}
+    <p class="hint">Isi kode yang sudah pernah dipakai, maka nama material dan UoM terisi otomatis. Jenis material diambil dari master material.</p>`;
+  }
+
+  // Kode material → isi otomatis nama & UoM dari data yang sudah ada
+  $('dlgBody').addEventListener('change', (e) => {
+    if (e.target.name !== 'code') return;
+    const hit = state.rows.find((x) => x.code === e.target.value.trim());
+    if (!hit) return;
+    const n = $('dlgBody').querySelector('[name="name"]'), u = $('dlgBody').querySelector('[name="uom"]');
+    if (n && !n.value) n.value = hit.name;
+    if (u && !u.value) u.value = hit.uom;
+  });
+
+  const lineData = (fd) => ({ po: fd.po.trim(), date: fd.date, supplier: fd.supplier, code: fd.code.trim(), name: fd.name,
+    qty: fd.qty, uom: fd.uom, price: fd.price, kurs: fd.kurs });
+
+  function editLine(r) {
+    openDialog({
+      title: r ? `Ubah baris PO ${r.po}` : 'Tambah baris PO', ok: r ? 'Simpan perubahan' : 'Tambah baris',
+      body: lineForm(r),
+      onSubmit: async (fd) => {
+        const res = await api('saveLine', { key: r ? { po: r.po, code: r.code, lineKe: r.lineKe } : null, data: lineData(fd) });
+        if (r && (fd.po.trim() !== r.po || fd.code.trim() !== r.code)) state.openKey = null;
+        applyServerUpdate(res);
+      },
+    });
+  }
+
+  function deleteLine(r) {
+    const others = state.rows.filter((x) => x.po === r.po && x.code === r.code && x.key !== r.key).length;
+    const withSched = !others && r.sched.length;
+    openDialog({
+      title: `Hapus baris PO ${r.po}?`, ok: 'Hapus', danger: true,
+      body: `<p><b>${esc(r.code)} · ${esc(r.name)}</b> (${fmtNum(r.qty)} ${esc(r.uom)}) akan dihapus dari monitoring.</p>
+        ${withSched ? `<p>${r.sched.length} jadwal pengiriman untuk material ini juga ikut dihapus.</p>` : ''}
+        <p class="hint">Perubahan tercatat di Riwayat Edit PO. Data bisa kembali bila Anda memilih "pakai data Odoo" saat upload berikutnya.</p>`,
+      onSubmit: async () => {
+        const res = await api('deleteLine', { key: { po: r.po, code: r.code, lineKe: r.lineKe }, withSchedules: !!withSched });
+        state.openKey = null;
+        applyServerUpdate(res);
+      },
+    });
+  }
+
+  function editSched(r, s) {
+    openDialog({
+      title: s ? `Ubah jadwal ke-${s.n} · ${r.po}` : `Tambah jadwal · ${r.po}`, ok: s ? 'Simpan perubahan' : 'Tambah jadwal',
+      body: `<p class="dlg-lead">${esc(r.code)} · ${esc(r.name)} · qty order ${fmtNum(r.qty)} ${esc(r.uom)}</p>
+        <div class="form-grid">
+          ${fld('date', 'Tanggal jadwal', s ? s.date : todayStr(), { type: 'date', required: true })}
+          ${sel('status', 'Status', s ? s.status : 'Confirmed', SCHED_STATUS.includes(s && s.status) || !s ? SCHED_STATUS : SCHED_STATUS.concat([s.status]))}
+          ${fld('qty', 'Qty jadwal', s ? s.qty : Math.max(0, r.sisa), { type: 'number', step: 'any', required: true })}
+          ${fld('rec', 'Qty diterima', s ? s.rec : 0, { type: 'number', step: 'any' })}
+        </div>`,
+      onSubmit: async (fd) => {
+        const res = await api('saveSched', {
+          key: s ? { po: r.po, code: r.code, n: s.n } : null,
+          data: { po: r.po, code: r.code, name: r.name, date: fd.date, status: fd.status, qty: fd.qty, rec: fd.rec || 0 },
+        });
+        applyServerUpdate(res);
+      },
+    });
+  }
+
+  function deleteSched(r, s) {
+    openDialog({
+      title: `Hapus jadwal ke-${s.n}?`, ok: 'Hapus', danger: true,
+      body: `<p>Jadwal <b>${fmtDate(s.date)}</b> · ${fmtNum(s.qty)} ${esc(r.uom)} · ${esc(s.status)} untuk ${esc(r.po)} / ${esc(r.code)} akan dihapus.</p>`,
+      onSubmit: async () => { applyServerUpdate(await api('deleteSched', { key: { po: r.po, code: r.code, n: s.n } })); },
+    });
+  }
+
+  $('rows').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]'); if (!b || !state.edit.on) return;
+    const box = b.closest('[data-key]'); const r = box && findRow(box.dataset.key); if (!r) return;
+    const s = b.dataset.n ? r.sched.find((x) => String(x.n) === b.dataset.n) : null;
+    ({ editLine: () => editLine(r), delLine: () => deleteLine(r), addSched: () => editSched(r, null),
+       editSched: () => editSched(r, s), delSched: () => deleteSched(r, s) })[b.dataset.act]();
+  });
+  $('btnAddLine').addEventListener('click', () => editLine(null));
+
+  /* ---------- Riwayat edit ---------- */
+  function renderLog() {
+    const q = $('qLog').value.trim().toLowerCase();
+    const rows = state.editLog.filter((r) => !q || r.join(' ').toLowerCase().includes(q));
+    $('logRows').innerHTML = rows.length ? rows.map((r) => `<tr>
+        <td class="date">${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td class="po">${esc(r[3])}</td>
+        <td>${esc(r[4])}</td><td>${esc(r[5])}</td><td class="old">${esc(r[6])}</td><td class="new">${esc(r[7])}</td></tr>`).join('')
+      : `<tr class="empty"><td colspan="8">${state.editLog.length ? 'Tidak ada riwayat yang cocok.' : 'Belum ada riwayat edit. Perubahan lewat Mode edit akan tampil di sini.'}</td></tr>`;
+  }
+  $('qLog').addEventListener('input', renderLog);
+
+  /* ---------- Upload: PO yang pernah diedit manual ---------- */
+  state.choices = new Map();
+  function conflicts() {
+    const det = state.parsedDet && state.parsedDet.pos, del = state.parsedDel && state.parsedDel.pos;
+    const out = [];
+    state.manual.forEach((m, po) => {
+      const parts = [];
+      if (m.lines && det && det.has(po)) parts.push('lines');
+      if (m.sched && del && del.has(po)) parts.push('sched');
+      if (parts.length) out.push({ po, parts, time: m.time, by: m.by });
+    });
+    return out.sort((a, b) => a.po.localeCompare(b.po));
+  }
+
+  function renderConflicts() {
+    const list = conflicts();
+    const box = $('conflictBox');
+    [...state.choices.keys()].forEach((po) => { if (!list.some((c) => c.po === po)) state.choices.delete(po); });
+    if (!list.length) { box.hidden = true; box.innerHTML = ''; updateSendState(); return; }
+    box.hidden = false;
+    box.innerHTML = `<h4>${list.length} PO di file ini pernah diedit manual</h4>
+      <p>Pilih data mana yang dipakai untuk setiap PO. "Pakai data Odoo" menimpa hasil edit manual; "Pertahankan edit" membiarkan PO itu seperti sekarang (bagian yang diedit tidak diperbarui dari file).</p>
+      <div class="conflict-bulk">
+        <button type="button" class="btn btn-ghost btn-sm" data-all="odoo">Semua pakai data Odoo</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-all="keep">Semua pertahankan edit</button>
+      </div>
+      <ul class="conflict-list">${list.map((c) => {
+        const ch = state.choices.get(c.po);
+        const what = c.parts.map((p) => (p === 'lines' ? 'baris PO' : 'jadwal')).join(' dan ');
+        return `<li><div><b>${esc(c.po)}</b><span class="hint"> · ${what} diedit ${esc(c.time)} oleh ${esc(c.by)}</span></div>
+          <div class="choice">
+            <label><input type="radio" name="c_${esc(c.po)}" value="odoo" data-po="${esc(c.po)}"${ch === 'odoo' ? ' checked' : ''}> Pakai data Odoo</label>
+            <label><input type="radio" name="c_${esc(c.po)}" value="keep" data-po="${esc(c.po)}"${ch === 'keep' ? ' checked' : ''}> Pertahankan edit</label>
+          </div></li>`;
+      }).join('')}</ul>`;
+    updateSendState();
+  }
+  $('conflictBox').addEventListener('change', (e) => {
+    if (e.target.dataset.po) { state.choices.set(e.target.dataset.po, e.target.value); updateSendState(); }
+  });
+  $('conflictBox').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-all]'); if (!b) return;
+    conflicts().forEach((c) => state.choices.set(c.po, b.dataset.all));
+    renderConflicts();
+  });
+
+  function updateSendState() {
+    const hasFile = !!(state.parsedDet || state.parsedDel);
+    const undecided = conflicts().filter((c) => !state.choices.has(c.po)).length;
+    $('btnSend').disabled = !hasFile || undecided > 0;
+    $('btnSend').title = undecided ? `Pilih dulu data untuk ${undecided} PO yang pernah diedit manual` : '';
+  }
 
   /* ---------- Upload: baca file Odoo ---------- */
   const DET_COLS = {
@@ -532,7 +834,7 @@
           $(checkId).textContent = err.message;
         }
       }
-      $('btnSend').disabled = !(state.parsedDet || state.parsedDel);
+      renderConflicts();
       $('sendResult').textContent = ''; $('sendResult').className = 'send-result';
     });
   }
@@ -553,9 +855,26 @@
     if (!CFG.APPS_SCRIPT_URL) { out.className = 'send-result err'; out.textContent = 'Website belum terhubung ke Google Sheet.'; return; }
     const pin = $('pin').value.trim();
     if (!pin) { out.className = 'send-result err'; out.textContent = 'Masukkan PIN upload terlebih dahulu.'; $('pin').focus(); return; }
-    const body = { pin };
-    if (state.parsedDet) { body.lines = state.parsedDet.rows; body.detName = state.parsedDet.fileName; }
-    if (state.parsedDel) { body.schedules = state.parsedDel.rows; body.delPOs = [...state.parsedDel.pos]; body.delName = state.parsedDel.fileName; }
+    // PO yang dipilih "Pertahankan edit": bagian yang diedit tidak ikut dikirim
+    const keepLines = new Set(), keepSched = new Set();
+    conflicts().forEach((c) => {
+      if (state.choices.get(c.po) !== 'keep') return;
+      if (c.parts.includes('lines')) keepLines.add(c.po);
+      if (c.parts.includes('sched')) keepSched.add(c.po);
+    });
+    const body = { pin, keptPOs: [...new Set([...keepLines, ...keepSched])] };
+    if (state.parsedDet) {
+      body.lines = state.parsedDet.rows.filter((r) => !keepLines.has(r[0]));
+      body.detName = state.parsedDet.fileName;
+    }
+    if (state.parsedDel) {
+      body.schedules = state.parsedDel.rows.filter((r) => !keepSched.has(r[0]));
+      body.delPOs = [...state.parsedDel.pos].filter((p) => !keepSched.has(p));
+      body.delName = state.parsedDel.fileName;
+    }
+    if (!(body.lines && body.lines.length) && !(body.delPOs && body.delPOs.length)) {
+      out.className = 'send-result err'; out.textContent = 'Tidak ada data yang dikirim: semua PO di file dipilih "Pertahankan edit".'; return;
+    }
 
     $('btnSend').disabled = true;
     out.className = 'send-result'; out.textContent = 'Mengirim ke Google Sheet… jangan tutup halaman ini.';
@@ -566,12 +885,15 @@
       const r = data.result, li = [];
       if (r.lines) li.push(`PO-DET: ${nf.format(r.lines.rows)} baris masuk (${nf.format(r.lines.poBaru)} PO baru, ${nf.format(r.lines.poDiperbarui)} PO diperbarui).`);
       if (r.schedules) li.push(`PO-DEL: ${nf.format(r.schedules.rows)} jadwal masuk untuk ${nf.format(r.schedules.poDiganti)} PO.`);
+      if (body.keptPOs.length) li.push(`Edit manual dipertahankan untuk ${nf.format(body.keptPOs.length)} PO: ${body.keptPOs.join(', ')}.`);
       out.className = 'send-result ok';
       out.innerHTML = `Terkirim ke Google Sheet pada ${esc(data.time)}.<ul>${li.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
       ['fileDet', 'fileDel'].forEach((id) => { $(id).value = ''; });
       ['nameDet', 'nameDel'].forEach((id) => { $(id).textContent = 'Belum ada file'; });
       ['checkDet', 'checkDel'].forEach((id) => { $(id).textContent = ''; });
       state.parsedDet = state.parsedDel = null;
+      state.choices.clear();
+      renderConflicts();
       loadData();
     } catch (err) {
       out.className = 'send-result err';

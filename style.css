@@ -293,3 +293,68 @@ tr.detail td { background: #fbfcfe; padding: 0; }
   .field { min-width: 0; flex: 1 1 140px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Mode edit ---------- */
+.btn.is-on { background: var(--gold); border-color: var(--gold); color: #fff; }
+.btn-sm { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.btn-danger { background: var(--late); border-color: var(--late); color: #fff; }
+.btn-link { border: 0; background: none; padding: 2px 4px; color: var(--brand); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.btn-link.danger { color: var(--late); }
+.edit-bar {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 12px 16px; border-radius: var(--radius-lg);
+  background: #fbf6ea; border: 1px solid #e6d3a6; border-left: 4px solid var(--gold);
+}
+.edit-bar p { margin: 0; max-width: 80ch; }
+.edit-bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tag-manual {
+  display: block; width: max-content; margin-top: 4px; padding: 1px 8px; border-radius: 999px;
+  background: #fbf1dc; color: #8a5a00; font-size: 11.5px; font-weight: 600;
+}
+.detail-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--line); }
+.row-actions { white-space: nowrap; text-align: right; }
+.manual-note { margin: 10px 0 0; font-size: 12.5px; color: #8a5a00; max-width: 80ch; }
+
+/* ---------- Jendela form ---------- */
+.dlg {
+  border: 0; border-radius: var(--radius-lg); padding: 0; width: min(620px, calc(100vw - 32px));
+  box-shadow: 0 20px 60px rgba(16, 40, 26, .25); color: var(--ink);
+}
+.dlg::backdrop { background: rgba(16, 40, 26, .4); }
+.dlg form { padding: 20px 22px; }
+.dlg h2 { font-size: 18px; margin-bottom: 10px; }
+.dlg p { margin: 0 0 10px; }
+.dlg-lead { color: var(--muted); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+.form-grid .field { min-width: 0; }
+.form-grid .span-2 { grid-column: span 2; }
+.form-grid input:read-only { background: #f3f5f7; color: var(--muted); }
+.dlg-error { color: var(--late); font-weight: 600; min-height: 1em; margin: 10px 0 0 !important; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* ---------- Konflik saat upload ---------- */
+.conflict-box {
+  margin: 4px 0 14px; padding: 14px 16px; border-radius: var(--radius-sm);
+  background: #fbf6ea; border: 1px solid #e6d3a6;
+}
+.conflict-box h4 { margin: 0 0 4px; font-size: 14.5px; }
+.conflict-box > p { margin: 0 0 10px; color: #5c4a1c; max-width: 70ch; }
+.conflict-bulk { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.conflict-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+.conflict-list li {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px 16px; flex-wrap: wrap;
+  padding: 8px 0; border-top: 1px solid #ecdcb4;
+}
+.choice { display: flex; gap: 14px; flex-wrap: wrap; }
+.choice label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 500; }
+
+/* ---------- Riwayat edit ---------- */
+.log-wrap { margin-top: 14px; }
+.log-table { min-width: 860px; }
+.log-table .old { color: var(--muted); text-decoration: line-through; }
+.log-table .new { color: var(--brand-dark); font-weight: 600; }
+
+@media (max-width: 560px) {
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .form-grid .span-2 { grid-column: auto; }
+}

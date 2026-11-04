@@ -30,6 +30,7 @@
         <div class="submenu">
           <a class="menu-item sub" href="#/po/monitoring" data-route="po/monitoring">Monitoring PO</a>
           <a class="menu-item sub" href="#/po/update" data-route="po/update">Update Data PO</a>
+          <a class="menu-item sub" href="#/po/riwayat" data-route="po/riwayat">Riwayat Edit PO</a>
         </div>
       </div>
     </nav>
@@ -48,6 +49,7 @@
         <p class="sub" id="dataInfo">Memuat data…</p>
       </div>
       <div class="top-actions" id="poActions" hidden>
+        <button class="btn btn-ghost" id="btnEditMode" title="Aktifkan untuk menambah, mengubah, atau menghapus data PO secara manual">Mode edit</button>
         <button class="btn" id="btnReload" title="Ambil ulang data terbaru dari Google Sheet MONITORING PO">Muat ulang data</button>
         <a class="btn btn-ghost" id="lnkSheet" target="_blank" rel="noopener" title="Buka Google Sheet MONITORING PO di tab baru">Buka Google Sheet</a>
       </div>
@@ -77,6 +79,14 @@
       <section id="view-po-monitoring" class="view" hidden>
 
         <div class="setup-note" id="setupNote" hidden></div>
+
+        <div class="edit-bar" id="editBar" hidden>
+          <p><b>Mode edit aktif</b> sebagai <span id="editUser"></span>. Klik sebuah baris untuk mengubah atau menghapus baris PO dan jadwalnya. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
+          <div class="edit-bar-actions">
+            <button class="btn" id="btnAddLine" title="Tambah baris PO baru secara manual">Tambah baris PO</button>
+            <button class="btn btn-ghost" id="btnEditOff" title="Matikan mode edit">Keluar mode edit</button>
+          </div>
+        </div>
 
         <!-- Bulan order -->
         <div class="month-block">
@@ -125,6 +135,14 @@
             <label class="field">
               <span>Kurs</span>
               <select id="fKurs"><option value="">Semua kurs</option></select>
+            </label>
+            <label class="field">
+              <span>Edit manual</span>
+              <select id="fManual">
+                <option value="">Semua PO</option>
+                <option value="yes">Hanya PO yang diedit manual</option>
+                <option value="no">Hanya PO tanpa edit manual</option>
+              </select>
             </label>
             <label class="field">
               <span>Urutkan</span>
@@ -212,6 +230,7 @@
                 <h3>Masukkan PIN dan kirim</h3>
                 <p>Boleh mengirim salah satu file saja. Data di Google Sheet langsung berubah setelah tombol ditekan.</p>
               </div>
+              <div class="conflict-box" id="conflictBox" hidden></div>
               <div class="send-row">
                 <label class="field">
                   <span>PIN upload</span>
@@ -224,9 +243,37 @@
           </ol>
         </div>
       </section>
+      <!-- ================= RIWAYAT EDIT PO ================= -->
+      <section id="view-po-riwayat" class="view" hidden>
+        <p class="lead">Semua perubahan yang dibuat lewat Mode edit, terbaru di atas. Riwayat lengkap juga tersimpan di tab LOG_EDIT pada Google Sheet MONITORING PO.</p>
+        <div class="filters">
+          <label class="field grow">
+            <span>Cari riwayat</span>
+            <input type="search" id="qLog" placeholder="No PO, kode, nama pengedit, atau aksi">
+          </label>
+        </div>
+        <div class="table-wrap log-wrap">
+          <table class="po-table log-table">
+            <thead><tr><th>Waktu</th><th>Pengedit</th><th>Aksi</th><th>No PO</th><th>Kode</th><th>Kolom</th><th>Nilai lama</th><th>Nilai baru</th></tr></thead>
+            <tbody id="logRows"><tr class="empty"><td colspan="8">Belum ada riwayat edit.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </main>
   </div>
 </div>
+
+<dialog id="dlg" class="dlg" aria-labelledby="dlgTitle">
+  <form method="dialog" id="dlgForm">
+    <h2 id="dlgTitle"></h2>
+    <div id="dlgBody"></div>
+    <p class="dlg-error" id="dlgError" role="alert"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="dlgCancel">Batal</button>
+      <button type="submit" class="btn" id="dlgOk">Simpan</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>

@@ -28,4 +28,6 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 - Kode material dicocokkan persis (MMBU001 ≠ MMBU002). Jumlah jadwal tidak dibatasi.
 - Kode yang muncul lebih dari sekali dalam satu PO: qty diterima dibagi berurutan ke tiap baris.
 - Urutan tampilan: Order Date terlama di atas.
+- Edit manual (Mode edit, perlu nama + PIN): tambah/ubah/hapus baris PO dan jadwal, tambah PO manual. Setiap edit tercatat di tab LOG_EDIT dan halaman Riwayat Edit PO; PO yang diedit ditandai di tab PO_MANUAL.
+- Upload setelah edit manual: website menampilkan PO yang bentrok dan meminta pilihan per PO (pakai data Odoo / pertahankan edit). "Pertahankan" berarti bagian yang diedit tidak dikirim dari file.
 - Status: Lengkap (sisa 0), Terlambat (ada jadwal belum Done yang tanggalnya sudah lewat), Dijadwalkan (ada jadwal belum Done), Belum dijadwalkan.
