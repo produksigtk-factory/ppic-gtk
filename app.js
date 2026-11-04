@@ -50,6 +50,7 @@
   const STATUS = {
     done: { label: 'Lengkap', cls: 'b-done' },
     late: { label: 'Terlambat', cls: 'b-late' },
+    short: { label: 'Kurang kirim', cls: 'b-late' },
     wait: { label: 'Dijadwalkan', cls: 'b-wait' },
     none: { label: 'Belum dijadwalkan', cls: 'b-none' },
   };
@@ -59,6 +60,7 @@
   const ROUTES = {
     // actions: 'po' / 'sup' = tampilkan tombol Mode edit, Muat ulang, Buka Google Sheet untuk modul itu
     'beranda':           { view: 'view-beranda',           crumb: 'Monitoring Pekerjaan PPIC', title: 'Beranda',         actions: '' },
+    'po/dashboard':      { view: 'view-po-dashboard',      crumb: 'Purchase Order',            title: 'Dashboard PO',    actions: 'po' },
     'po/monitoring':     { view: 'view-po-monitoring',     crumb: 'Purchase Order',            title: 'Monitoring PO',   actions: 'po' },
     'po/update':         { view: 'view-po-update',         crumb: 'Purchase Order',            title: 'Update Data PO',  actions: 'po' },
     'po/riwayat':        { view: 'view-po-riwayat',        crumb: 'Purchase Order',            title: 'Riwayat Edit PO', actions: 'po' },
@@ -115,7 +117,7 @@
       r.sched.forEach((s) => { if (s.status !== 'Done' && s.date >= today && s.date <= plus7) week++; });
     });
     $('hOpen').textContent = nf.format(rows.filter((r) => r.status !== 'done').length);
-    $('hLate').textContent = nf.format(rows.filter((r) => r.status === 'late').length);
+    $('hLate').textContent = nf.format(rows.filter((r) => r.shortage > 0).length);
     $('hWeek').textContent = nf.format(week);
   }
 
@@ -165,6 +167,7 @@
     fillFilterOptions();
     render();
     renderHome();
+    renderDash();
     renderLog();
   }
 
@@ -206,6 +209,21 @@
       const next = pending.filter((s) => s.date).sort((a, b) => (a.date < b.date ? -1 : 1))[0] || null;
       let remain = totalRec;
 
+      // Shortage = qty yang seharusnya sudah datang (jadwal belum Done & tanggal sudah lewat) tetapi belum diterima,
+      // ditambah kurang kirim pada jadwal yang sudah Done. Dihitung per PO + kode, dicatat di baris pertama.
+      let shortage = 0, oldest = '';
+      sched.forEach((s) => {
+        const gap = Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0));
+        if (!gap) return;
+        const overdue = s.status !== 'Done' && s.date && s.date < today;
+        if (overdue || s.status === 'Done') {
+          shortage += gap; s.short = gap;
+          if (s.date && (!oldest || s.date < oldest)) oldest = s.date;
+        }
+      });
+      const lateDays = oldest ? Math.round((new Date(today) - new Date(oldest)) / 86400000) : 0;
+      let shortRemain = shortage;   // dibagi berurutan ke baris kode yang sama, seperti qty diterima
+
       items.forEach(({ idx, l }, i) => {
         const qty = Number(l[6]) || 0;
         const isLast = i === items.length - 1;
@@ -215,8 +233,12 @@
         let status;
         if (qty > 0 && sisa <= 0) status = 'done';
         else if (hasLate) status = 'late';
+        else if (shortage > 0) status = 'short';
         else if (pending.length) status = 'wait';
         else status = 'none';
+        const short = isLast ? shortRemain : Math.min(Math.max(0, sisa), shortRemain);
+        shortRemain -= short;
+        const price = l[8] === '' ? 0 : Number(l[8]);
 
         const date = normDate(l[1]);
         rows.push({
@@ -226,7 +248,9 @@
           amount: l[8] === '' ? 0 : qty * Number(l[8]),
           pendingDates: pending.map((s) => s.date).filter(Boolean),
           manual: state.manual ? state.manual.get(l[0]) || null : null,
-          rec, sisa, status, sched, next, today,
+          rec, sisa, status, sched, next, today, first: i === 0,
+          shortage: short, lateDays: short ? lateDays : 0, oldestLate: short ? oldest : '',
+          sisaValue: Math.max(0, sisa) * price, shortValue: short * price,
           search: (l[0] + ' ' + l[2] + ' ' + l[3] + ' ' + l[4]).toLowerCase(),
         });
       });
@@ -274,12 +298,23 @@
     return true;
   }
 
+  // Saringan khusus dari klik grafik di Dashboard PO
+  function matchDrill(r, dr) {
+    if (dr.type === 'arrive') {          // ada jadwal belum Done pada rentang tanggal
+      return r.status !== 'done' && r.pendingDates.some((x) => x >= dr.from && x <= dr.to);
+    }
+    if (dr.type === 'age') return r.shortage > 0 && r.lateDays >= dr.min && r.lateDays <= dr.max;
+    return true;
+  }
+
   // Semua saringan kecuali bulan (dipakai juga untuk angka di tab bulan)
   function filteredNoMonth() {
     const q = $('q').value.trim().toLowerCase();
     const jenis = $('fJenis').value, sup = $('fSupplier').value, kurs = $('fKurs').value, arr = $('fArrive').value;
     const man = $('fManual').value;
+    const dr = state.drill;
     return state.rows.filter((r) =>
+      (!dr || matchDrill(r, dr)) &&
       (!q || q.split(/\s+/).every((w) => r.search.includes(w))) &&
       (!man || (man === 'yes' ? !!r.manual : !r.manual)) &&
       (!jenis || r.jenis === jenis) &&
@@ -291,6 +326,7 @@
 
   const byStatus = (rows, st) => st === 'all' ? rows
     : st === 'open' ? rows.filter((r) => r.status !== 'done')
+    : st === 'late' ? rows.filter((r) => r.shortage > 0)
     : rows.filter((r) => r.status === st);
 
   const SORTS = {
@@ -299,6 +335,8 @@
     'next-asc': (a, b) => { const x = a.next ? a.next.date : '9999', y = b.next ? b.next.date : '9999'; return x < y ? -1 : x > y ? 1 : SORTS['date-asc'](a, b); },
     'sisa-desc': (a, b) => (b.sisa - a.sisa) || SORTS['date-asc'](a, b),
     'amount-desc': (a, b) => (b.amount - a.amount) || SORTS['date-asc'](a, b),
+    'short-desc': (a, b) => (b.shortValue - a.shortValue) || (b.shortage - a.shortage) || SORTS['date-asc'](a, b),
+    'late-desc': (a, b) => (b.lateDays - a.lateDays) || (b.shortValue - a.shortValue) || SORTS['date-asc'](a, b),
   };
 
   function renderMonthBar(rowsNoMonth) {
@@ -321,12 +359,13 @@
     const chips = [];
     const m = activeMonth();
     if (m !== 'all') chips.push(['month', `Bulan order: ${monthLabel(m, true)}`]);
-    if (state.status !== 'all') chips.push(['status', 'Status: ' + { open: 'Belum lengkap diterima', late: 'Jadwal lewat, belum datang', done: 'Sudah lengkap' }[state.status]]);
+    if (state.status !== 'all') chips.push(['status', 'Status: ' + { open: 'Belum lengkap diterima', late: 'Shortage (lewat jadwal / kurang kirim)', done: 'Sudah lengkap' }[state.status]]);
     if ($('q').value.trim()) chips.push(['q', `Cari: "${$('q').value.trim()}"`]);
     if ($('fSupplier').value) chips.push(['fSupplier', 'Supplier: ' + $('fSupplier').value]);
     if ($('fJenis').value) chips.push(['fJenis', 'Jenis: ' + $('fJenis').value]);
     if ($('fArrive').value) chips.push(['fArrive', 'Jadwal: ' + ARRIVE[$('fArrive').value]]);
     if ($('fKurs').value) chips.push(['fKurs', 'Kurs: ' + $('fKurs').value]);
+    if (state.drill) chips.push(['drill', state.drill.label]);
     if ($('fManual').value) chips.push(['fManual', $('fManual').value === 'yes' ? 'Hanya PO yang diedit manual' : 'Hanya PO tanpa edit manual']);
     $('activeFilters').innerHTML = chips.length
       ? '<span class="af-label">Saringan aktif:</span>' + chips.map(([k, t]) =>
@@ -384,9 +423,9 @@
       <td class="date">${fmtDate(r.date)}</td>
       <td class="supplier">${esc(r.supplier)}</td>
       <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}${r.jenis ? ' · ' + esc(r.jenis) : ''}</div>${note}</td>
-      <td class="num">${fmtNum(r.qty)} ${esc(r.uom)}</td>
-      <td class="num">${fmtNum(r.rec)}</td>
+      <td class="num">${fmtNum(r.qty)} ${esc(r.uom)}<div class="strip-cap">diterima ${fmtNum(r.rec)}</div></td>
       <td class="num">${r.sisa > 0 ? fmtNum(r.sisa) : '0'}</td>
+      <td class="num">${r.shortage > 0 ? `<span class="short-qty">${fmtNum(r.shortage)}</span><div class="strip-cap short-cap">${r.lateDays ? r.lateDays + ' hari' : 'kurang kirim'}</div>` : '<span class="muted">–</span>'}</td>
       <td>${stripHtml(r)}</td>
       <td class="date">${next}</td>
       <td><span class="badge ${st.cls}">${st.label}</span></td>
@@ -405,7 +444,7 @@
           <button type="button" class="btn-link" data-act="editSched" data-n="${s.n}">Ubah</button>
           <button type="button" class="btn-link danger" data-act="delSched" data-n="${s.n}">Hapus</button></td>` : '';
       return `<tr class="${late ? 'is-late' : ''}"><td>${s.n}</td><td>${fmtDate(s.date)}</td>
-        <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td><td>${esc(s.status)}${late ? ' (lewat jadwal)' : ''}</td>${act}</tr>`;
+        <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td><td>${esc(s.status)}${late ? ' (lewat jadwal)' : ''}${s.short ? ` · <b class="short-qty">shortage ${fmtNum(s.short)}</b>` : ''}</td>${act}</tr>`;
     }).join('') : `<tr><td colspan="${cols}">Belum ada jadwal pengiriman.</td></tr>`;
     const dup = r.dupCount > 1
       ? `<p class="hint">Kode ${esc(r.code)} muncul ${r.dupCount}× di ${esc(r.po)}. Odoo tidak membedakan jadwalnya, jadwal di bawah adalah gabungan; qty diterima dibagi berurutan ke tiap baris.</p>` : '';
@@ -422,6 +461,7 @@
         <span>Harga satuan <b>${r.price === '' ? '–' : fmtNum(r.price)} ${esc(r.kurs)}</b></span>
         <span>Nilai PO baris ini <b>${amount} ${esc(r.kurs)}</b></span>
         <span>Progres <b>${r.qty ? Math.round(Math.min(r.rec, r.qty) / r.qty * 100) : 0}%</b></span>
+        ${r.shortage > 0 ? `<span>Shortage <b class="short-qty">${fmtNum(r.shortage)} ${esc(r.uom)}</b>${r.lateDays ? `, terlambat ${r.lateDays} hari sejak ${fmtDate(r.oldestLate)}` : ' (kurang kirim)'}${r.shortValue ? ` · nilai ${fmtNum(Math.round(r.shortValue))} ${esc(r.kurs)}` : ''}</span>` : ''}
       </div>
       <table class="sched"><thead><tr><th>Jadwal ke</th><th>Tanggal</th><th class="num">Qty jadwal</th><th class="num">Qty diterima</th><th>Status</th>${ed ? '<th></th>' : ''}</tr></thead>
       <tbody>${rows}</tbody></table>${dup}${man}
@@ -448,6 +488,7 @@
     const k = c.dataset.clear;
     if (k === 'month') state.month = 'all';
     else if (k === 'status') state.status = 'all';
+    else if (k === 'drill') state.drill = null;
     else $(k).value = '';
     state.shown = PAGE; render();
   });
@@ -455,6 +496,7 @@
   $('btnReset').addEventListener('click', () => {
     ['q', 'fJenis', 'fSupplier', 'fKurs', 'fArrive', 'fManual'].forEach((id) => { $(id).value = ''; });
     $('fSort').value = 'date-asc';
+    state.drill = null;
     state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
   $('btnMore').addEventListener('click', () => { state.shown += PAGE; render(); });
@@ -473,7 +515,8 @@
     const data = rows.map((r) => ({
       'No PO': r.po, 'Order Date': r.date, 'Supplier': r.supplier, 'Kode': r.code, 'Nama Material': r.name,
       'Jenis': r.jenis, 'Qty Order': r.qty, 'UoM': r.uom, 'Unit Price': r.price, 'Kurs': r.kurs,
-      'Diterima': r.rec, 'Sisa': Math.max(0, r.sisa), 'Jumlah Jadwal': r.sched.length,
+      'Diterima': r.rec, 'Sisa': Math.max(0, r.sisa), 'Shortage': r.shortage || '', 'Hari Terlambat': r.lateDays || '',
+      'Nilai Shortage': r.shortValue ? Math.round(r.shortValue) : '', 'Jumlah Jadwal': r.sched.length,
       'Jadwal Berikutnya': r.next ? r.next.date : '', 'Qty Jadwal Berikutnya': r.next ? r.next.qty : '',
       'Status': STATUS[r.status].label,
     }));
@@ -481,6 +524,223 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Monitoring PO');
     XLSX.writeFile(wb, `Monitoring_PO_${todayStr()}.xlsx`);
   });
+
+  /* ================= DASHBOARD PO ================= */
+  const DASH = { arrMode: 'count' };
+  const fmtRp = (v) => {
+    const a = Math.abs(v);
+    if (a >= 1e12) return 'Rp ' + nf.format(+(v / 1e12).toFixed(2)) + ' T';
+    if (a >= 1e9) return 'Rp ' + nf.format(+(v / 1e9).toFixed(2)) + ' M';
+    if (a >= 1e6) return 'Rp ' + nf.format(+(v / 1e6).toFixed(1)) + ' jt';
+    return 'Rp ' + nf.format(Math.round(v));
+  };
+  const dayAdd = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return ymd(x); };
+  const dmf = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' });
+  const shortDate = (d) => dmf.format(new Date(d + 'T00:00:00'));
+
+  function dashRows() {
+    const j = $('dJenis').value, sp = $('dSup').value;
+    return state.rows.filter((r) => (!j || r.jenis === j) && (!sp || r.supplier === sp));
+  }
+
+  function fillDashOptions() {
+    const keep = (sel, list, first) => {
+      const cur = sel.value;
+      sel.innerHTML = `<option value="">${first}</option>` + list.map((v) => `<option>${esc(v)}</option>`).join('');
+      sel.value = list.includes(cur) ? cur : '';
+    };
+    const uniq = (f) => [...new Set(state.rows.map(f).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    keep($('dJenis'), uniq((r) => r.jenis), 'Semua jenis');
+    keep($('dSup'), uniq((r) => r.supplier), 'Semua supplier');
+  }
+
+  // Bar vertikal: [{label, value, sub, cls, tip, go}]
+  function vbars(el, items, fmt) {
+    const max = Math.max(1, ...items.map((x) => x.value));
+    const top = items.reduce((m, x, i) => (x.value > items[m].value ? i : m), 0);
+    el.innerHTML = items.map((x, i) => `
+      <button class="vbar ${x.cls || ''}" data-i="${i}" data-tip="${esc(x.tip)}" aria-label="${esc(x.label + ': ' + x.tip)}">
+        <span class="vbar-val">${i === top || x.cls === 'is-late' ? (x.value ? fmt(x.value) : '') : ''}</span>
+        <span class="vbar-track"><span class="vbar-fill" style="height:${x.value ? Math.max(2, x.value / max * 100) : 0}%"></span></span>
+        <span class="vbar-label">${esc(x.label)}</span>
+      </button>`).join('');
+    el._items = items;
+  }
+  // Bar horizontal: [{label, value, text, cls, tip, go}]
+  function hbars(el, items, empty) {
+    if (!items.length) { el.innerHTML = `<p class="muted dash-empty">${empty}</p>`; el._items = []; return; }
+    const max = Math.max(1, ...items.map((x) => x.value));
+    el.innerHTML = items.map((x, i) => `
+      <button class="hbar ${x.cls || ''}" data-i="${i}" data-tip="${esc(x.tip)}" aria-label="${esc(x.label + ': ' + x.tip)}">
+        <span class="hbar-label">${esc(x.label)}</span>
+        <span class="hbar-track"><span class="hbar-fill" style="width:${x.value ? Math.max(1.5, x.value / max * 100) : 0}%"></span></span>
+        <span class="hbar-val">${esc(x.text)}</span>
+      </button>`).join('');
+    el._items = items;
+  }
+
+  function renderDash() {
+    if (!state.rows.length) return;
+    fillDashOptions();
+    const rows = dashRows();
+    const today = todayStr(), plus7 = dayAdd(today, 7);
+    const isIdr = (r) => String(r.kurs).toUpperCase() === 'IDR';
+
+    // KPI
+    const open = rows.filter((r) => r.status !== 'done');
+    $('kActive').textContent = nf.format(new Set(open.map((r) => r.po)).size);
+    $('kActiveSub').textContent = `${nf.format(open.length)} baris belum lengkap · ${nf.format(new Set(open.map((r) => r.supplier)).size)} supplier`;
+    $('kOut').textContent = fmtRp(open.filter(isIdr).reduce((t, r) => t + r.sisaValue, 0));
+    const other = {};
+    open.filter((r) => !isIdr(r) && r.sisaValue).forEach((r) => { other[r.kurs] = (other[r.kurs] || 0) + r.sisaValue; });
+    $('kOutSub').textContent = Object.keys(other).length
+      ? 'ditambah ' + Object.entries(other).map(([k, v]) => `${k} ${nf.format(Math.round(v))}`).join(' · ')
+      : 'semua PO berkurs IDR';
+    const sh = rows.filter((r) => r.shortage > 0);
+    $('kShort').textContent = fmtRp(sh.filter(isIdr).reduce((t, r) => t + r.shortValue, 0));
+    $('kShortSub').textContent = `${nf.format(sh.length)} baris · ${nf.format(new Set(sh.map((r) => r.supplier)).size)} supplier`;
+
+    // Jadwal belum Done per minggu (dihitung sekali per PO + kode)
+    const groupsFirst = rows.filter((r) => r.first);
+    const pend = [];
+    groupsFirst.forEach((r) => r.sched.forEach((s) => {
+      if (s.status === 'Done' || !s.date) return;
+      const gap = Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0));
+      pend.push({ date: s.date, value: isIdr(r) && r.price !== '' ? gap * Number(r.price) : 0, r });
+    }));
+    const wk = pend.filter((p) => p.date >= today && p.date <= plus7);
+    $('kWeek').textContent = nf.format(wk.length) + ' jadwal';
+    $('kWeekSub').textContent = `${fmtRp(wk.reduce((t, p) => t + p.value, 0))} · ${nf.format(new Set(wk.map((p) => p.r.supplier)).size)} supplier`;
+
+    const dow = (new Date(today + 'T00:00:00').getDay() + 6) % 7;      // 0 = Senin
+    const monday = dayAdd(today, -dow);
+    const buckets = [{ label: 'Lewat jadwal', from: '0000-01-01', to: dayAdd(today, -1), cls: 'is-late', late: true }];
+    for (let i = 0; i < 8; i++) {
+      const from = i === 0 ? today : dayAdd(monday, 7 * i), to = dayAdd(monday, 7 * i + 6);
+      buckets.push({ label: i === 0 ? 'Minggu ini' : shortDate(from), from, to });
+    }
+    const after = { label: 'Setelahnya', from: dayAdd(monday, 56), to: '9999-12-31' };
+    buckets.push(after);
+    const arrItems = buckets.map((b) => {
+      const ps = pend.filter((p) => p.date >= b.from && p.date <= b.to);
+      const val = ps.reduce((t, p) => t + p.value, 0);
+      const range = b.late ? 'sebelum hari ini' : b === after ? `mulai ${shortDate(b.from)}` : `${shortDate(b.from)} – ${shortDate(b.to)}`;
+      return {
+        label: b.label, cls: b.cls, value: DASH.arrMode === 'count' ? ps.length : val,
+        tip: `${range}: ${nf.format(ps.length)} jadwal · ${fmtRp(val)}`,
+        go: b.late ? { status: 'late', sort: 'late-desc' }
+          : { drill: { type: 'arrive', from: b.from, to: b.to, label: `Jadwal datang ${range}` }, sort: 'next-asc' },
+      };
+    });
+    vbars($('dArrive'), arrItems, DASH.arrMode === 'count' ? (v) => nf.format(v) : fmtRp);
+
+    // Umur shortage
+    const ages = [[1, 7, '1–7 hari'], [8, 14, '8–14 hari'], [15, 30, '15–30 hari'], [31, 60, '31–60 hari'], [61, 99999, 'Lebih dari 60 hari']];
+    hbars($('dAge'), ages.map(([a, b, label]) => {
+      const rs = sh.filter((r) => r.lateDays >= a && r.lateDays <= b);
+      const v = rs.filter(isIdr).reduce((t, r) => t + r.shortValue, 0);
+      return { label, value: rs.length, text: `${nf.format(rs.length)} baris`, cls: 'is-late',
+        tip: `${nf.format(rs.length)} baris · ${fmtRp(v)}`,
+        go: { drill: { type: 'age', min: a, max: b, label: `Shortage terlambat ${label}` }, status: 'late', sort: 'late-desc' } };
+    }), 'Tidak ada shortage.');
+
+    // Supplier dengan shortage terbesar
+    const bySup = new Map();
+    sh.forEach((r) => {
+      const x = bySup.get(r.supplier) || { v: 0, n: 0 };
+      x.v += isIdr(r) ? r.shortValue : 0; x.n++; bySup.set(r.supplier, x);
+    });
+    hbars($('dSupShort'), [...bySup.entries()].sort((a, b) => b[1].v - a[1].v || b[1].n - a[1].n).slice(0, 8).map(([sup, x]) => ({
+      label: sup, value: x.v || x.n, text: x.v ? fmtRp(x.v) : `${x.n} baris`, cls: 'is-late',
+      tip: `${nf.format(x.n)} baris shortage · ${fmtRp(x.v)}`, go: { supplier: sup, status: 'late', sort: 'late-desc' },
+    })), 'Tidak ada shortage.');
+
+    // Belum lengkap per jenis
+    const byJ = new Map();
+    open.forEach((r) => { const k = r.jenis || 'Tanpa jenis'; byJ.set(k, (byJ.get(k) || 0) + 1); });
+    hbars($('dJenisChart'), [...byJ.entries()].sort((a, b) => b[1] - a[1]).map(([j, n]) => ({
+      label: j, value: n, text: `${nf.format(n)} baris`, tip: `${nf.format(n)} baris belum lengkap`,
+      go: { jenis: j === 'Tanpa jenis' ? '' : j, status: 'open' },
+    })), 'Semua baris sudah lengkap.');
+
+    // Nilai PO per bulan
+    const cur = curMonth();
+    const months = [];
+    for (let i = 11; i >= 0; i--) { const d = new Date(cur + '-01T00:00:00'); d.setMonth(d.getMonth() - i); months.push(ymd(d).slice(0, 7)); }
+    vbars($('dMonth'), months.map((m) => {
+      const rs = rows.filter((r) => r.month === m);
+      const v = rs.filter(isIdr).reduce((t, r) => t + r.amount, 0);
+      return { label: monthLabel(m).replace(' 20', " '"), value: v, cls: m === cur ? 'is-current' : '',
+        tip: `${monthLabel(m, true)}: ${fmtRp(v)} · ${nf.format(new Set(rs.map((r) => r.po)).size)} PO`, go: { month: m } };
+    }), fmtRp);
+
+    // Perlu ditindaklanjuti
+    const act = sh.slice().sort((a, b) => b.lateDays - a.lateDays || b.shortValue - a.shortValue).slice(0, 12);
+    $('dAction').innerHTML = act.length ? act.map((r) => `<tr class="row" data-key="${esc(r.key)}" tabindex="0">
+        <td class="po">${esc(r.po)}</td><td class="supplier">${esc(r.supplier)}</td>
+        <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}</div></td>
+        <td class="num"><span class="short-qty">${fmtNum(r.shortage)}</span> ${esc(r.uom)}</td>
+        <td class="num">${r.lateDays} hari</td>
+        <td class="num">${r.shortValue ? fmtNum(Math.round(r.shortValue)) + ' ' + esc(r.kurs) : '–'}</td></tr>`).join('')
+      : '<tr class="empty"><td colspan="6">Tidak ada shortage. Semua jadwal yang sudah lewat sudah diterima.</td></tr>';
+  }
+
+  // Buka Monitoring PO dengan saringan dari Dashboard
+  function goMonitor(go) {
+    ['q', 'fArrive', 'fKurs', 'fManual'].forEach((id) => { $(id).value = ''; });
+    $('fJenis').value = go.jenis !== undefined ? go.jenis : $('dJenis').value;
+    $('fSupplier').value = go.supplier !== undefined ? go.supplier : $('dSup').value;
+    if (go.arrive) $('fArrive').value = go.arrive;
+    if (go.q) $('q').value = go.q;
+    $('fSort').value = go.sort || 'date-asc';
+    state.drill = go.drill || null;
+    state.status = go.status || 'all';
+    state.month = go.month || 'all';
+    state.openKey = go.openKey || null;
+    state.shown = PAGE; state.monthScrolled = false;
+    location.hash = '#/po/monitoring';
+    render();
+  }
+
+  ['dJenis', 'dSup'].forEach((id) => $(id).addEventListener('change', renderDash));
+  $('dReset').addEventListener('click', () => { $('dJenis').value = ''; $('dSup').value = ''; renderDash(); });
+  document.querySelectorAll('[data-arrmode]').forEach((b) => b.addEventListener('click', () => {
+    DASH.arrMode = b.dataset.arrmode;
+    document.querySelectorAll('[data-arrmode]').forEach((x) => x.classList.toggle('is-on', x === b));
+    renderDash();
+  }));
+  $('view-po-dashboard').addEventListener('click', (e) => {
+    const k = e.target.closest('[data-go]');
+    if (k) {
+      const g = k.dataset.go;
+      return goMonitor(g === 'short' ? { status: 'late', sort: 'late-desc' } : g === 'week' ? { arrive: 'week', sort: 'next-asc' } : { status: 'open' });
+    }
+    const bar = e.target.closest('.vbar, .hbar');
+    if (bar) { const it = bar.parentElement._items[Number(bar.dataset.i)]; if (it && it.go) goMonitor(it.go); return; }
+    const tr = e.target.closest('#dAction tr.row');
+    if (tr) { const r = state.rows.find((x) => x.key === tr.dataset.key); if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' }); }
+  });
+  $('dAction').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest('tr.row')) e.target.click(); });
+
+  // Tooltip grafik
+  const tip = $('tip');
+  const showTip = (el, x, y) => {
+    tip.textContent = el.dataset.tip; tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, x - w / 2)) + 'px';
+    tip.style.top = Math.max(8, y - h - 12) + 'px';
+  };
+  $('view-po-dashboard').addEventListener('mousemove', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (!el || !el.dataset.tip) { tip.hidden = true; return; }
+    showTip(el, e.clientX, e.clientY);
+  });
+  $('view-po-dashboard').addEventListener('mouseleave', () => { tip.hidden = true; });
+  $('view-po-dashboard').addEventListener('focusin', (e) => {
+    const el = e.target.closest('[data-tip]'); if (!el) return;
+    const b = el.getBoundingClientRect(); showTip(el, b.left + b.width / 2, b.top);
+  });
+  $('view-po-dashboard').addEventListener('focusout', () => { tip.hidden = true; });
 
   /* ================= EDIT MANUAL ================= */
 

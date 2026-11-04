@@ -28,6 +28,7 @@
           <span>Purchase Order</span><span class="chev" aria-hidden="true"></span>
         </button>
         <div class="submenu">
+          <a class="menu-item sub" href="#/po/dashboard" data-route="po/dashboard">Dashboard PO</a>
           <a class="menu-item sub" href="#/po/monitoring" data-route="po/monitoring">Monitoring PO</a>
           <a class="menu-item sub" href="#/po/update" data-route="po/update">Update Data PO</a>
           <a class="menu-item sub" href="#/po/supplier" data-route="po/supplier">Supplier &amp; MoQ</a>
@@ -61,15 +62,15 @@
       <section id="view-beranda" class="view">
         <p class="lead">Ringkasan pekerjaan yang sedang dipantau. Pilih menu di samping untuk melihat rinciannya.</p>
         <div class="modules">
-          <a class="module" href="#/po/monitoring">
+          <a class="module" href="#/po/dashboard">
             <div class="module-head">
               <h2>Purchase Order</h2>
-              <span class="module-link">Buka Monitoring PO</span>
+              <span class="module-link">Buka Dashboard PO</span>
             </div>
             <p class="module-desc">Kedatangan material dari supplier berdasarkan export PO-DET dan PO-DEL Odoo.</p>
             <dl class="module-stats">
               <div><dt>Belum lengkap diterima</dt><dd id="hOpen">–</dd></div>
-              <div class="late"><dt>Jadwal lewat, belum datang</dt><dd id="hLate">–</dd></div>
+              <div class="late"><dt>Baris shortage</dt><dd id="hLate">–</dd></div>
               <div><dt>Jadwal 7 hari ke depan</dt><dd id="hWeek">–</dd></div>
             </dl>
           </a>
@@ -86,6 +87,98 @@
             </dl>
           </a>
         </div>
+      </section>
+
+      <!-- ================= DASHBOARD PO ================= -->
+      <section id="view-po-dashboard" class="view" hidden>
+        <div class="dash-filters">
+          <label class="field">
+            <span>Jenis material</span>
+            <select id="dJenis"><option value="">Semua jenis</option></select>
+          </label>
+          <label class="field">
+            <span>Supplier</span>
+            <select id="dSup"><option value="">Semua supplier</option></select>
+          </label>
+          <button class="btn btn-ghost" id="dReset" title="Tampilkan semua jenis dan supplier">Reset</button>
+          <p class="hint dash-note">Klik angka, batang grafik, atau baris tabel untuk membuka daftarnya di Monitoring PO. Nilai rupiah hanya dari PO berkurs IDR.</p>
+        </div>
+
+        <div class="kpis">
+          <button class="kpi" data-go="open">
+            <span class="kpi-label">PO aktif</span>
+            <span class="kpi-num" id="kActive">–</span>
+            <span class="kpi-sub" id="kActiveSub"></span>
+          </button>
+          <button class="kpi" data-go="open">
+            <span class="kpi-label">Nilai belum diterima</span>
+            <span class="kpi-num" id="kOut">–</span>
+            <span class="kpi-sub" id="kOutSub"></span>
+          </button>
+          <button class="kpi kpi-late" data-go="short">
+            <span class="kpi-label">Shortage</span>
+            <span class="kpi-num" id="kShort">–</span>
+            <span class="kpi-sub" id="kShortSub"></span>
+          </button>
+          <button class="kpi" data-go="week">
+            <span class="kpi-label">Datang 7 hari ke depan</span>
+            <span class="kpi-num" id="kWeek">–</span>
+            <span class="kpi-sub" id="kWeekSub"></span>
+          </button>
+        </div>
+
+        <div class="dash-grid">
+          <article class="card span-2">
+            <header class="card-head">
+              <h2>Jadwal kedatangan</h2>
+              <div class="seg-toggle" role="group" aria-label="Ukuran grafik kedatangan">
+                <button class="is-on" data-arrmode="count">Jumlah jadwal</button>
+                <button data-arrmode="value">Nilai (IDR)</button>
+              </div>
+            </header>
+            <p class="card-sub">Jadwal yang belum Done, dikelompokkan per minggu. Batang merah = sudah lewat jadwal.</p>
+            <div class="vbars" id="dArrive"></div>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Umur shortage</h2></header>
+            <p class="card-sub">Berapa lama shortage sudah terlambat, dihitung dari jadwal tertua yang belum datang.</p>
+            <div class="hbars" id="dAge"></div>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Supplier dengan shortage terbesar</h2></header>
+            <p class="card-sub">Urut nilai shortage (IDR). Klik untuk melihat baris PO supplier tersebut.</p>
+            <div class="hbars" id="dSupShort"></div>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Belum lengkap per jenis material</h2></header>
+            <p class="card-sub">Jumlah baris PO yang belum diterima penuh.</p>
+            <div class="hbars" id="dJenisChart"></div>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Nilai PO per bulan order</h2></header>
+            <p class="card-sub">Total nilai PO (IDR) berdasarkan Order Date, 12 bulan terakhir.</p>
+            <div class="vbars vbars-sm" id="dMonth"></div>
+          </article>
+
+          <article class="card span-2">
+            <header class="card-head">
+              <h2>Perlu ditindaklanjuti</h2>
+              <button class="btn btn-ghost btn-sm" data-go="short">Lihat semua shortage</button>
+            </header>
+            <p class="card-sub">Shortage paling lama terlambat. Klik baris untuk membuka PO-nya.</p>
+            <div class="table-wrap">
+              <table class="po-table action-table">
+                <thead><tr><th>No PO</th><th>Supplier</th><th>Material</th><th class="num">Shortage</th><th class="num">Terlambat</th><th class="num">Nilai</th></tr></thead>
+                <tbody id="dAction"><tr class="empty"><td colspan="6">Memuat data…</td></tr></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+        <div class="tip" id="tip" role="tooltip" hidden></div>
       </section>
 
       <!-- ================= MONITORING PO ================= -->
@@ -114,7 +207,7 @@
         <div class="status-row" id="statusRow" role="group" aria-label="Saring berdasarkan status">
           <button class="stat" data-status="all"><span class="stat-num" id="cAll">–</span><span class="stat-label">Semua baris PO</span></button>
           <button class="stat stat-open" data-status="open"><span class="stat-num" id="cOpen">–</span><span class="stat-label">Belum lengkap diterima</span></button>
-          <button class="stat stat-late" data-status="late"><span class="stat-num" id="cLate">–</span><span class="stat-label">Jadwal lewat, belum datang</span></button>
+          <button class="stat stat-late" data-status="late"><span class="stat-num" id="cLate">–</span><span class="stat-label">Shortage: lewat jadwal / kurang kirim</span></button>
           <button class="stat stat-done" data-status="done"><span class="stat-num" id="cDone">–</span><span class="stat-label">Sudah lengkap</span></button>
         </div>
         <p class="hint">Angka di kotak mengikuti bulan dan saringan yang dipilih. Klik kotak untuk menampilkan status itu saja.</p>
@@ -165,6 +258,8 @@
                 <option value="next-asc">Jadwal berikutnya terdekat</option>
                 <option value="sisa-desc">Sisa qty terbanyak</option>
                 <option value="amount-desc">Nilai PO terbesar</option>
+                <option value="short-desc">Nilai shortage terbesar</option>
+                <option value="late-desc">Paling lama terlambat</option>
               </select>
             </label>
             <div class="filter-actions">
@@ -193,8 +288,8 @@
                 <th>Supplier</th>
                 <th>Material</th>
                 <th class="num">Qty order</th>
-                <th class="num">Diterima</th>
                 <th class="num">Sisa</th>
+                <th class="num" title="Qty yang jadwalnya sudah lewat tetapi belum diterima, termasuk kurang kirim">Shortage</th>
                 <th>Pengiriman</th>
                 <th>Jadwal berikutnya</th>
                 <th>Status</th>

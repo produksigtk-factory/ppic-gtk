@@ -1,6 +1,6 @@
 # PPIC GTK
 
-Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Monitoring PO, Update Data PO, Supplier & MoQ, Riwayat Edit PO).
+Website Monitoring Pekerjaan PPIC Gondowangi. Menu samping berisi Beranda dan grup pekerjaan; tiap grup punya sub menu (Purchase Order → Dashboard PO, Monitoring PO, Update Data PO, Supplier & MoQ, Riwayat Edit PO).
 
 Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-...">` untuk isinya, dan satu baris di `ROUTES` (app.js).
 
@@ -30,6 +30,8 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 - Urutan tampilan: Order Date terlama di atas.
 - Edit manual (Mode edit, cukup PIN): tambah/ubah/hapus baris PO dan jadwal, tambah PO manual. Setiap edit tercatat (waktu, aksi, nilai lama → baru) di tab LOG_EDIT dan halaman Riwayat Edit PO; PO yang diedit ditandai di tab PO_MANUAL.
 - Upload setelah edit manual: website menampilkan PO yang bentrok dan meminta pilihan per PO (pakai data Odoo / pertahankan edit). "Pertahankan" berarti bagian yang diedit tidak dikirim dari file.
+- Shortage: qty dari jadwal yang belum Done dan tanggalnya sudah lewat tetapi belum diterima, ditambah kurang kirim pada jadwal yang sudah Done. Dihitung per PO + kode, dibagi berurutan ke baris kode yang sama. Hari terlambat dihitung dari jadwal tertua yang tertunggak.
+- Dashboard PO: KPI (PO aktif, nilai belum diterima, shortage, datang 7 hari ke depan), jadwal kedatangan per minggu, umur shortage, supplier dengan shortage terbesar, belum lengkap per jenis, nilai PO per bulan, tabel perlu ditindaklanjuti. Semua angka dan batang bisa diklik untuk membuka Monitoring PO dengan saringan terkait.
 - Status: Lengkap (sisa 0), Terlambat (ada jadwal belum Done yang tanggalnya sudah lewat), Dijadwalkan (ada jadwal belum Done), Belum dijadwalkan.
 
 ## Supplier & MoQ
