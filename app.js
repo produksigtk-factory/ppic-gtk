@@ -156,9 +156,59 @@
     $('lnkSheet').title = r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
     $('btnReload').title = r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
+    renderFresh();
     closeMenu();
     window.scrollTo(0, 0);
   }
+  // ---------- Peringatan data basi ----------
+  // Dihitung dalam hari kerja (Senin–Jumat) sejak upload terakhir lewat website.
+  // 0–1 hari kerja = terkini, 2 = kuning, 3 atau lebih / belum pernah = merah.
+  const FRESH_WARN = 2, FRESH_LATE = 3;
+  function workdaysSince(ymdStr) {
+    const d = new Date(ymdStr + 'T00:00:00'), t = new Date(todayStr() + 'T00:00:00');
+    let n = 0;
+    for (d.setDate(d.getDate() + 1); d <= t; d.setDate(d.getDate() + 1)) {
+      const w = d.getDay();
+      if (w !== 0 && w !== 6) n++;
+    }
+    return n;
+  }
+  function renderFresh() {
+    const box = $('fresh');
+    if (!box) return;
+    const r = state.route;
+    const show = state.freshLoaded && r && (r.actions || r.view === 'view-beranda');
+    box.hidden = !show;
+    if (!show) return;
+    const up = state.lastUpload;
+    let level, title, note;
+    if (!up || !up.time) {
+      level = 'late';
+      title = 'Belum ada upload lewat website.';
+      note = 'Catatan perubahan dan ketepatan kirim baru terisi setelah export Odoo di-upload di menu Update Data PO.';
+    } else {
+      const date = String(up.time).slice(0, 10), clock = String(up.time).slice(11, 16);
+      const n = workdaysSince(date);
+      const when = date === todayStr() ? `hari ini ${clock}` : `${fmtDate(date)} ${clock}`;
+      if (n >= FRESH_LATE) {
+        level = 'late';
+        title = `Data PO sudah ${n} hari kerja tidak diperbarui.`;
+        note = `Upload terakhir ${when}. Status, shortage, dan kalender bisa sudah tidak sesuai Odoo.`;
+      } else if (n >= FRESH_WARN) {
+        level = 'warn';
+        title = `Data PO terakhir diperbarui ${n} hari kerja lalu.`;
+        note = `Upload terakhir ${when}. Sebaiknya upload export Odoo terbaru.`;
+      } else {
+        level = 'ok';
+        title = 'Data PO terkini.';
+        note = `Upload terakhir ${when}.`;
+      }
+    }
+    box.className = `fresh is-${level}${r.view === 'view-po-update' ? ' on-update' : ''}`;
+    $('freshTitle').textContent = title;
+    $('freshNote').textContent = note;
+  }
+
   window.addEventListener('hashchange', route);
 
   document.querySelectorAll('.menu-group-head').forEach((h) => h.addEventListener('click', () => {
@@ -208,6 +258,9 @@
       state.changes = data.changes || [];
       state.noFollowScript = !Array.isArray(data.followups);
       if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
+      state.lastUpload = data.lastUpload || null;
+      state.freshLoaded = true;
+      renderFresh();
       const up = data.lastUpload ? `Upload terakhir ${data.lastUpload.time}` : 'Belum ada upload lewat website';
       $('dataInfo').textContent = `${up} · Data dibaca ${data.readAt}`;
       refreshAll();

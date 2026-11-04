@@ -69,6 +69,22 @@ button, input, select { font: inherit; color: inherit; }
 .top-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .page-head .menu-toggle { display: none; }
 
+/* ---------- Peringatan data basi ---------- */
+.fresh {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 9px 28px; border-bottom: 1px solid var(--line); font-size: 13px;
+  background: var(--done-soft); color: #14532f;
+}
+.fresh-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--done); flex: none; }
+.fresh-text { margin: 0; flex: 1 1 260px; }
+.fresh.is-ok #freshGo { display: none; }
+.fresh.is-warn { background: var(--wait-soft); color: #6e4a06; }
+.fresh.is-warn .fresh-dot { background: var(--wait); }
+.fresh.is-late { background: var(--late-soft); color: #8a1c1c; }
+.fresh.is-late .fresh-dot { background: var(--late); }
+.fresh.on-update #freshGo { display: none; }
+@media (max-width: 900px) { .fresh { padding-left: 16px; padding-right: 16px; } }
+
 /* ---------- Beranda ---------- */
 .modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 .module {
