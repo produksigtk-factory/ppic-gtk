@@ -3,18 +3,150 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Monitoring PPIC GTK</title>
-<style>
-  body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;background:#f6f7f9;color:#1f2933}
-  .card{text-align:center;padding:32px 24px;max-width:420px}
-  h1{font-size:1.5rem;margin:0 0 8px}
-  p{margin:0;color:#52606d}
-</style>
+<title>Monitoring PO · PPIC GTK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="card">
-    <h1>Monitoring PPIC GTK</h1>
-    <p>Website sedang disiapkan.</p>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div>
+      <h1>Monitoring Purchase Order</h1>
+      <p class="sub" id="dataInfo">Memuat data…</p>
+    </div>
   </div>
+  <div class="top-actions">
+    <button class="btn" id="btnReload" title="Ambil ulang data terbaru dari Google Sheet MONITORING PO">Muat ulang data</button>
+    <a class="btn btn-ghost" id="lnkSheet" target="_blank" rel="noopener" title="Buka Google Sheet MONITORING PO di tab baru">Buka Google Sheet</a>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" class="tab is-active" data-view="monitor" aria-selected="true">Monitoring PO</button>
+  <button role="tab" class="tab" data-view="update" aria-selected="false">Update data</button>
+</nav>
+
+<main>
+  <!-- ================= MONITORING ================= -->
+  <section id="view-monitor" class="view">
+
+    <div class="setup-note" id="setupNote" hidden></div>
+
+    <div class="status-row" id="statusRow" role="group" aria-label="Saring berdasarkan status">
+      <button class="stat" data-status="all"><span class="stat-num" id="cAll">–</span><span class="stat-label">Semua baris PO</span></button>
+      <button class="stat stat-open" data-status="open"><span class="stat-num" id="cOpen">–</span><span class="stat-label">Belum lengkap diterima</span></button>
+      <button class="stat stat-late" data-status="late"><span class="stat-num" id="cLate">–</span><span class="stat-label">Jadwal lewat, belum datang</span></button>
+      <button class="stat stat-done" data-status="done"><span class="stat-num" id="cDone">–</span><span class="stat-label">Sudah lengkap</span></button>
+    </div>
+    <p class="hint">Klik salah satu kotak di atas untuk menampilkan baris dengan status tersebut.</p>
+
+    <div class="filters">
+      <label class="field grow">
+        <span>Cari</span>
+        <input type="search" id="q" placeholder="No PO, supplier, kode, atau nama material">
+      </label>
+      <label class="field">
+        <span>Jenis</span>
+        <select id="fJenis"><option value="">Semua jenis</option></select>
+      </label>
+      <label class="field">
+        <span>Supplier</span>
+        <select id="fSupplier"><option value="">Semua supplier</option></select>
+      </label>
+      <div class="filter-actions">
+        <button class="btn btn-ghost" id="btnReset" title="Kosongkan pencarian dan semua saringan">Reset saringan</button>
+        <button class="btn" id="btnExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
+      </div>
+    </div>
+
+    <div class="result-bar">
+      <span id="resultInfo"></span>
+      <span class="legend">
+        <span><i class="seg seg-done"></i>Sudah datang</span>
+        <span><i class="seg seg-late"></i>Lewat jadwal</span>
+        <span><i class="seg seg-wait"></i>Menunggu</span>
+      </span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="po-table">
+        <thead>
+          <tr>
+            <th>No PO</th>
+            <th>Tgl order</th>
+            <th>Supplier</th>
+            <th>Material</th>
+            <th class="num">Qty order</th>
+            <th class="num">Diterima</th>
+            <th class="num">Sisa</th>
+            <th>Pengiriman</th>
+            <th>Jadwal berikutnya</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="more"><button class="btn btn-ghost" id="btnMore" hidden>Tampilkan 100 baris lagi</button></div>
+    <p class="hint center">Klik sebuah baris untuk melihat semua jadwal pengirimannya.</p>
+  </section>
+
+  <!-- ================= UPDATE DATA ================= -->
+  <section id="view-update" class="view" hidden>
+    <div class="update-card">
+      <h2>Perbarui data dari Odoo</h2>
+      <p class="lead">Upload file export Odoo apa adanya. PO yang ada di file akan diperbarui, PO baru ditambahkan, dan PO lama yang tidak ada di file tetap disimpan.</p>
+
+      <ol class="steps">
+        <li>
+          <div class="step-head">
+            <h3>Pilih file PO-DET</h3>
+            <p>Detail baris PO (No PO, supplier, material, qty, harga). Nama file biasanya <em>PO-DET_….xls</em>.</p>
+          </div>
+          <label class="file-drop" for="fileDet">
+            <input type="file" id="fileDet" accept=".xls,.xlsx">
+            <span class="file-btn">Pilih file PO-DET</span>
+            <span class="file-name" id="nameDet">Belum ada file</span>
+          </label>
+          <p class="check" id="checkDet"></p>
+        </li>
+        <li>
+          <div class="step-head">
+            <h3>Pilih file PO-DEL</h3>
+            <p>Jadwal pengiriman (tanggal, qty jadwal, qty diterima, status). Nama file biasanya <em>PO-DEL_….xls</em>.</p>
+          </div>
+          <label class="file-drop" for="fileDel">
+            <input type="file" id="fileDel" accept=".xls,.xlsx">
+            <span class="file-btn">Pilih file PO-DEL</span>
+            <span class="file-name" id="nameDel">Belum ada file</span>
+          </label>
+          <p class="check" id="checkDel"></p>
+        </li>
+        <li>
+          <div class="step-head">
+            <h3>Masukkan PIN dan kirim</h3>
+            <p>Boleh mengirim salah satu file saja. Data di Google Sheet langsung berubah setelah tombol ditekan.</p>
+          </div>
+          <div class="send-row">
+            <label class="field">
+              <span>PIN upload</span>
+              <input type="password" id="pin" inputmode="numeric" autocomplete="off" placeholder="PIN">
+            </label>
+            <button class="btn btn-primary" id="btnSend" disabled>Kirim ke Google Sheet</button>
+          </div>
+          <div class="send-result" id="sendResult" role="status" aria-live="polite"></div>
+        </li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
