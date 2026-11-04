@@ -67,7 +67,7 @@ button, input, select { font: inherit; color: inherit; }
 .page-head h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
 .sub { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
 .top-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.menu-toggle { display: none; }
+.page-head .menu-toggle { display: none; }
 
 /* ---------- Beranda ---------- */
 .modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
@@ -135,7 +135,7 @@ main { padding: 22px 28px 48px; width: 100%; max-width: 1440px; }
 
 /* ---------- Table ---------- */
 .table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow-x: auto; }
-.po-table { width: 100%; border-collapse: collapse; min-width: 1080px; }
+.po-table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .po-table th {
   position: sticky; top: 0; z-index: 1; text-align: left; font-size: 12.5px; font-weight: 600; color: var(--muted);
   background: #f8fafc; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
@@ -147,7 +147,7 @@ main { padding: 22px 28px 48px; width: 100%; max-width: 1440px; }
 .po-table tr.row.is-open td { background: var(--brand-soft); }
 .po { font-weight: 700; white-space: nowrap; }
 .date { white-space: nowrap; }
-.supplier { max-width: 200px; }
+.supplier { max-width: 170px; }
 .mat-name { font-weight: 500; }
 .mat-code { color: var(--muted); font-size: 12.5px; }
 .note { display: inline-block; margin-top: 3px; font-size: 12px; color: #8a5a00; }
@@ -228,7 +228,7 @@ tr.detail td { background: #fbfcfe; padding: 0; }
   .sidebar.is-open { transform: none; }
   .scrim { display: block; position: fixed; inset: 0; z-index: 20; background: rgba(16, 40, 26, .35); }
   .scrim[hidden] { display: none !important; }
-  .menu-toggle { display: inline-flex; }
+  .page-head .menu-toggle { display: inline-flex; }
   .status-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
