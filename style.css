@@ -825,3 +825,54 @@ body.edit-on .dt-grid .fu-box { max-width: 760px; }
 .btn-cancel:hover { border-color: #8a1c1c; background: #fbf1f1; filter: none; }
 .tools-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
 .dt-note.is-cancel { border-left-color: #8a1c1c; color: #6b1a1a; background: #fdf6f6; }
+
+/* ================= MRP ================= */
+.menu-badge-soft { background: #e9d9b4; color: #6b4e12; }
+.mrp-loading { padding: 12px 14px; margin-bottom: 12px; border-radius: var(--radius-sm); background: var(--brand-soft); color: var(--brand-dark); font-size: 13.5px; }
+.mrp-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; align-items: start; }
+.mrp-side { position: sticky; top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); display: flex; flex-direction: column; max-height: calc(100vh - 24px); }
+.mrp-side-tools { padding: 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); }
+.mrp-side-tools .tb-search, .mrp-side-tools .tb-field { flex: none; min-width: 0; width: 100%; }
+.mrp-count { margin: 0; font-size: 12.5px; color: var(--muted); }
+.mrp-plist { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.mrp-pitem { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; cursor: pointer; }
+.mrp-pitem:hover { background: #f4f7f5; }
+.mrp-pitem.is-sel { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
+.mrp-pcode { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.mrp-pname { font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrp-pmeta { grid-column: 2; font-size: 11.5px; color: var(--muted); }
+.mrp-detail { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.mrp-empty { color: var(--muted); padding: 24px; text-align: center; background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius-lg); }
+.mrp-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.mrp-head h2 { font-size: 20px; }
+.mrp-head .crumb { margin: 0 0 2px; }
+.mrp-scale { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.mrp-scale input { width: 120px; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font: inherit; color: var(--ink); text-align: right; }
+.mrp-vers { display: flex; gap: 6px; flex-wrap: wrap; }
+.mrp-ver { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; font-size: 12.5px; text-align: left; }
+.mrp-ver b { font-size: 13px; }
+.mrp-ver:hover { border-color: var(--brand); }
+.mrp-ver.is-on { border-color: var(--brand); background: var(--brand-soft); box-shadow: inset 0 -2px 0 var(--brand); }
+.mrp-card .dt-h { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.mrp-tools { margin-left: auto; font-size: 12.5px; font-weight: 500; }
+.mrp-tree td { white-space: normal; }
+.mrp-tree td.mrp-code { white-space: nowrap; }
+.mrp-tog { width: 22px; height: 22px; margin-right: 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); cursor: pointer; font-size: 11px; line-height: 1; color: var(--brand-dark); }
+.mrp-tog-sp { display: inline-block; width: 26px; }
+.mrp-tree tr.has-sub > td { background: #f6faf7; }
+.mrp-tree tr.lvl-1 > td { background: #fbfcfb; }
+.mrp-tree tr.lvl-2 > td, .mrp-tree tr.lvl-3 > td { background: #fdfdfc; font-size: 12.5px; }
+.mrp-subinfo { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.mrp-subsel { font: inherit; font-size: 12px; padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; }
+.mrp-goto { font-weight: 600; }
+.mrp-cmp tr.is-diff td { background: #fff8e6; }
+.mrp-toolbar { margin-bottom: 8px; }
+.mrp-wrap { max-height: calc(100vh - 220px); }
+.mrp-table { min-width: 860px; }
+.mrp-utiles { margin-bottom: 12px; }
+.chg-types .chip.is-on { border-color: var(--brand); background: var(--brand-soft); }
+@media (max-width: 1000px) {
+  .mrp-split { grid-template-columns: minmax(0, 1fr); }
+  .mrp-side { position: static; max-height: 360px; }
+}
+.mrp-tree td:nth-child(3), .mrp-tree td:nth-child(6), .mrp-detail .sched td:nth-child(3) { white-space: nowrap; }

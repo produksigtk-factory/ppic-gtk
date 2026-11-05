@@ -64,7 +64,7 @@
 
   /* ---------- Urutkan lewat judul kolom (semua tabel) ---------- */
   // Klik pertama: arah bawaan kolom; klik kedua: dibalik; klik ketiga: kembali ke urutan semula.
-  const colSort = { po: null, sup: null, act: null, log: null, chg: null };
+  const colSort = { po: null, sup: null, act: null, log: null, chg: null, mat: null };
   const DESC_FIRST = new Set(['qty', 'sisa', 'shortage', 'nsched', 'moq', 'max', 'count', 'total', 'price', 'lead', 'lateDays', 'shortValue', '0']);
   const isBlankV = (v) => v === null || v === undefined || v === '' || (typeof v === 'number' && isNaN(v));
   function applyColSort(rows, cs, getters) {
@@ -138,6 +138,10 @@
     'po/update':         { view: 'view-po-update',         crumb: 'Purchase Order',            title: 'Update Data PO',  actions: 'po' },
     'po/perhatian':      { view: 'view-po-perhatian',      crumb: 'Purchase Order',            title: 'Perhatian Khusus', actions: 'po' },
     'po/riwayat':        { view: 'view-po-riwayat',        crumb: 'Purchase Order',            title: 'Riwayat Edit PO', actions: 'po' },
+    'mrp/bom':           { view: 'view-mrp-bom',           crumb: 'MRP',                       title: 'Bill of Material', actions: 'mrp' },
+    'mrp/material':      { view: 'view-mrp-material',      crumb: 'MRP',                       title: 'Daftar Material', actions: 'mrp' },
+    'mrp/dipakai':       { view: 'view-mrp-dipakai',       crumb: 'MRP',                       title: 'Material Dipakai di Mana', actions: 'mrp' },
+    'mrp/cek':           { view: 'view-mrp-cek',           crumb: 'MRP',                       title: 'Pemeriksaan Data BOM', actions: 'mrp' },
     'po/supplier':       { view: 'view-po-supplier',       crumb: 'Purchase Order',            title: 'Supplier & MoQ',  actions: 'sup' },
   };
   function route() {
@@ -154,14 +158,18 @@
     $('pageTitle').textContent = r.title;
     state.route = r;
     $('poActions').hidden = !r.actions;
-    $('btnEditMode').hidden = r.actions === 'sup';
-    const sheet = r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
+    $('btnEditMode').hidden = r.actions === 'sup' || r.actions === 'mrp';
+    const sheet = r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
     $('lnkSheet').hidden = !sheet;
     if (sheet) $('lnkSheet').href = sheet;
-    $('lnkSheet').title = r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
-    $('btnReload').title = r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
+    $('lnkSheet').title = r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
+      : r.actions === 'mrp' ? 'Buka Google Sheet DATABASE PPIC (MASTER_MATERIAL, BOM_LIST, BOM_DETAIL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
+    $('btnReload').title = r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
+      : r.actions === 'mrp' ? 'Ambil ulang BOM dan daftar material dari DATABASE PPIC' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
+    if (r.actions === 'mrp') { mrpEnter(key); renderDataInfo(); }
+    else if (state.freshLoaded) renderDataInfo();
     renderFresh();
     closeMenu();
     window.scrollTo(0, 0);
@@ -183,7 +191,7 @@
     const box = $('fresh');
     if (!box) return;
     const r = state.route;
-    const show = state.freshLoaded && r && (r.actions || r.view === 'view-beranda');
+    const show = state.freshLoaded && r && ((r.actions && r.actions !== 'mrp') || r.view === 'view-beranda');
     box.hidden = !show;
     if (!show) return;
     const ut = uploadTimes();
@@ -333,6 +341,10 @@
     return { det: up.det ? up.time : '', del: up.del ? up.time : '' };
   }
   function renderDataInfo() {
+    if (state.route && state.route.actions === 'mrp') {
+      if (MRP.loaded) $('dataInfo').textContent = `BOM dan material dibaca dari DATABASE PPIC ${whenText(MRP.readAt)}`;
+      return;
+    }
     if (!state.freshLoaded) return;
     const ut = uploadTimes();
     const ed = state.editLog && state.editLog[0] && state.editLog[0][0];
@@ -822,7 +834,8 @@
   ['fFrom', 'fTo'].forEach((id) => $(id).addEventListener('change', dateChanged));
   $('fDateType').addEventListener('change', () => { if ($('fFrom').value || $('fTo').value) dateChanged(); });
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
-  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true) : loadData()));
+  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true)
+    : state.route && state.route.actions === 'mrp' ? loadMrp(true) : loadData()));
 
   const toggleRow = (tr) => {
     const k = tr.dataset.key; state.openKey = state.openKey === k ? null : k; render();
@@ -2295,7 +2308,401 @@
     }
   });
 
+  /* ================= MRP: BOM & DAFTAR MATERIAL ================= */
+  // Data dari DATABASE PPIC lewat Apps Script (?view=mrp). Dimuat saat menu MRP pertama kali dibuka.
+  const MRP = { loaded: false, loading: false, sel: null, ver: {}, subVer: {}, open: new Set(), scale: {}, flat: true, kTab: 'notMaster', shown: 200 };
+  const fmtQ = (v) => (v === '' || v === null || v === undefined ? '–' : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(v));
+
+  function mrpEnter(key) {
+    if (!MRP.loaded) { loadMrp(false); return; }
+    renderMrp(key);
+  }
+  async function loadMrp(force) {
+    if (MRP.loading) return;
+    if (MRP.loaded && !force) return;
+    MRP.loading = true;
+    document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = false; x.textContent = 'Memuat BOM dan daftar material dari DATABASE PPIC, biasanya 5–15 detik…'; });
+    $('btnReload').disabled = true;
+    try {
+      const res = await fetch(CFG.APPS_SCRIPT_URL + '?view=mrp');
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
+      if (!Array.isArray(data.boms)) throw new Error('Apps Script belum versi terbaru. Tempel Code.gs terbaru, lalu Deploy → Manage deployments → Edit → New version → Deploy.');
+      setMrp(data);
+      document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = true; });
+      if (state.route && state.route.actions === 'mrp') {
+        $('dataInfo').textContent = `BOM dan material dibaca dari DATABASE PPIC ${whenText(data.readAt)}`;
+        if (MRP.dbUrl) { $('lnkSheet').href = MRP.dbUrl; $('lnkSheet').hidden = false; }
+        renderMrp(location.hash.replace(/^#\/?/, ''));
+      }
+    } catch (err) {
+      document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = false; x.textContent = 'Data MRP tidak bisa dimuat: ' + err.message; });
+    } finally {
+      MRP.loading = false;
+      $('btnReload').disabled = false;
+    }
+  }
+
+  function setMrp(d) {
+    MRP.dbUrl = d.databaseUrl || MRP.dbUrl;
+    MRP.readAt = d.readAt;
+    MRP.master = new Map(d.master.map((m) => [m[0], { code: m[0], name: m[1], uom: m[2], kat: m[3] }]));
+    const byId = new Map();
+    MRP.boms = d.boms.map((b) => {
+      const o = { id: b[0], code: b[1], name: b[2], batch: Number(b[3]) || 0, uom: b[4], ref: b[5], note: b[7], comps: [] };
+      byId.set(o.id, o); return o;
+    });
+    d.details.forEach((x) => { const b = byId.get(x[0]); if (b) b.comps.push({ code: x[1], name: x[2], qty: x[3] === '' ? '' : Number(x[3]), uom: x[4], kat: x[5] }); });
+    MRP.byProduct = new Map();
+    MRP.boms.forEach((b) => { if (!MRP.byProduct.has(b.code)) MRP.byProduct.set(b.code, []); MRP.byProduct.get(b.code).push(b); });
+    // Dipakai di: kode material → [{ bom, qty }]
+    MRP.usedIn = new Map();
+    MRP.boms.forEach((b) => b.comps.forEach((c) => {
+      if (!MRP.usedIn.has(c.code)) MRP.usedIn.set(c.code, []);
+      MRP.usedIn.get(c.code).push({ bom: b, qty: c.qty, uom: c.uom });
+    }));
+    MRP.products = [...MRP.byProduct.entries()].map(([code, list]) => {
+      const m = MRP.master.get(code);
+      return { code, name: (m && m.name) || list[0].name, kat: (m && m.kat) || '', boms: list, search: (code + ' ' + ((m && m.name) || list[0].name)).toLowerCase() };
+    }).sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }));
+    MRP.checks = mrpChecks();
+    MRP.loaded = true;
+    const nCheck = Object.values(MRP.checks).reduce((t, c) => t + (c.badge ? c.rows.length : 0), 0);
+    $('mrpBadge').hidden = !nCheck; $('mrpBadge').textContent = nCheck;
+    $('hMrpProd').textContent = nf.format(MRP.products.length);
+    $('hMrpBom').textContent = nf.format(MRP.boms.length);
+    $('hMrpMat').textContent = nf.format(MRP.master.size);
+    const kats = (list) => [...new Set(list.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    const fill = (sel, list, first) => { const cur = sel.value; sel.innerHTML = `<option value="">${first}</option>` + list.map((v) => `<option>${esc(v)}</option>`).join(''); sel.value = list.includes(cur) ? cur : ''; };
+    fill($('bKat'), kats(MRP.products.map((p) => p.kat || 'Tanpa kategori')), 'Semua kategori');
+    fill($('mKat'), kats([...MRP.master.values()].map((m) => m.kat || 'Tanpa kategori')), 'Semua kategori');
+    $('uList').innerHTML = [...MRP.master.values()].map((m) => `<option value="${esc(m.code)} · ${esc(m.name)}">`).join('');
+  }
+
+  function renderMrp(key) {
+    if (!MRP.loaded) return;
+    if (key === 'mrp/bom') renderBomList();
+    else if (key === 'mrp/material') renderMatList();
+    else if (key === 'mrp/dipakai') renderUse();
+    else if (key === 'mrp/cek') renderChecks();
+  }
+
+  /* ---------- Bill of Material ---------- */
+  function renderBomList() {
+    const q = $('bq').value.trim().toLowerCase(), k = $('bKat').value;
+    const list = MRP.products.filter((p) => (!q || q.split(/\s+/).every((w) => p.search.includes(w))) && (!k || (p.kat || 'Tanpa kategori') === k));
+    $('bCount').textContent = `${nf.format(list.length)} produk · ${nf.format(list.reduce((t, p) => t + p.boms.length, 0))} versi BOM`;
+    if (!MRP.sel && list.length) MRP.sel = list[0].code;
+    $('bList').innerHTML = list.slice(0, 400).map((p) => `<button class="mrp-pitem${p.code === MRP.sel ? ' is-sel' : ''}" data-code="${esc(p.code)}" role="option" aria-selected="${p.code === MRP.sel}">
+        <span class="mrp-pcode">${esc(p.code)}</span><span class="mrp-pname">${esc(p.name)}</span>
+        <span class="mrp-pmeta">${esc(p.kat || 'Tanpa kategori')}${p.boms.length > 1 ? ` · ${p.boms.length} versi` : ''}</span>
+      </button>`).join('') + (list.length > 400 ? `<p class="mrp-count">…${nf.format(list.length - 400)} produk lagi. Persempit pencarian.</p>` : '')
+      || '<p class="mrp-empty">Tidak ada produk yang cocok.</p>';
+    renderBomDetail();
+  }
+
+  const bomVer = (code) => {
+    const list = MRP.byProduct.get(code) || [];
+    return list.find((b) => b.id === MRP.ver[code]) || list[0];
+  };
+  const subBom = (code) => {
+    const list = MRP.byProduct.get(code) || [];
+    return list.find((b) => b.id === MRP.subVer[code]) || list[0];
+  };
+
+  // Urai BOM bertingkat. need = qty produk yang dibuat; tiap komponen = qty BOM × need / batch.
+  // Komponen yang punya BOM sendiri (ekstrak/bulk) diurai lagi sesuai kebutuhannya.
+  function explode(bom, need, depth, path, key) {
+    const f = bom.batch ? need / bom.batch : 0;
+    return bom.comps.map((c, i) => {
+      const q = c.qty === '' ? 0 : c.qty * f;
+      const k = key + '/' + i;
+      const node = { c, qty: q, per: c.qty, depth, key: k, kids: null, sub: null };
+      if (MRP.byProduct.has(c.code) && depth < 6 && !path.has(c.code)) {
+        node.sub = subBom(c.code);
+        node.kids = explode(node.sub, q, depth + 1, new Set([...path, c.code]), k);
+      }
+      return node;
+    });
+  }
+  function leaves(nodes, out) {
+    nodes.forEach((n) => {
+      if (n.kids) return leaves(n.kids, out);
+      const o = out.get(n.c.code) || { c: n.c, qty: 0, paths: 0 };
+      o.qty += n.qty; o.paths++; out.set(n.c.code, o);
+    });
+    return out;
+  }
+
+  function renderBomDetail() {
+    const code = MRP.sel;
+    const p = MRP.products.find((x) => x.code === code);
+    if (!p) { $('bDetail').innerHTML = '<p class="mrp-empty">Pilih produk di sebelah kiri untuk melihat BOM-nya.</p>'; return; }
+    const bom = bomVer(code);
+    const need = MRP.scale[code] !== undefined ? MRP.scale[code] : bom.batch;
+    const tree = explode(bom, need, 0, new Set([code]), bom.id);
+    const multi = tree.some((n) => n.kids);
+    const tabs = p.boms.map((b) => `<button class="mrp-ver${b.id === bom.id ? ' is-on' : ''}" data-ver="${esc(b.id)}" title="${esc(b.ref)}">
+        <b>${esc(b.id)}</b><span>${esc(b.ref || 'tanpa reference')}</span><span class="muted">${b.comps.length} komponen</span></button>`).join('');
+
+    const rows = [];
+    const walk = (nodes, parentOpen) => nodes.forEach((n) => {
+      if (!parentOpen) return;
+      const open = MRP.open.has(n.key);
+      const subs = n.kids ? MRP.byProduct.get(n.c.code) : null;
+      const m = MRP.master.get(n.c.code);
+      rows.push(`<tr class="lvl-${Math.min(n.depth, 3)}${n.kids ? ' has-sub' : ''}">
+        <td class="mrp-code" style="padding-left:${10 + n.depth * 22}px">${n.kids ? `<button class="mrp-tog" data-tog="${esc(n.key)}" aria-expanded="${open}" title="${open ? 'Tutup' : 'Uraikan BOM'} ${esc(n.c.code)}">${open ? '▾' : '▸'}</button>` : '<span class="mrp-tog-sp"></span>'}<button class="btn-link mrp-goto" data-use="${esc(n.c.code)}" title="Lihat pemakaian material ini">${esc(n.c.code)}</button></td>
+        <td>${esc((m && m.name) || n.c.name)}${n.kids ? `<div class="mrp-subinfo">Punya BOM sendiri: ${subs.length > 1 ? `<select class="mrp-subsel" data-sub="${esc(n.c.code)}">${subs.map((b) => `<option value="${esc(b.id)}"${b.id === n.sub.id ? ' selected' : ''}>${esc(b.id)} · ${esc(b.ref || '-')}</option>`).join('')}</select>` : `${esc(n.sub.id)} · ${esc(n.sub.ref || '-')}`} (batch ${fmtQ(n.sub.batch)} ${esc(n.sub.uom)})</div>` : ''}</td>
+        <td>${esc(n.c.kat || (m && m.kat) || '')}</td>
+        <td class="num">${fmtQ(n.per)}</td>
+        <td class="num"><b>${fmtQ(n.qty)}</b></td>
+        <td>${esc(n.c.uom)}</td></tr>`);
+      if (n.kids) walk(n.kids, open);
+    });
+    walk(tree, true);
+
+    const flat = [...leaves(tree, new Map()).values()].sort((a, b) => b.qty - a.qty);
+    let compare = '';
+    if (p.boms.length > 1) {
+      const codes = [];
+      p.boms.forEach((b) => b.comps.forEach((c) => { if (!codes.includes(c.code)) codes.push(c.code); }));
+      const val = (b, c) => b.comps.filter((x) => x.code === c).reduce((t, x) => t + (Number(x.qty) || 0), 0);
+      compare = `<section class="dt-card mrp-card">
+        <h4 class="dt-h">Bandingkan ${p.boms.length} versi BOM <span class="muted">qty per batch; yang berbeda antar versi ditandai</span></h4>
+        <div class="sched-wrap"><table class="sched mrp-cmp"><thead><tr><th>Kode</th><th>Nama</th>${p.boms.map((b) => `<th class="num" title="${esc(b.ref)}">${esc(b.id)}<br><span class="muted">${esc(b.ref || '')}</span></th>`).join('')}</tr></thead>
+        <tbody>${codes.map((c) => {
+          const vs = p.boms.map((b) => val(b, c));
+          const diff = vs.some((v) => Math.abs(v - vs[0]) > 1e-9);
+          const m = MRP.master.get(c);
+          return `<tr class="${diff ? 'is-diff' : ''}"><td>${esc(c)}</td><td>${esc((m && m.name) || (p.boms.flatMap((b) => b.comps).find((x) => x.code === c) || {}).name || '')}</td>${vs.map((v) => `<td class="num">${v ? fmtQ(v) : '<span class="muted">–</span>'}</td>`).join('')}</tr>`;
+        }).join('')}</tbody></table></div></section>`;
+    }
+
+    $('bDetail').innerHTML = `
+      <header class="mrp-head">
+        <div><p class="crumb">${esc(p.kat || 'Tanpa kategori')} · ${esc(p.code)}</p><h2>${esc(p.name)}</h2></div>
+        <label class="mrp-scale">Hitung untuk
+          <input type="number" min="0" step="any" id="bScale" value="${need}"> <span>${esc(bom.uom)}</span>
+          ${need !== bom.batch ? `<button class="btn-link" data-reset-scale>kembali ke 1 batch (${fmtQ(bom.batch)})</button>` : ''}
+        </label>
+      </header>
+      <div class="mrp-vers" role="tablist" aria-label="Versi BOM">${tabs}</div>
+      <section class="dt-card mrp-card">
+        <h4 class="dt-h">Komponen ${esc(bom.id)} <span class="muted">batch ${fmtQ(bom.batch)} ${esc(bom.uom)}${bom.note ? ' · ' + esc(bom.note) : ''}</span>
+          ${multi ? '<span class="mrp-tools"><button class="btn-link" data-open-all>Uraikan semua</button> · <button class="btn-link" data-close-all>Tutup semua</button></span>' : ''}</h4>
+        <div class="sched-wrap"><table class="sched mrp-tree"><thead><tr><th>Kode</th><th>Nama material</th><th>Kategori</th><th class="num">Qty per batch BOM</th><th class="num">Qty untuk ${fmtQ(need)} ${esc(bom.uom)}</th><th>UoM</th></tr></thead>
+        <tbody>${rows.join('') || '<tr><td colspan="6" class="muted">BOM ini belum punya komponen.</td></tr>'}</tbody></table></div>
+        ${multi ? '<p class="hint">Baris dengan ▸ adalah ekstrak/bulk yang punya BOM sendiri. Kebutuhannya diurai sesuai qty ekstrak yang dibutuhkan, bukan per batch ekstrak.</p>' : ''}
+      </section>
+      ${multi ? `<section class="dt-card mrp-card">
+        <h4 class="dt-h">Total bahan dasar untuk ${fmtQ(need)} ${esc(bom.uom)} <span class="muted">${flat.length} material setelah semua ekstrak/bulk diurai</span>
+          <span class="mrp-tools"><button class="btn-link" data-export-flat>Unduh Excel</button></span></h4>
+        <div class="sched-wrap"><table class="sched"><thead><tr><th>Kode</th><th>Nama material</th><th>Kategori</th><th class="num">Total qty</th><th>UoM</th></tr></thead>
+        <tbody>${flat.map((x) => { const m = MRP.master.get(x.c.code); return `<tr><td>${esc(x.c.code)}</td><td>${esc((m && m.name) || x.c.name)}</td><td>${esc(x.c.kat || (m && m.kat) || '')}</td><td class="num"><b>${fmtQ(x.qty)}</b></td><td>${esc(x.c.uom)}</td></tr>`; }).join('')}</tbody></table></div>
+      </section>` : ''}
+      ${compare}`;
+    MRP.lastFlat = { p, bom, need, flat, tree };
+  }
+
+  $('bq').addEventListener('input', () => renderBomList());
+  $('bKat').addEventListener('change', () => renderBomList());
+  $('bList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-code]'); if (!b) return;
+    MRP.sel = b.dataset.code; renderBomList();
+    if (window.innerWidth < 1000) $('bDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('bDetail').addEventListener('click', (e) => {
+    const t = e.target;
+    const v = t.closest('[data-ver]'); if (v) { MRP.ver[MRP.sel] = v.dataset.ver; MRP.open.clear(); delete MRP.scale[MRP.sel]; return renderBomDetail(); }
+    const g = t.closest('[data-tog]'); if (g) { const k = g.dataset.tog; if (MRP.open.has(k)) MRP.open.delete(k); else MRP.open.add(k); return renderBomDetail(); }
+    if (t.closest('[data-open-all]')) { const add = (ns) => ns.forEach((n) => { if (n.kids) { MRP.open.add(n.key); add(n.kids); } }); add(MRP.lastFlat.tree); return renderBomDetail(); }
+    if (t.closest('[data-close-all]')) { MRP.open.clear(); return renderBomDetail(); }
+    if (t.closest('[data-reset-scale]')) { delete MRP.scale[MRP.sel]; return renderBomDetail(); }
+    const u = t.closest('[data-use]'); if (u) { MRP.use = u.dataset.use; location.hash = '#/mrp/dipakai'; return; }
+    if (t.closest('[data-export-flat]')) {
+      const f = MRP.lastFlat;
+      const data = f.flat.map((x) => { const m = MRP.master.get(x.c.code); return { 'Kode': x.c.code, 'Nama Material': (m && m.name) || x.c.name, 'Kategori': x.c.kat || (m && m.kat) || '', 'Total Qty': x.qty, 'UoM': x.c.uom }; });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Bahan dasar');
+      XLSX.writeFile(wb, `Bahan_dasar_${f.p.code}_${f.bom.id}_${f.need}.xlsx`);
+    }
+  });
+  $('bDetail').addEventListener('change', (e) => {
+    const s = e.target.closest('[data-sub]'); if (s) { MRP.subVer[s.dataset.sub] = s.value; return renderBomDetail(); }
+  });
+  $('bDetail').addEventListener('input', (e) => {
+    if (e.target.id !== 'bScale') return;
+    const v = Number(e.target.value);
+    clearTimeout(MRP.st);
+    MRP.st = setTimeout(() => { if (v > 0) { MRP.scale[MRP.sel] = v; renderBomDetail(); const i = $('bScale'); if (i) { i.focus(); i.setSelectionRange && i.type === 'text' && i.setSelectionRange(99, 99); } } }, 500);
+  });
+
+  /* ---------- Daftar Material ---------- */
+  const MAT_GET = { code: (x) => x.code, name: (x) => x.name, uom: (x) => x.uom, kat: (x) => x.kat, used: (x) => x.used || null, bom: (x) => x.bom || null, openpo: (x) => x.openpo || null };
+  function matRows() {
+    const open = new Map();
+    (state.rows || []).forEach((r) => { if (!isClosed(r) && r.sisa > 0) open.set(r.code, (open.get(r.code) || 0) + r.sisa); });
+    return [...MRP.master.values()].map((m) => {
+      const used = new Set((MRP.usedIn.get(m.code) || []).map((u) => u.bom.code)).size;
+      return { ...m, used, bom: (MRP.byProduct.get(m.code) || []).length, openpo: open.get(m.code) || 0, search: (m.code + ' ' + m.name).toLowerCase() };
+    });
+  }
+  function renderMatList() {
+    const q = $('mq').value.trim().toLowerCase(), k = $('mKat').value, u = $('mUse').value;
+    let rows = matRows().filter((x) => (!q || q.split(/\s+/).every((w) => x.search.includes(w)))
+      && (!k || (x.kat || 'Tanpa kategori') === k)
+      && (!u || (u === 'used' ? x.used : u === 'unused' ? !x.used : u === 'hasbom' ? x.bom : x.openpo > 0)));
+    rows = applyColSort(rows, colSort.mat, MAT_GET);
+    paintSortHeaders($('mTable'), 'mat');
+    MRP.matView = rows;
+    $('mCount').textContent = `${nf.format(rows.length)} material`;
+    $('mRows').innerHTML = rows.slice(0, MRP.shown).map((x) => `<tr class="row" data-mat="${esc(x.code)}" tabindex="0">
+        <td class="po">${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(x.uom)}</td><td>${esc(x.kat || '–')}</td>
+        <td class="num">${x.used ? nf.format(x.used) : '<span class="muted">–</span>'}</td>
+        <td class="num">${x.bom ? nf.format(x.bom) : '<span class="muted">–</span>'}</td>
+        <td class="num">${x.openpo ? fmtQ(x.openpo) + ' ' + esc(x.uom) : '<span class="muted">–</span>'}</td></tr>`).join('')
+      || '<tr class="empty"><td colspan="7">Tidak ada material yang cocok.</td></tr>';
+    $('mMore').hidden = rows.length <= MRP.shown;
+  }
+  ['mq'].forEach((id) => $(id).addEventListener('input', () => { MRP.shown = 200; renderMatList(); }));
+  ['mKat', 'mUse'].forEach((id) => $(id).addEventListener('change', () => { MRP.shown = 200; renderMatList(); }));
+  $('mReset').addEventListener('click', () => { $('mq').value = ''; $('mKat').value = ''; $('mUse').value = ''; colSort.mat = null; MRP.shown = 200; renderMatList(); });
+  $('mMore').addEventListener('click', () => { MRP.shown += 200; renderMatList(); });
+  initSortHeaders($('mTable'), 'mat', () => renderMatList());
+  $('mRows').addEventListener('click', (e) => {
+    const tr = e.target.closest('[data-mat]'); if (!tr) return;
+    const code = tr.dataset.mat;
+    if (MRP.byProduct.has(code) && !(MRP.usedIn.get(code) || []).length) { MRP.sel = code; location.hash = '#/mrp/bom'; }
+    else { MRP.use = code; location.hash = '#/mrp/dipakai'; }
+  });
+  $('mExport').addEventListener('click', () => {
+    const data = (MRP.matView || []).map((x) => ({ 'Kode': x.code, 'Nama Material': x.name, 'UoM': x.uom, 'Kategori': x.kat, 'Dipakai di Produk': x.used, 'Versi BOM Sendiri': x.bom, 'PO Terbuka (Sisa)': x.openpo }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Daftar Material');
+    XLSX.writeFile(wb, `Daftar_Material_${todayStr()}.xlsx`);
+  });
+
+  /* ---------- Material dipakai di mana ---------- */
+  function renderUse() {
+    const code = MRP.use;
+    if (code && $('uq').value.split(' · ')[0] !== code) { const m = MRP.master.get(code); $('uq').value = m ? `${m.code} · ${m.name}` : code; }
+    if (!code) { $('uResult').innerHTML = '<p class="mrp-empty">Pilih material untuk melihat pemakaiannya.</p>'; return; }
+    const m = MRP.master.get(code);
+    const direct = MRP.usedIn.get(code) || [];
+    // Tidak langsung: material dipakai di ekstrak/bulk, lalu ekstrak/bulk itu dipakai di produk lain
+    const indirect = [];
+    const seen = new Set();
+    const up = (prodCode, via, depth) => {
+      if (depth > 5) return;
+      (MRP.usedIn.get(prodCode) || []).forEach((u) => {
+        const k = u.bom.id + '|' + via.join('>');
+        if (seen.has(k)) return; seen.add(k);
+        indirect.push({ bom: u.bom, via: via.slice(), qty: u.qty, uom: u.uom });
+        up(u.bom.code, via.concat([u.bom.code]), depth + 1);
+      });
+    };
+    const directProducts = [...new Set(direct.map((u) => u.bom.code))];
+    directProducts.forEach((pc) => up(pc, [pc], 1));
+    const prodName = (c) => { const x = MRP.master.get(c); return (x && x.name) || ((MRP.byProduct.get(c) || [])[0] || {}).name || ''; };
+    const prodKat = (c) => { const x = MRP.master.get(c); return (x && x.kat) || ''; };
+    const openPo = (state.rows || []).filter((r) => r.code === code && !isClosed(r) && r.sisa > 0).reduce((t, r) => t + r.sisa, 0);
+    $('uResult').innerHTML = `
+      <div class="dt-tiles mrp-utiles">
+        <div class="dt-tile"><span class="dt-k">Material</span><span class="dt-v">${esc(code)}</span><span class="dt-sub">${esc((m && m.name) || (direct[0] && direct[0].bom.comps.find((c) => c.code === code) || {}).name || 'Tidak ada di master')}</span></div>
+        <div class="dt-tile"><span class="dt-k">Kategori · UoM</span><span class="dt-v">${esc((m && m.kat) || '–')}</span><span class="dt-sub">${esc((m && m.uom) || '')}</span></div>
+        <div class="dt-tile"><span class="dt-k">Dipakai langsung di</span><span class="dt-v">${nf.format(directProducts.length)} <small>produk</small></span><span class="dt-sub">${nf.format(direct.length)} versi BOM</span></div>
+        <div class="dt-tile"><span class="dt-k">PO terbuka (sisa)</span><span class="dt-v">${openPo ? fmtQ(openPo) : '–'} <small>${esc((m && m.uom) || '')}</small></span><span class="dt-sub">dari Monitoring PO</span></div>
+      </div>
+      <section class="dt-card mrp-card">
+        <h4 class="dt-h">Dipakai langsung <span class="muted">${direct.length} versi BOM</span></h4>
+        <div class="sched-wrap"><table class="sched"><thead><tr><th>Produk</th><th>Nama produk</th><th>Kategori</th><th>BOM</th><th class="num">Qty per batch</th><th class="num">Batch</th></tr></thead>
+        <tbody>${direct.map((u) => `<tr><td><button class="btn-link" data-bom="${esc(u.bom.code)}" data-ver="${esc(u.bom.id)}">${esc(u.bom.code)}</button></td><td>${esc(prodName(u.bom.code))}</td><td>${esc(prodKat(u.bom.code))}</td><td>${esc(u.bom.id)} <span class="muted">${esc(u.bom.ref || '')}</span></td><td class="num">${fmtQ(u.qty)} ${esc(u.uom)}</td><td class="num">${fmtQ(u.bom.batch)} ${esc(u.bom.uom)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Tidak dipakai langsung di BOM mana pun.</td></tr>'}</tbody></table></div>
+      </section>
+      ${indirect.length ? `<section class="dt-card mrp-card">
+        <h4 class="dt-h">Dipakai tidak langsung <span class="muted">lewat ekstrak/bulk yang memakai material ini</span></h4>
+        <div class="sched-wrap"><table class="sched"><thead><tr><th>Produk</th><th>Nama produk</th><th>Kategori</th><th>Lewat</th><th>BOM</th><th class="num">Qty ekstrak/bulk per batch</th></tr></thead>
+        <tbody>${indirect.map((u) => `<tr><td><button class="btn-link" data-bom="${esc(u.bom.code)}" data-ver="${esc(u.bom.id)}">${esc(u.bom.code)}</button></td><td>${esc(prodName(u.bom.code))}</td><td>${esc(prodKat(u.bom.code))}</td><td>${u.via.map((c) => `${esc(c)} <span class="muted">${esc(prodName(c))}</span>`).join(' → ')}</td><td>${esc(u.bom.id)}</td><td class="num">${fmtQ(u.qty)} ${esc(u.uom)}</td></tr>`).join('')}</tbody></table></div>
+      </section>` : ''}
+      ${MRP.byProduct.has(code) ? `<p class="dt-note">Material ini juga punya BOM sendiri (${(MRP.byProduct.get(code) || []).length} versi). <button class="btn-link" data-bom="${esc(code)}">Lihat BOM-nya</button></p>` : ''}`;
+  }
+  $('uq').addEventListener('change', () => {
+    const v = $('uq').value.trim(); const c = v.split(' · ')[0].trim();
+    if (MRP.master.has(c) || MRP.usedIn.has(c)) { MRP.use = c; renderUse(); }
+    else {
+      const hit = [...MRP.master.values()].find((m) => m.name.toLowerCase() === v.toLowerCase());
+      if (hit) { MRP.use = hit.code; renderUse(); }
+    }
+  });
+  $('uResult').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-bom]'); if (!b) return;
+    MRP.sel = b.dataset.bom; if (b.dataset.ver) MRP.ver[MRP.sel] = b.dataset.ver;
+    MRP.open.clear(); location.hash = '#/mrp/bom';
+  });
+
+  /* ---------- Pemeriksaan data ---------- */
+  function mrpChecks() {
+    const inMaster = (c) => MRP.master.has(c);
+    const compInfo = new Map();
+    MRP.boms.forEach((b) => b.comps.forEach((c) => {
+      const o = compInfo.get(c.code) || { code: c.code, name: c.name, kat: c.kat, uom: c.uom, boms: new Set(), prods: new Set(), uoms: new Set() };
+      o.boms.add(b.id); o.prods.add(b.code); o.uoms.add(c.uom); compInfo.set(c.code, o);
+    }));
+    const notMaster = [...compInfo.values()].filter((o) => !inMaster(o.code));
+    const prodNotMaster = MRP.products.filter((p) => !inMaster(p.code));
+    const unused = [...MRP.master.values()].filter((m) => (m.kat === 'RM (Raw)' || m.kat === 'PM (Pack)') && !compInfo.has(m.code));
+    const noBom = [...MRP.master.values()].filter((m) => (m.kat === 'FG' || m.kat === 'Ekstrak') && !MRP.byProduct.has(m.code));
+    const uomDiff = [...compInfo.values()].filter((o) => inMaster(o.code) && MRP.master.get(o.code).uom && [...o.uoms].some((u) => u && u.toLowerCase() !== MRP.master.get(o.code).uom.toLowerCase()));
+    const zero = [];
+    MRP.boms.forEach((b) => { if (!b.comps.length) zero.push({ b, c: null }); b.comps.forEach((c) => { if (!(Number(c.qty) > 0)) zero.push({ b, c }); }); });
+    const noKat = [...MRP.master.values()].filter((m) => !m.kat);
+    return {
+      notMaster: { label: 'Komponen tidak ada di master', badge: true, rows: notMaster,
+        desc: 'Kode material di BOM_DETAIL yang tidak ada di MASTER_MATERIAL. Tambahkan ke master supaya nama, UoM, dan kategorinya jelas.',
+        head: ['Kode', 'Nama (dari BOM)', 'Kategori (dari BOM)', 'Dipakai di produk', 'Versi BOM'],
+        row: (o) => [o.code, o.name, o.kat, o.prods.size, o.boms.size], use: (o) => o.code },
+      prodNotMaster: { label: 'Produk BOM tidak ada di master', badge: true, rows: prodNotMaster,
+        desc: 'Kode produk di BOM_LIST yang tidak ada di MASTER_MATERIAL.',
+        head: ['Kode produk', 'Nama produk', 'Versi BOM'], row: (p) => [p.code, p.name, p.boms.length], bom: (p) => p.code },
+      uomDiff: { label: 'UoM berbeda dengan master', badge: true, rows: uomDiff,
+        desc: 'Satuan komponen di BOM berbeda dengan satuan di master. Perlu dicek supaya kebutuhan tidak salah hitung (misal gram vs kg).',
+        head: ['Kode', 'Nama', 'UoM di master', 'UoM di BOM', 'Dipakai di produk'],
+        row: (o) => [o.code, MRP.master.get(o.code).name, MRP.master.get(o.code).uom, [...o.uoms].join(', '), o.prods.size], use: (o) => o.code },
+      zero: { label: 'BOM kosong / qty 0', badge: true, rows: zero,
+        desc: 'BOM tanpa komponen, atau komponen dengan qty 0/kosong.',
+        head: ['BOM', 'Produk', 'Komponen', 'Qty'], row: (x) => [x.b.id + ' ' + (x.b.ref || ''), x.b.code + ' ' + x.b.name, x.c ? x.c.code + ' ' + x.c.name : '(tidak ada komponen)', x.c ? (x.c.qty === '' ? 'kosong' : x.c.qty) : '–'], bom: (x) => x.b.code },
+      noBom: { label: 'FG / Ekstrak tanpa BOM', badge: false, rows: noBom,
+        desc: 'Material kategori FG atau Ekstrak di master yang belum punya BOM. Wajar untuk produk yang dibeli jadi atau sudah tidak diproduksi.',
+        head: ['Kode', 'Nama', 'Kategori', 'UoM'], row: (m) => [m.code, m.name, m.kat, m.uom], use: (m) => m.code },
+      unused: { label: 'RM/PM tidak dipakai di BOM', badge: false, rows: unused,
+        desc: 'RM atau PM di master yang tidak muncul di BOM mana pun. Bisa material lama, material baru yang BOM-nya belum dibuat, atau material non-produksi.',
+        head: ['Kode', 'Nama', 'Kategori', 'UoM'], row: (m) => [m.code, m.name, m.kat, m.uom], use: (m) => m.code },
+      noKat: { label: 'Master tanpa kategori', badge: false, rows: noKat,
+        desc: 'Material di master yang kolom kategorinya kosong.',
+        head: ['Kode', 'Nama', 'UoM'], row: (m) => [m.code, m.name, m.uom], use: (m) => m.code },
+    };
+  }
+  function renderChecks() {
+    const C = MRP.checks;
+    if (!MRP.kPicked) MRP.kTab = (Object.entries(C).find(([, c]) => c.rows.length) || ['notMaster'])[0];   // buka pemeriksaan pertama yang ada temuannya
+    $('kTabs').innerHTML = Object.entries(C).map(([k, c]) => `<button class="chip${k === MRP.kTab ? ' is-on' : ''}" data-k="${k}" role="tab" aria-selected="${k === MRP.kTab}">${esc(c.label)} <b>${nf.format(c.rows.length)}</b></button>`).join('');
+    const c = C[MRP.kTab];
+    $('kTitle').textContent = `${c.label} (${nf.format(c.rows.length)})`;
+    $('kDesc').textContent = c.desc;
+    $('kHead').innerHTML = `<tr>${c.head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`;
+    $('kRows').innerHTML = c.rows.slice(0, 1000).map((x, i) => `<tr class="row" data-i="${i}" tabindex="0">${c.row(x).map((v) => `<td>${esc(v === undefined ? '' : v)}</td>`).join('')}</tr>`).join('')
+      || `<tr class="empty"><td colspan="${c.head.length}">Tidak ada. Data sudah rapi untuk pemeriksaan ini.</td></tr>`;
+  }
+  $('kTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (!b) return; MRP.kTab = b.dataset.k; MRP.kPicked = true; renderChecks(); });
+  $('kRows').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-i]'); if (!tr) return;
+    const c = MRP.checks[MRP.kTab], x = c.rows[Number(tr.dataset.i)];
+    if (c.bom) { MRP.sel = c.bom(x); MRP.open.clear(); location.hash = '#/mrp/bom'; }
+    else if (c.use) { MRP.use = c.use(x); location.hash = '#/mrp/dipakai'; }
+  });
+
   route();
   loadData();
   loadSupplier(false);
+  setTimeout(() => loadMrp(false), 1500);   // angka MRP di Beranda; halaman MRP langsung siap saat dibuka
 })();

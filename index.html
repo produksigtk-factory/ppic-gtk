@@ -38,6 +38,18 @@
           <a class="menu-item sub" href="#/po/riwayat" data-route="po/riwayat">Riwayat Edit PO</a>
         </div>
       </div>
+
+      <div class="menu-group is-open" data-group="mrp">
+        <button class="menu-group-head" aria-expanded="true">
+          <span>MRP</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <div class="submenu">
+          <a class="menu-item sub" href="#/mrp/bom" data-route="mrp/bom">Bill of Material</a>
+          <a class="menu-item sub" href="#/mrp/material" data-route="mrp/material">Daftar Material</a>
+          <a class="menu-item sub" href="#/mrp/dipakai" data-route="mrp/dipakai">Material Dipakai di Mana</a>
+          <a class="menu-item sub" href="#/mrp/cek" data-route="mrp/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="mrpBadge" hidden></span></a>
+        </div>
+      </div>
     </nav>
 
     <p class="menu-foot">Menu pekerjaan lain akan ditambahkan di sini.</p>
@@ -80,6 +92,18 @@
               <div><dt>Belum lengkap diterima</dt><dd id="hOpen">–</dd></div>
               <div class="late"><dt>Baris shortage</dt><dd id="hLate">–</dd></div>
               <div><dt>Jadwal 7 hari ke depan</dt><dd id="hWeek">–</dd></div>
+            </dl>
+          </a>
+          <a class="module" href="#/mrp/bom">
+            <div class="module-head">
+              <h2>MRP</h2>
+              <span class="module-link">Buka Bill of Material</span>
+            </div>
+            <p class="module-desc">Dasar perhitungan kebutuhan material: BOM tiap produk (bertingkat sampai bahan dasar) dan daftar material dari DATABASE PPIC.</p>
+            <dl class="module-stats">
+              <div><dt>Produk ber-BOM</dt><dd id="hMrpProd">–</dd></div>
+              <div><dt>Versi BOM</dt><dd id="hMrpBom">–</dd></div>
+              <div><dt>Material di master</dt><dd id="hMrpMat">–</dd></div>
             </dl>
           </a>
           <a class="module" href="#/po/supplier">
@@ -410,6 +434,75 @@
               <tbody id="aMismatch"></tbody>
             </table>
           </div>
+        </article>
+      </section>
+
+      <!-- ================= MRP: BILL OF MATERIAL ================= -->
+      <section id="view-mrp-bom" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat BOM dan daftar material dari DATABASE PPIC, biasanya 5–15 detik…</div>
+        <div class="mrp-split">
+          <aside class="mrp-side">
+            <div class="mrp-side-tools">
+              <label class="tb-search"><span class="sr">Cari produk</span><input type="search" id="bq" placeholder="Cari kode atau nama produk"></label>
+              <label class="tb-field"><span class="sr">Kategori produk</span><select id="bKat" title="Kategori produk"><option value="">Semua kategori</option></select></label>
+              <p class="mrp-count" id="bCount"></p>
+            </div>
+            <div class="mrp-plist" id="bList" role="listbox" aria-label="Daftar produk"></div>
+          </aside>
+          <section class="mrp-detail" id="bDetail" aria-live="polite">
+            <p class="mrp-empty">Pilih produk di sebelah kiri untuk melihat BOM-nya.</p>
+          </section>
+        </div>
+      </section>
+
+      <!-- ================= MRP: DAFTAR MATERIAL ================= -->
+      <section id="view-mrp-material" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat daftar material dari DATABASE PPIC…</div>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="mq" placeholder="Cari kode atau nama material"></label>
+          <label class="tb-field"><span class="sr">Kategori</span><select id="mKat" title="Kategori"><option value="">Semua kategori</option></select></label>
+          <label class="tb-field"><span class="sr">Pemakaian</span><select id="mUse" title="Pemakaian di BOM">
+            <option value="">Pemakaian: semua</option>
+            <option value="used">Dipakai di BOM</option>
+            <option value="unused">Tidak dipakai di BOM</option>
+            <option value="hasbom">Punya BOM sendiri</option>
+            <option value="openpo">Ada PO terbuka</option>
+          </select></label>
+          <button class="btn btn-ghost btn-sm" id="mReset">Reset</button>
+          <button class="btn btn-sm" id="mExport">Unduh Excel</button>
+        </div>
+        <p class="mrp-count" id="mCount"></p>
+        <div class="table-wrap mrp-wrap">
+          <table class="po-table mrp-table" id="mTable">
+            <thead><tr>
+              <th data-sk="code">Kode</th><th data-sk="name">Nama material</th><th data-sk="uom">UoM</th><th data-sk="kat">Kategori</th>
+              <th class="num" data-sk="used">Dipakai di produk</th><th class="num" data-sk="bom">Versi BOM sendiri</th><th class="num" data-sk="openpo">PO terbuka (sisa)</th>
+            </tr></thead>
+            <tbody id="mRows"></tbody>
+          </table>
+          <div class="more"><button class="btn btn-ghost" id="mMore" hidden>Tampilkan lebih banyak</button></div>
+        </div>
+      </section>
+
+      <!-- ================= MRP: DIPAKAI DI MANA ================= -->
+      <section id="view-mrp-dipakai" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat BOM dari DATABASE PPIC…</div>
+        <p class="lead">Untuk satu material: produk dan BOM mana saja yang memakainya, langsung maupun lewat ekstrak/bulk.</p>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-search"><span class="sr">Material</span><input type="search" id="uq" list="uList" placeholder="Ketik kode atau nama material, lalu pilih"></label>
+          <datalist id="uList"></datalist>
+        </div>
+        <div id="uResult"><p class="mrp-empty">Pilih material untuk melihat pemakaiannya.</p></div>
+      </section>
+
+      <!-- ================= MRP: PEMERIKSAAN DATA ================= -->
+      <section id="view-mrp-cek" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memeriksa BOM dan daftar material…</div>
+        <p class="lead">Data BOM dan master material yang perlu dirapikan sebelum dipakai untuk menghitung kebutuhan material.</p>
+        <div class="chg-types" id="kTabs" role="tablist" aria-label="Jenis pemeriksaan"></div>
+        <article class="att-card" id="kCard">
+          <header class="att-head"><h2 id="kTitle"></h2><p class="card-sub" id="kDesc"></p></header>
+          <div class="table-wrap att-wrap"><table class="po-table att-table"><thead id="kHead"></thead><tbody id="kRows"></tbody></table></div>
         </article>
       </section>
 

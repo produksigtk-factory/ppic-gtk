@@ -23,7 +23,9 @@ const CONFIG = {
   CHANGE_SHEET: 'LOG_PERUBAHAN',   // perubahan yang terdeteksi di setiap upload export Odoo
   SUPPLIER_SHEET: 'SUPPLIER_MATERIAL',  // di DATABASE PPIC: hasil hitung otomatis (jangan diketik)
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
-  MONITOR_SHEET: 'MONITORING_PO',  // tampilan di Google Sheet: diisi Apps Script sebagai tabel biasa (tanpa rumus berat)
+  MONITOR_SHEET: 'MONITORING_PO',
+  BOM_SHEET: 'BOM_LIST',           // di DATABASE PPIC
+  BOM_DETAIL_SHEET: 'BOM_DETAIL',  // di DATABASE PPIC  // tampilan di Google Sheet: diisi Apps Script sebagai tabel biasa (tanpa rumus berat)
 };
 const MONITOR_VERSION = '2';      // naikkan bila susunan tab MONITORING_PO berubah
 const LINE_COLS = 13;   // A–M PO_LINE
@@ -37,6 +39,10 @@ function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = ss.getSpreadsheetTimeZone();
   const p = (e && e.parameter) || {};
+  if (p.view === 'mrp') {
+    try { return json_(mrpView_(tz)); }
+    catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
+  }
   if (p.view === 'supplier') {
     try { return json_(supplierView_(ss, tz, p.rebuild === '1')); }
     catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
@@ -585,6 +591,21 @@ function setCancel_(ss, body, user, stamp, tz) {
     sh.deleteRow(t.rowNo[i]);
     logEdit_(ss, [[stamp, user, kode ? 'Aktifkan lagi baris' : 'Aktifkan lagi PO', po, kode, 'Alasan cancel', old, '']]);
   }
+}
+
+/* ================= MRP: BOM & daftar material (dibaca dari DATABASE PPIC) ================= */
+// master  : [kode, nama, uom, kategori]
+// boms    : [bomId, kodeProduk, namaProduk, qtyBatch, uom, reference, jumlahKomponen, catatan]
+// details : [bomId, kodeMaterial, namaMaterial, qtyMaterial, uom, kategori]
+function mrpView_(tz) {
+  const db = SpreadsheetApp.openById(CONFIG.DATABASE_ID);
+  const master = readRows_(db.getSheetByName(CONFIG.MASTER_SHEET), 4)
+    .map(r => [str_(r[0]), String(r[1] || ''), String(r[2] || ''), String(r[3] || '')]);
+  const boms = readRows_(db.getSheetByName(CONFIG.BOM_SHEET), 8)
+    .map(r => [str_(r[0]), str_(r[1]), String(r[2] || ''), num_(r[3]), String(r[4] || ''), String(r[5] || ''), num_(r[6]), String(r[7] || '')]);
+  const details = readRows_(db.getSheetByName(CONFIG.BOM_DETAIL_SHEET), 10)
+    .map(r => [str_(r[0]), str_(r[5]), String(r[6] || ''), num_(r[7]), String(r[8] || ''), String(r[9] || '')]);
+  return { ok: true, master, boms, details, databaseUrl: db.getUrl(), readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm') };
 }
 
 /* ================= Supplier & MoQ per material ================= */
