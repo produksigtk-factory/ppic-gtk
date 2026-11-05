@@ -9,6 +9,8 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 - Hosting: Cloudflare Pages (auto-deploy dari branch `main`) → https://ppic-gtk.pages.dev
 - Database master: Google Sheet "DATABASE PPIC GTK" (MASTER_MATERIAL, BOM_LIST, BOM_DETAIL)
 - Monitoring PO: Google Sheet "MONITORING PO" (PO_LINE, PO_SCHEDULE, MONITORING_PO)
+- Tab MONITORING_PO berisi tabel biasa (bukan rumus) yang diisi Apps Script ±1 menit setelah upload/edit, atau lewat menu PPIC → Perbarui tab MONITORING_PO. Rumus berat di tab ini dulu membuat setiap simpan dari website menunggu Google Sheet menghitung ulang.
+- Edit manual menulis hanya baris yang berubah.
 
 ## File
 

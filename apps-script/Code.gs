@@ -22,7 +22,9 @@ const CONFIG = {
   CHANGE_SHEET: 'LOG_PERUBAHAN',   // perubahan yang terdeteksi di setiap upload export Odoo
   SUPPLIER_SHEET: 'SUPPLIER_MATERIAL',  // di DATABASE PPIC: hasil hitung otomatis (jangan diketik)
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
+  MONITOR_SHEET: 'MONITORING_PO',  // tampilan di Google Sheet: diisi Apps Script sebagai tabel biasa (tanpa rumus berat)
 };
+const MONITOR_VERSION = '2';      // naikkan bila susunan tab MONITORING_PO berubah
 const LINE_COLS = 13;   // A–M PO_LINE
 const SCHED_COLS = 10;  // A–J PO_SCHEDULE (K dan L berisi rumus kunci di baris judul)
 const LINE_FMT = [['D', '@'], ['B', 'yyyy-mm-dd']];
@@ -37,6 +39,11 @@ function doGet(e) {
   if (p.view === 'supplier') {
     try { return json_(supplierView_(ss, tz, p.rebuild === '1')); }
     catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
+  }
+  // Sekali setelah versi ini dipasang: ganti rumus di tab MONITORING_PO dengan tabel biasa
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('MONITOR_VERSION') !== MONITOR_VERSION) {
+    try { refreshMonitorSheet(); props.setProperty('MONITOR_VERSION', MONITOR_VERSION); } catch (err) { /* tetap kirim data ke website */ }
   }
   return json_({
     ok: true,
@@ -80,7 +87,7 @@ function doPost(e) {
 
     if (action === 'upload') {
       const res = upload_(ss, body, stamp);
-      if (res.ok) markSupplierStale_();
+      if (res.ok) { markSupplierStale_(); scheduleMonitorRefresh_(); }
       return json_(res);
     }
 
@@ -96,6 +103,7 @@ function doPost(e) {
 
     const pos = handlers[action](ss, body, user, stamp, tz);
     markSupplierStale_();
+    scheduleMonitorRefresh_();
     return json_(Object.assign({ ok: true, time: stamp, manual: readManual_(ss, tz), editLog: readEditLog_(ss, tz, 300) }, poData_(ss, pos, tz)));
   } catch (err) {
     return json_({ ok: false, error: String(err.message || err) });
@@ -719,6 +727,98 @@ function num_(v) {
   return isNaN(n) ? '' : n;
 }
 function numOrBlank_(v) { return v === '' || v === null || v === undefined || isNaN(Number(v)) ? '' : Number(v); }
+
+/* ================= Tab MONITORING_PO (tampilan di Google Sheet) ================= */
+// Dulu tab ini memakai rumus ARRAYFORMULA/MAP yang dihitung ulang setiap PO_LINE/PO_SCHEDULE berubah,
+// sehingga setiap simpan dari website menunggu Google Sheet selesai menghitung (bisa sampai 1 menit).
+// Sekarang Apps Script mengisinya sebagai tabel biasa: ±1 menit setelah upload/edit (di latar belakang),
+// atau langsung lewat menu PPIC → Perbarui tab MONITORING_PO.
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('PPIC').addItem('Perbarui tab MONITORING_PO', 'refreshMonitorSheet').addToUi();
+}
+
+// Jadwalkan pembaruan tab ±1 menit lagi (sekali saja walau ada beberapa edit berturut-turut).
+function scheduleMonitorRefresh_() {
+  try {
+    const pending = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'refreshMonitorSheet');
+    if (!pending) ScriptApp.newTrigger('refreshMonitorSheet').timeBased().after(60 * 1000).create();
+  } catch (err) { /* izin pemicu belum diberikan: tab diperbarui saat upload berikutnya atau lewat menu */ }
+}
+
+function refreshMonitorSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildMonitorSheet_(ss, ss.getSpreadsheetTimeZone());
+  try {
+    ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'refreshMonitorSheet') ScriptApp.deleteTrigger(t); });
+  } catch (err) { /* abaikan */ }
+}
+
+function buildMonitorSheet_(ss, tz) {
+  const sh = ss.getSheetByName(CONFIG.MONITOR_SHEET);
+  if (!sh) return;
+  const lines = readRows_(ss.getSheetByName(CONFIG.LINE_SHEET), 11).map((r, i) => ({ r, i }));
+  const sched = readRows_(ss.getSheetByName(CONFIG.SCHED_SHEET), 8);
+  const sb = {};
+  sched.forEach(x => { const k = str_(x[0]) + '|' + str_(x[1]); (sb[k] = sb[k] || []).push(x); });
+  Object.keys(sb).forEach(k => sb[k].sort((a, b) => num_(a[3]) - num_(b[3])));
+
+  const dkey = v => (isDate_(v) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v || '').slice(0, 10));
+  lines.sort((a, b) => {
+    const x = dkey(a.r[1]), y = dkey(b.r[1]);
+    if (x !== y) return x < y ? -1 : 1;                          // Order Date terlama di atas
+    const p = str_(a.r[0]), q = str_(b.r[0]);
+    if (p !== q) return p < q ? -1 : 1;
+    return a.i - b.i;
+  });
+
+  // Qty diterima dibagi berurutan (LINE KE) ke baris kode yang sama; baris qty 0 (take out) tidak ikut dibagi
+  const groups = {};
+  lines.forEach(x => { const k = str_(x.r[0]) + '|' + str_(x.r[3]); (groups[k] = groups[k] || []).push(x); });
+  const os = new Map();
+  Object.keys(groups).forEach(k => {
+    const ord = groups[k].slice().sort((a, b) => num_(a.r[10]) - num_(b.r[10]));
+    let rem = (sb[k] || []).reduce((t, x) => t + (Number(x[5]) || 0), 0);
+    const active = ord.filter(x => (Number(x.r[6]) || 0) > 0);
+    const last = active.length ? active[active.length - 1] : ord[ord.length - 1];
+    ord.forEach(x => {
+      const q = Number(x.r[6]) || 0;
+      const rec = x === last ? rem : (q > 0 ? Math.min(q, rem) : 0);
+      rem -= rec;
+      os.set(x, q - rec);
+    });
+  });
+
+  const out = lines.map(x => {
+    const r = x.r, k = str_(r[0]) + '|' + str_(r[3]);
+    const qty = Number(r[6]) || 0, price = r[8] === '' ? '' : Number(r[8]);
+    const lineKe = num_(r[10]) || 1, n = groups[k].length;
+    const first = lineKe === Math.min.apply(null, groups[k].map(y => num_(y.r[10]) || 1));
+    const list = first ? (sb[k] || []) : [];
+    const cells = [];
+    for (let j = 0; j < 5; j++) {
+      const s = list[j];
+      cells.push(s ? Number(s[4]) || 0 : '', s ? Number(s[5]) || 0 : '', s ? toDate_(s[6]) || '' : '', s ? s[7] : '');
+    }
+    const o = os.get(x);
+    const notes = [];
+    if (qty <= 0) notes.push('Take out (qty order 0).');
+    if (n > 1) notes.push('Kode ganda di PO ini: jadwal tercatat di baris pertama, qty diterima dibagi berurutan ke tiap baris.');
+    if (list.length > 5) notes.push('Jadwal lebih dari 5, selengkapnya di PO_SCHEDULE.');
+    return [str_(r[0]), toDate_(r[1]) || r[1], r[2], str_(r[3]), r[4], r[5], qty, r[7], price, r[9],
+      price === '' ? '' : qty * price, o, qty ? (qty - o) / qty : '']
+      .concat(cells, [first ? list.length : '', notes.join(' '), lineKe]);
+  });
+
+  const COLS = 36, START = 6;
+  const need = START - 1 + out.length;
+  if (sh.getMaxRows() < need + 10) sh.insertRowsAfter(sh.getMaxRows(), need + 200 - sh.getMaxRows());
+  sh.getRange(START, 1, sh.getMaxRows() - START + 1, COLS).clearContent();   // hapus rumus lama dan isi lama
+  sh.getRange(START, 4, Math.max(out.length, 1), 1).setNumberFormat('@');     // kode material sebagai teks
+  if (out.length) sh.getRange(START, 1, out.length, COLS).setValues(out);
+  sh.getRange('A2').setValue('Diisi otomatis oleh Apps Script dari PO_LINE dan PO_SCHEDULE: ±1 menit setelah upload atau edit manual, atau lewat menu PPIC → Perbarui tab MONITORING_PO. Terakhir diperbarui '
+    + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm') + '. Jangan mengetik langsung di tab ini.');
+}
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
