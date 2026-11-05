@@ -664,6 +664,8 @@
         setFollow(res.followups);
         if (res.editLog) state.editLog = res.editLog;
         refreshAll();
+        flashRow(state.openKey);
+        return `Follow-up ${r.po} / ${r.code} tersimpan ${savedAt(res)}`;
       },
     });
   }
@@ -801,7 +803,19 @@
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
   $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true) : loadData()));
 
-  const toggleRow = (tr) => { const k = tr.dataset.key; state.openKey = state.openKey === k ? null : k; render(); };
+  const toggleRow = (tr) => {
+    const k = tr.dataset.key; state.openKey = state.openKey === k ? null : k; render();
+    if (state.openKey) scrollRowTop(state.openKey);
+  };
+  // Geser tabel supaya baris yang dibuka ada di atas dan rinciannya terlihat
+  function scrollRowTop(key) {
+    const w = $('monWrap'), tr = document.querySelector(`#rows tr.row[data-key="${CSS.escape(key)}"]`);
+    if (!w || !tr) return;
+    const head = w.querySelector('thead');
+    const top = tr.getBoundingClientRect().top - w.getBoundingClientRect().top + w.scrollTop - (head ? head.offsetHeight : 0);
+    if (w.scrollHeight > w.clientHeight) w.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    else tr.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
   $('rows').addEventListener('click', (e) => { const tr = e.target.closest('tr.row'); if (tr) toggleRow(tr); });
   $('rows').addEventListener('keydown', (e) => {
     const tr = e.target.closest('tr.row');
@@ -1564,22 +1578,58 @@
     const first = $('dlgBody').querySelector('input:not([readonly]), select');
     if (first) first.focus();
   }
-  const closeDialog = () => { $('dlg').close(); dlgSubmit = null; };
+  let dlgBusy = false;
+  const closeDialog = () => { if (dlgBusy) return; $('dlg').close(); dlgSubmit = null; };
   $('dlgCancel').addEventListener('click', closeDialog);
+  $('dlg').addEventListener('cancel', (e) => { if (dlgBusy) e.preventDefault(); });   // Esc tidak menutup saat sedang menyimpan
+  // Tanda sedang menyimpan: tombol dan isian dikunci, ada keterangan dan hitungan detik
+  function setDlgBusy(on) {
+    dlgBusy = on;
+    $('dlgForm').classList.toggle('is-busy', on);
+    $('dlgBody').querySelectorAll('input, select, textarea, button').forEach((x) => { x.disabled = on; });
+    $('dlgCancel').disabled = on;
+    $('dlgSaving').hidden = !on;
+    clearInterval(setDlgBusy.t);
+    if (on) {
+      const t0 = Date.now();
+      $('dlgSavingText').textContent = 'Menyimpan ke Google Sheet…';
+      setDlgBusy.t = setInterval(() => { $('dlgSavingText').textContent = `Menyimpan ke Google Sheet… ${Math.round((Date.now() - t0) / 1000)} detik`; }, 1000);
+    }
+  }
   $('dlgForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (dlgBusy) return;
     if (!dlgSubmit) return closeDialog();
     const fd = Object.fromEntries(new FormData($('dlgForm')).entries());
     $('dlgOk').disabled = true; $('dlgError').textContent = '';
     const label = $('dlgOk').textContent; $('dlgOk').textContent = 'Menyimpan…';
-    try { await dlgSubmit(fd); closeDialog(); }
-    catch (err) { $('dlgError').textContent = err.message; $('dlgOk').disabled = false; $('dlgOk').textContent = label; }
+    setDlgBusy(true);
+    try { const msg = await dlgSubmit(fd); setDlgBusy(false); closeDialog(); if (msg) toast(msg); }
+    catch (err) { setDlgBusy(false); $('dlgError').textContent = err.message; $('dlgOk').disabled = false; $('dlgOk').textContent = label; }
   });
+
+  // Pesan singkat di pojok bawah setelah berhasil menyimpan
+  function toast(text) {
+    const el = $('toast');
+    el.textContent = text; el.hidden = false; el.classList.remove('is-out');
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => { el.classList.add('is-out'); setTimeout(() => { el.hidden = true; }, 300); }, 4500);
+  }
+  // Sorot sebentar baris yang baru diubah
+  function flashRow(key) {
+    if (!key) return;
+    requestAnimationFrame(() => {
+      const tr = document.querySelector(`#rows tr.row[data-key="${CSS.escape(key)}"]`);
+      if (tr) { tr.classList.remove('is-flash'); void tr.offsetWidth; tr.classList.add('is-flash'); }
+    });
+  }
+  const savedAt = (res) => (res && res.time ? String(res.time).slice(11, 16) : '');
 
   const fld = (name, label, value, opt = {}) => {
     const attrs = [`name="${name}"`, `id="f_${name}"`, `value="${esc(value ?? '')}"`];
     if (opt.type) attrs.push(`type="${opt.type}"`); else attrs.push('type="text"');
     if (opt.step) attrs.push(`step="${opt.step}"`);
+    if (opt.type === 'number') attrs.push('min="0"');
     if (opt.required) attrs.push('required');
     if (opt.readonly) attrs.push('readonly');
     if (opt.list) attrs.push(`list="${opt.list}"`);
@@ -1596,6 +1646,7 @@
     $('editBar').hidden = !on;
     $('btnEditMode').textContent = on ? 'Keluar mode edit' : 'Mode edit';
     $('btnEditMode').classList.toggle('is-on', on);
+    document.body.classList.toggle('edit-on', on);
     render();
   }
 
@@ -1620,7 +1671,7 @@
       },
     });
   });
-  $('btnEditOff').addEventListener('click', () => setEditMode(false));
+
 
   const findRow = (key) => state.rows.find((r) => r.key === key);
 
@@ -1663,6 +1714,10 @@
         const res = await api('saveLine', { key: r ? { po: r.po, code: r.code, lineKe: r.lineKe } : null, data: lineData(fd) });
         if (r && (fd.po.trim() !== r.po || fd.code.trim() !== r.code)) state.openKey = null;
         applyServerUpdate(res);
+        if (r) flashRow(state.openKey);
+        const changed = (res.editLog || []).filter((x) => x[0] === res.time && x[3] === fd.po.trim()).length;
+        return r ? (changed ? `Tersimpan ${savedAt(res)} · baris ${fd.po.trim()} / ${fd.code.trim()} diperbarui` : 'Tidak ada yang berubah.')
+          : `Tersimpan ${savedAt(res)} · baris baru ${fd.po.trim()} / ${fd.code.trim()} ditambahkan`;
       },
     });
   }
@@ -1679,6 +1734,7 @@
         const res = await api('deleteLine', { key: { po: r.po, code: r.code, lineKe: r.lineKe }, withSchedules: !!withSched });
         state.openKey = null;
         applyServerUpdate(res);
+        return `Terhapus ${savedAt(res)} · baris ${r.po} / ${r.code}`;
       },
     });
   }
@@ -1699,6 +1755,8 @@
           data: { po: r.po, code: r.code, name: r.name, date: fd.date, status: fd.status, qty: fd.qty, rec: fd.rec || 0 },
         });
         applyServerUpdate(res);
+        flashRow(state.openKey);
+        return `Tersimpan ${savedAt(res)} · jadwal ${r.po} / ${r.code} ${s ? 'diperbarui' : 'ditambahkan'}`;
       },
     });
   }
@@ -1707,7 +1765,11 @@
     openDialog({
       title: `Hapus jadwal ke-${s.n}?`, ok: 'Hapus', danger: true,
       body: `<p>Jadwal <b>${fmtDate(s.date)}</b> · ${fmtNum(s.qty)} ${esc(r.uom)} · ${esc(s.status)} untuk ${esc(r.po)} / ${esc(r.code)} akan dihapus.</p>`,
-      onSubmit: async () => { applyServerUpdate(await api('deleteSched', { key: { po: r.po, code: r.code, n: s.n } })); },
+      onSubmit: async () => {
+        const res = await api('deleteSched', { key: { po: r.po, code: r.code, n: s.n } });
+        applyServerUpdate(res);
+        return `Terhapus ${savedAt(res)} · jadwal ke-${s.n} ${r.po} / ${r.code}`;
+      },
     });
   }
 

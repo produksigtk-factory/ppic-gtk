@@ -774,3 +774,27 @@ th[aria-sort="descending"] .sort-ind::before { content: "↓"; }
 .stat-takeout .stat-num { color: #5b6b7d; }
 .po-table tr.row.is-takeout td { color: #7a8796; }
 .po-table tr.row.is-takeout .mat-name { text-decoration: line-through; text-decoration-color: rgba(122, 135, 150, .6); }
+
+/* Simpan edit manual: tanda proses, pesan berhasil, sorot baris */
+.dlg-actions { align-items: center; }
+.dlg-saving { margin-right: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #cfe3d6; border-top-color: var(--brand); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.dlg form.is-busy #dlgBody { opacity: .65; }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
+  padding: 10px 16px; border-radius: 999px; background: #123d26; color: #fff; font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 10px 30px rgba(16, 40, 26, .3); transition: opacity .3s, transform .3s; max-width: calc(100vw - 32px);
+}
+.toast.is-out { opacity: 0; transform: translate(-50%, 8px); }
+@keyframes flash { from { background: #fff3c4; } to { background: transparent; } }
+.po-table tr.row.is-flash td { animation: flash 2.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .spin, .po-table tr.row.is-flash td { animation: none; } .toast { transition: none; } }
+/* Mode edit: kolom jadwal muat, status Odoo di bawah label */
+.sched .odoo-st { display: block; margin: 2px 0 0; }
+.sched .row-actions { white-space: nowrap; }
+.sched .row-actions .btn-link { padding: 2px 4px; }
+#view-po-monitoring .edit-bar { padding: 6px 12px; }
+body.edit-on .dt-grid { grid-template-columns: minmax(0, 1fr); }
+body.edit-on .dt-grid .fu-box { max-width: 760px; }
+.page-title { flex: 1 1 360px; }

@@ -210,10 +210,9 @@
         <div class="setup-note" id="setupNote" hidden></div>
 
         <div class="edit-bar" id="editBar" hidden>
-          <p><b>Mode edit aktif.</b> Klik sebuah baris untuk mengisi follow-up, atau mengubah dan menghapus baris PO dan jadwalnya. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
+          <p><b>Mode edit aktif.</b> Buka sebuah baris, lalu pilih Ubah, Tambah, atau Hapus. Setiap perubahan langsung tersimpan di Google Sheet dan tercatat di Riwayat Edit PO.</p>
           <div class="edit-bar-actions">
             <button class="btn" id="btnAddLine" title="Tambah baris PO baru secara manual">Tambah baris PO</button>
-            <button class="btn btn-ghost" id="btnEditOff" title="Matikan mode edit">Keluar mode edit</button>
           </div>
         </div>
 
@@ -598,11 +597,13 @@
     <div id="dlgBody"></div>
     <p class="dlg-error" id="dlgError" role="alert"></p>
     <div class="dlg-actions">
+      <span class="dlg-saving" id="dlgSaving" hidden><span class="spin" aria-hidden="true"></span><span id="dlgSavingText">Menyimpan ke Google Sheet…</span></span>
       <button type="button" class="btn btn-ghost" id="dlgCancel">Batal</button>
       <button type="submit" class="btn" id="dlgOk">Simpan</button>
     </div>
   </form>
 </dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>

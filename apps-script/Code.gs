@@ -162,26 +162,64 @@ function upsertSchedules_(ss, rows, delPOs, fileName, stamp) {
 const LINE_FIELDS = [['No PO', 0], ['Order Date', 1], ['Supplier', 2], ['Kode', 3], ['Nama Material', 4],
   ['Qty Order', 6], ['UoM', 7], ['Unit Price', 8], ['Kurs', 9]];
 
+// Edit manual menulis hanya baris yang berubah (bukan seluruh tab) supaya simpan cepat.
+// rowNo = nomor baris di Sheet untuk setiap baris data (tahan terhadap baris kosong di tengah).
+function readRowsIdx_(sh, cols) {
+  const last = sh.getLastRow();
+  if (last < 2) return { rows: [], rowNo: [] };
+  const vals = sh.getRange(2, 1, last - 1, cols).getValues();
+  const rows = [], rowNo = [];
+  vals.forEach((r, i) => { if (str_(r[0]) !== '') { rows.push(r); rowNo.push(i + 2); } });
+  return { rows, rowNo };
+}
+// Nomori ulang LINE KE / JADWAL KE untuk satu PO + kode saja, tulis hanya sel yang berubah.
+function renumberKey_(sh, t, poIdx, codeIdx, nIdx, po, kode) {
+  let n = 0;
+  t.rows.forEach((r, i) => {
+    if (str_(r[poIdx]) !== po || str_(r[codeIdx]) !== kode) return;
+    n++;
+    if (Number(r[nIdx]) !== n) { r[nIdx] = n; sh.getRange(t.rowNo[i], nIdx + 1).setValue(n); }
+  });
+}
+// Hapus beberapa baris Sheet, dari bawah ke atas supaya nomor baris tidak bergeser.
+function deleteSheetRows_(sh, nums) {
+  nums.slice().sort((x, y) => y - x).forEach(n => sh.deleteRow(n));
+}
+
 function saveLine_(ss, body, user, stamp, tz) {
   const d = body.data || {};
   const po = str_(d.po), kode = str_(d.code);
   if (!po || !kode) throw new Error('No PO dan Kode wajib diisi.');
   if (d.qty === '' || isNaN(Number(d.qty))) throw new Error('Qty Order harus berupa angka.');
+  if (Number(d.qty) < 0) throw new Error('Qty Order tidak boleh minus. Isi 0 untuk take out.');
 
   const sh = ss.getSheetByName(CONFIG.LINE_SHEET);
-  const rows = readRows_(sh, LINE_COLS);
+  const t = readRowsIdx_(sh, LINE_COLS);
   let idx = -1, old = null;
   if (body.key) {
-    idx = findLine_(rows, body.key);
+    idx = findLine_(t.rows, body.key);
     if (idx < 0) throw new Error('Baris PO tidak ditemukan (mungkin sudah berubah). Muat ulang data lalu coba lagi.');
-    old = rows[idx].slice();
+    old = t.rows[idx].slice();
   }
-  const row = [po, toDate_(d.date), String(d.supplier || '').trim(), kode, String(d.name || '').trim(), masterKategori_()[kode] || '',
+  const sameKey = old && str_(old[0]) === po && str_(old[3]) === kode;
+  const kategori = old && str_(old[3]) === kode ? old[5] : kategoriOf_(kode);
+  const row = [po, toDate_(d.date), String(d.supplier || '').trim(), kode, String(d.name || '').trim(), kategori,
     Number(d.qty), String(d.uom || '').trim(), numOrBlank_(d.price), String(d.kurs || '').trim(),
-    old ? old[10] : 9999, old ? old[11] : 'Manual', stamp];
-  if (idx >= 0) rows[idx] = row; else rows.push(row);
-  renumber_(rows, 0, 3, 10);
-  writeTable_(sh, rows, LINE_COLS, LINE_FMT);
+    old ? old[10] : 1, old ? old[11] : 'Manual', stamp];
+
+  if (sameKey) {
+    sh.getRange(t.rowNo[idx], 1, 1, LINE_COLS).setValues([row]);          // ubah di tempat
+  } else {
+    if (!old) {
+      row[10] = t.rows.filter(r => str_(r[0]) === po && str_(r[3]) === kode).length + 1;
+      sh.getRange(Math.max(sh.getLastRow(), 1) + 1, 1, 1, LINE_COLS).setValues([row]);   // tambah di bawah
+    } else {
+      row[10] = t.rows.filter(r => str_(r[0]) === po && str_(r[3]) === kode).length + 1;
+      sh.getRange(t.rowNo[idx], 1, 1, LINE_COLS).setValues([row]);
+      t.rows[idx] = row;
+      renumberKey_(sh, t, 0, 3, 10, str_(old[0]), str_(old[3]));       // rapikan urutan kode lama
+    }
+  }
 
   const log = [];
   if (old) {
@@ -200,23 +238,24 @@ function saveLine_(ss, body, user, stamp, tz) {
 
 function deleteLine_(ss, body, user, stamp, tz) {
   const sh = ss.getSheetByName(CONFIG.LINE_SHEET);
-  const rows = readRows_(sh, LINE_COLS);
-  const idx = findLine_(rows, body.key || {});
+  const t = readRowsIdx_(sh, LINE_COLS);
+  const idx = findLine_(t.rows, body.key || {});
   if (idx < 0) throw new Error('Baris PO tidak ditemukan (mungkin sudah berubah). Muat ulang data lalu coba lagi.');
-  const old = rows.splice(idx, 1)[0];
+  const old = t.rows[idx];
   const po = str_(old[0]), kode = str_(old[3]);
-  renumber_(rows, 0, 3, 10);
-  writeTable_(sh, rows, LINE_COLS, LINE_FMT);
+  sh.deleteRow(t.rowNo[idx]);
+  const after = readRowsIdx_(sh, LINE_COLS);
+  renumberKey_(sh, after, 0, 3, 10, po, kode);
   const log = [[stamp, user, 'Hapus baris PO', po, kode, '', old[4] + ' · ' + old[6] + ' ' + old[7], '']];
 
-  const groupLeft = rows.some(r => str_(r[0]) === po && str_(r[3]) === kode);
+  const groupLeft = after.rows.some(r => str_(r[0]) === po && str_(r[3]) === kode);
   if (body.withSchedules && !groupLeft) {
     const ssh = ss.getSheetByName(CONFIG.SCHED_SHEET);
-    const srows = readRows_(ssh, SCHED_COLS);
-    const left = srows.filter(r => !(str_(r[0]) === po && str_(r[1]) === kode));
-    if (left.length !== srows.length) {
-      writeTable_(ssh, left, SCHED_COLS, SCHED_FMT);
-      log.push([stamp, user, 'Hapus jadwal', po, kode, '', (srows.length - left.length) + ' jadwal ikut dihapus', '']);
+    const st = readRowsIdx_(ssh, SCHED_COLS);
+    const del = st.rowNo.filter((n, i) => str_(st.rows[i][0]) === po && str_(st.rows[i][1]) === kode);
+    if (del.length) {
+      deleteSheetRows_(ssh, del);
+      log.push([stamp, user, 'Hapus jadwal', po, kode, '', del.length + ' jadwal ikut dihapus', '']);
       markManual_(ss, [po], 'sched', user, stamp);
     }
   }
@@ -235,20 +274,21 @@ function saveSched_(ss, body, user, stamp, tz) {
   if (!po || !kode) throw new Error('No PO dan Kode wajib diisi.');
   if (!toDate_(d.date)) throw new Error('Tanggal jadwal wajib diisi.');
   ['qty', 'rec'].forEach(k => { if (d[k] !== '' && isNaN(Number(d[k]))) throw new Error('Qty harus berupa angka.'); });
+  if (Number(d.qty) < 0 || Number(d.rec) < 0) throw new Error('Qty tidak boleh minus.');
 
   const sh = ss.getSheetByName(CONFIG.SCHED_SHEET);
-  const rows = readRows_(sh, SCHED_COLS);
+  const t = readRowsIdx_(sh, SCHED_COLS);
   let idx = -1, old = null;
   if (body.key) {
-    idx = findSched_(rows, body.key);
+    idx = findSched_(t.rows, body.key);
     if (idx < 0) throw new Error('Jadwal tidak ditemukan (mungkin sudah berubah). Muat ulang data lalu coba lagi.');
-    old = rows[idx].slice();
+    old = t.rows[idx].slice();
   }
-  const row = [po, kode, String(d.name || (old ? old[2] : '')).trim(), old ? old[3] : 9999, Number(d.qty) || 0, Number(d.rec) || 0,
+  const n = old ? old[3] : t.rows.filter(r => str_(r[0]) === po && str_(r[1]) === kode).length + 1;
+  const row = [po, kode, String(d.name || (old ? old[2] : '')).trim(), n, Number(d.qty) || 0, Number(d.rec) || 0,
     toDate_(d.date), String(d.status || 'Confirmed').trim(), old ? old[8] : 'Manual', stamp];
-  if (idx >= 0) rows[idx] = row; else rows.push(row);
-  renumber_(rows, 0, 1, 3);
-  writeTable_(sh, rows, SCHED_COLS, SCHED_FMT);
+  const at = old ? t.rowNo[idx] : Math.max(sh.getLastRow(), 1) + 1;     // ubah di tempat, atau tambah di bawah
+  sh.getRange(at, 1, 1, SCHED_COLS).setValues([row]);
 
   const log = [];
   if (old) {
@@ -260,21 +300,20 @@ function saveSched_(ss, body, user, stamp, tz) {
     log.push([stamp, user, 'Tambah jadwal', po, kode, '', '', show_(row[6], tz) + ' · ' + row[4] + ' · ' + row[7]]);
   }
   logEdit_(ss, log);
-  const pos = uniq_([po, old ? str_(old[0]) : po]);
-  if (log.length) markManual_(ss, pos, 'sched', user, stamp);
-  return pos;
+  if (log.length) markManual_(ss, [po], 'sched', user, stamp);
+  return [po];
 }
 
 function deleteSched_(ss, body, user, stamp, tz) {
   const sh = ss.getSheetByName(CONFIG.SCHED_SHEET);
-  const rows = readRows_(sh, SCHED_COLS);
-  const idx = findSched_(rows, body.key || {});
+  const t = readRowsIdx_(sh, SCHED_COLS);
+  const idx = findSched_(t.rows, body.key || {});
   if (idx < 0) throw new Error('Jadwal tidak ditemukan (mungkin sudah berubah). Muat ulang data lalu coba lagi.');
-  const old = rows.splice(idx, 1)[0];
-  renumber_(rows, 0, 1, 3);
-  writeTable_(sh, rows, SCHED_COLS, SCHED_FMT);
-  const po = str_(old[0]);
-  logEdit_(ss, [[stamp, user, 'Hapus jadwal', po, str_(old[1]), '', show_(old[6], tz) + ' · ' + old[4] + ' · ' + old[7], '']]);
+  const old = t.rows[idx];
+  const po = str_(old[0]), kode = str_(old[1]);
+  sh.deleteRow(t.rowNo[idx]);
+  renumberKey_(sh, readRowsIdx_(sh, SCHED_COLS), 0, 1, 3, po, kode);
+  logEdit_(ss, [[stamp, user, 'Hapus jadwal', po, kode, '', show_(old[6], tz) + ' · ' + old[4] + ' · ' + old[7], '']]);
   markManual_(ss, [po], 'sched', user, stamp);
   return [po];
 }
@@ -294,14 +333,17 @@ function manualSheet_(ss) {
 
 function markManual_(ss, pos, part, user, stamp) {
   const sh = manualSheet_(ss);
-  const rows = readRows_(sh, 5);
+  const t = readRowsIdx_(sh, 5);
   pos.forEach(po => {
-    let r = rows.find(x => str_(x[0]) === po);
-    if (!r) { r = [po, '', '', '', '']; rows.push(r); }
+    const i = t.rows.findIndex(x => str_(x[0]) === po);
+    const r = i >= 0 ? t.rows[i].slice() : [po, '', '', '', ''];
     if (part === 'lines') r[1] = 'Ya'; else r[2] = 'Ya';
     r[3] = stamp; r[4] = user;
+    const at = i >= 0 ? t.rowNo[i] : Math.max(sh.getLastRow(), 1) + 1;
+    sh.getRange(at, 4).setNumberFormat('@');
+    sh.getRange(at, 1, 1, 5).setValues([r]);
+    if (i < 0) { t.rows.push(r); t.rowNo.push(at); }
   });
-  writeTable_(sh, rows, 5, [['D', '@']]);
 }
 
 function clearManual_(ss, pos, part) {
@@ -616,6 +658,17 @@ function masterKategori_() {
   const map = {};
   readRows_(sh, 4).forEach(r => { map[str_(r[0])] = r[3]; });
   return map;
+}
+// Jenis material untuk satu kode. Daftar master disimpan sementara (6 jam) supaya tidak membuka DATABASE setiap simpan.
+function kategoriOf_(kode) {
+  const cache = CacheService.getScriptCache();
+  let map = null;
+  try { const c = cache.get('MASTER_KAT'); if (c) map = JSON.parse(c); } catch (e) { map = null; }
+  if (!map || !(kode in map)) {
+    map = masterKategori_();
+    try { cache.put('MASTER_KAT', JSON.stringify(map), 21600); } catch (e) { /* terlalu besar untuk cache: abaikan */ }
+  }
+  return map[kode] || '';
 }
 
 function writeLog_(ss, stamp, body, result) {
