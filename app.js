@@ -261,8 +261,7 @@
       state.lastUpload = data.lastUpload || null;
       state.freshLoaded = true;
       renderFresh();
-      const up = data.lastUpload ? `Upload terakhir ${data.lastUpload.time}` : 'Belum ada upload lewat website';
-      $('dataInfo').textContent = `${up} · Data dibaca ${data.readAt}`;
+      state.readAt = data.readAt || '';
       refreshAll();
     } catch (err) {
       $('dataInfo').textContent = 'Gagal memuat data. Periksa koneksi lalu tekan "Muat ulang data".';
@@ -300,6 +299,23 @@
     renderChanges();
     renderCal();
     renderLog();
+    renderDataInfo();
+  }
+
+  // Baris info di bawah judul: kapan terakhir di-upload, kapan terakhir direvisi manual, kapan data dibaca
+  function whenText(t) {
+    if (!t) return 'belum ada';
+    const s = String(t), date = s.slice(0, 10), clock = s.slice(11, 16);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return s;
+    return `${date === todayStr() ? 'hari ini' : fmtDate(date)}${clock ? ' ' + clock : ''}`;
+  }
+  function renderDataInfo() {
+    if (!state.freshLoaded) return;
+    const up = state.lastUpload && state.lastUpload.time;
+    const ed = state.editLog && state.editLog[0] && state.editLog[0][0];
+    const parts = [`Upload terakhir: ${whenText(up)}`, `Revisi manual terakhir: ${whenText(ed)}`];
+    if (state.readAt) parts.push(`Data dibaca ${whenText(state.readAt)}`);
+    $('dataInfo').textContent = parts.join(' · ');
   }
 
   // Hasil simpan/hapus dari Apps Script: ganti data PO yang berubah saja, tanpa memuat ulang semuanya
