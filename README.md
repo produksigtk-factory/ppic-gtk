@@ -21,7 +21,8 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 | `style.css` | Tampilan |
 | `app.js` | Hitung status PO, saringan, unduh Excel, baca file export Odoo dan kirim ke Google Sheet |
 | `config.js` | Alamat Web App Apps Script |
-| `apps-script/Code.gs` | Kode penghubung yang dipasang di Google Sheet MONITORING PO (Extensions → Apps Script) |
+| `apps-script/Code.gs` | Apps Script Purchase Order, dipasang di Google Sheet MONITORING PO (Extensions → Apps Script) |
+| `apps-script/Code_MRP.gs` | Apps Script MRP, dipasang di Google Sheet MRP PPIC GTK; alamat Web app-nya diisi di `config.js` → `MRP_SCRIPT_URL` |
 
 ## Aturan data PO
 

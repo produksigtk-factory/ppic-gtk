@@ -2324,10 +2324,12 @@
     document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = false; x.textContent = 'Memuat BOM dan daftar material dari DATABASE PPIC, biasanya 5–15 detik…'; });
     $('btnReload').disabled = true;
     try {
-      const res = await fetch(CFG.APPS_SCRIPT_URL + '?view=mrp');
+      // Menu MRP memakai Apps Script sendiri di Google Sheet "MRP PPIC GTK" (config.js → MRP_SCRIPT_URL)
+      if (!CFG.MRP_SCRIPT_URL) throw new Error('Apps Script MRP belum terpasang. Pasang Code_MRP.gs di Google Sheet MRP PPIC GTK (Extensions → Apps Script), buat Web app, lalu alamatnya dimasukkan ke website.');
+      const res = await fetch(CFG.MRP_SCRIPT_URL);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
-      if (!Array.isArray(data.boms)) throw new Error('Apps Script belum versi terbaru. Tempel Code.gs terbaru, lalu Deploy → Manage deployments → Edit → New version → Deploy.');
+      if (!Array.isArray(data.boms)) throw new Error('Apps Script MRP belum versi terbaru. Tempel Code_MRP.gs terbaru, lalu Deploy → Manage deployments → Edit → New version → Deploy.');
       setMrp(data);
       document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = true; });
       if (state.route && state.route.actions === 'mrp') {
