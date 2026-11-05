@@ -2654,7 +2654,13 @@
     const prodNotMaster = MRP.products.filter((p) => !inMaster(p.code));
     const unused = [...MRP.master.values()].filter((m) => (m.kat === 'RM (Raw)' || m.kat === 'PM (Pack)') && !compInfo.has(m.code));
     const noBom = [...MRP.master.values()].filter((m) => (m.kat === 'FG' || m.kat === 'Ekstrak') && !MRP.byProduct.has(m.code));
-    const uomDiff = [...compInfo.values()].filter((o) => inMaster(o.code) && MRP.master.get(o.code).uom && [...o.uoms].some((u) => u && u.toLowerCase() !== MRP.master.get(o.code).uom.toLowerCase()));
+    // Satu baris per komponen BOM yang UoM-nya beda dengan master (supaya tahu BOM mana yang harus dicek)
+    const uomDiff = [];
+    MRP.boms.forEach((b) => b.comps.forEach((c) => {
+      const m = MRP.master.get(c.code);
+      if (m && m.uom && c.uom && c.uom.toLowerCase() !== m.uom.toLowerCase()) uomDiff.push({ b, c, m });
+    }));
+    uomDiff.sort((a, b) => a.c.code.localeCompare(b.c.code, 'id', { numeric: true }) || a.b.id.localeCompare(b.b.id));
     const zero = [];
     MRP.boms.forEach((b) => { if (!b.comps.length) zero.push({ b, c: null }); b.comps.forEach((c) => { if (!(Number(c.qty) > 0)) zero.push({ b, c }); }); });
     const noKat = [...MRP.master.values()].filter((m) => !m.kat);
@@ -2667,9 +2673,9 @@
         desc: 'Kode produk di BOM_LIST yang tidak ada di MASTER_MATERIAL.',
         head: ['Kode produk', 'Nama produk', 'Versi BOM'], row: (p) => [p.code, p.name, p.boms.length], bom: (p) => p.code },
       uomDiff: { label: 'UoM berbeda dengan master', badge: true, rows: uomDiff,
-        desc: 'Satuan komponen di BOM berbeda dengan satuan di master. Perlu dicek supaya kebutuhan tidak salah hitung (misal gram vs kg).',
-        head: ['Kode', 'Nama', 'UoM di master', 'UoM di BOM', 'Dipakai di produk'],
-        row: (o) => [o.code, MRP.master.get(o.code).name, MRP.master.get(o.code).uom, [...o.uoms].join(', '), o.prods.size], use: (o) => o.code },
+        desc: 'Baris BOM yang satuan komponennya berbeda dengan satuan di master. Cari BOM ID-nya di tab BOM_DETAIL (DATABASE PPIC), lalu samakan UoM dan sesuaikan qty-nya. Klik baris untuk membuka BOM tersebut.',
+        head: ['Kode', 'Nama material', 'BOM', 'Produk', 'Qty di BOM', 'UoM di BOM', 'UoM di master'],
+        row: (x) => [x.c.code, x.m.name, x.b.id + (x.b.ref ? ' · ' + x.b.ref : ''), x.b.code + ' ' + x.b.name, fmtQ(x.c.qty), x.c.uom, x.m.uom], bom: (x) => x.b.code, ver: (x) => x.b.id },
       zero: { label: 'BOM kosong / qty 0', badge: true, rows: zero,
         desc: 'BOM tanpa komponen, atau komponen dengan qty 0/kosong.',
         head: ['BOM', 'Produk', 'Komponen', 'Qty'], row: (x) => [x.b.id + ' ' + (x.b.ref || ''), x.b.code + ' ' + x.b.name, x.c ? x.c.code + ' ' + x.c.name : '(tidak ada komponen)', x.c ? (x.c.qty === '' ? 'kosong' : x.c.qty) : '–'], bom: (x) => x.b.code },
@@ -2699,7 +2705,7 @@
   $('kRows').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-i]'); if (!tr) return;
     const c = MRP.checks[MRP.kTab], x = c.rows[Number(tr.dataset.i)];
-    if (c.bom) { MRP.sel = c.bom(x); MRP.open.clear(); location.hash = '#/mrp/bom'; }
+    if (c.bom) { MRP.sel = c.bom(x); if (c.ver) MRP.ver[MRP.sel] = c.ver(x); MRP.open.clear(); location.hash = '#/mrp/bom'; }
     else if (c.use) { MRP.use = c.use(x); location.hash = '#/mrp/dipakai'; }
   });
 
