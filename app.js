@@ -1910,25 +1910,26 @@
   }
 
   /* ---------- Upload: baca file Odoo ---------- */
+  // Nama kolom export Odoo: label biasa, atau nama teknis (bila export memakai "I want to update data / import-compatible")
   const DET_COLS = {
-    po: 'Order Lines/Order Reference/Order Reference',
-    date: 'Order Lines/Order Reference/Order Date',
-    sup: 'Order Lines/Order Reference/Supplier',
-    code: 'Order Lines/Product/Internal Reference',
-    name: 'Order Lines/Product/Name',
-    qty: 'Order Lines/Quantity',
-    uom: 'Order Lines/Product/Unit of Measure',
-    price: 'Order Lines/Unit Price',
-    kurs: 'Order Lines/Order Reference/Currency',
+    po: ['Order Lines/Order Reference/Order Reference', 'order_line/order_id/name'],
+    date: ['Order Lines/Order Reference/Order Date', 'order_line/order_id/date_order'],
+    sup: ['Order Lines/Order Reference/Supplier', 'order_line/order_id/partner_id'],
+    code: ['Order Lines/Product/Internal Reference', 'order_line/product_id/code', 'order_line/product_id/default_code'],
+    name: ['Order Lines/Product/Name', 'order_line/product_id/name'],
+    qty: ['Order Lines/Quantity', 'order_line/product_qty'],
+    uom: ['Order Lines/Product/Unit of Measure', 'order_line/product_id/uom_id', 'order_line/product_uom'],
+    price: ['Order Lines/Unit Price', 'order_line/price_unit'],
+    kurs: ['Order Lines/Order Reference/Currency', 'order_line/order_id/currency_id'],
   };
   const DEL_COLS = {
-    ext: 'External ID',
-    po: 'Delivery Schedule/PO Ref/Order Reference',
-    prod: 'Delivery Schedule/Plot Delivery Order/Product',
-    sq: 'Delivery Schedule/Plot Delivery Order/Scheduled Quantity',
-    rq: 'Delivery Schedule/Plot Delivery Order/Received Quantity',
-    date: 'Delivery Schedule/Scheduled Date',
-    state: 'Delivery Schedule/State',
+    ext: ['External ID', 'id'],
+    po: ['Delivery Schedule/PO Ref/Order Reference', 'plot_ids/order_id/name'],
+    prod: ['Delivery Schedule/Plot Delivery Order/Product', 'plot_ids/line_ids/product_id'],
+    sq: ['Delivery Schedule/Plot Delivery Order/Scheduled Quantity', 'plot_ids/line_ids/scheduled_qty'],
+    rq: ['Delivery Schedule/Plot Delivery Order/Received Quantity', 'plot_ids/line_ids/product_qty_actual'],
+    date: ['Delivery Schedule/Scheduled Date', 'plot_ids/date'],
+    state: ['Delivery Schedule/State', 'plot_ids/state'],
   };
 
   async function readSheet(file) {
@@ -1939,9 +1940,10 @@
 
   function colIndex(header, cols) {
     const idx = {}, missing = [];
-    Object.entries(cols).forEach(([k, name]) => {
-      const i = header.findIndex((h) => String(h).trim() === name);
-      if (i < 0) missing.push(name); else idx[k] = i;
+    const head = header.map((h) => String(h).trim());
+    Object.entries(cols).forEach(([k, names]) => {
+      const i = head.findIndex((h) => names.includes(h));
+      if (i < 0) missing.push(names[0]); else idx[k] = i;
     });
     return { idx, missing };
   }
