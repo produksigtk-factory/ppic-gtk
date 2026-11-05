@@ -2,9 +2,11 @@
  * PPIC Gondowangi — penghubung website <-> Google Sheet "MRP PPIC GTK" (PROJECT 2: MRP)
  *
  * Dipasang di: MRP PPIC GTK → Extensions → Apps Script (terpisah dari Apps Script MONITORING PO).
- * - doGet  : website membaca BOM dan daftar material dari DATABASE PPIC GTK,
- *            serta isi tab RENCANA_PRODUKSI, STOK, dan PARAMETER_MATERIAL di file ini.
- * - doPost : disiapkan untuk upload/edit data MRP dari website (dilindungi PIN). Saat ini baru "verify".
+ * - doGet  : website membaca BOM, master material, dan PEMBAGIAN_WEEK dari DATABASE PPIC GTK,
+ *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, STOK, STOK_KOREKSI,
+ *            INCOMING_MANUAL, LOG_MRP).
+ * - doPost : simpan rencana produksi, parameter SKU, upload stok, koreksi stok, dan incoming manual
+ *            dari website. Semua dilindungi PIN.
  *
  * PIN diatur di: Project Settings → Script Properties → UPLOAD_PIN (boleh sama dengan PIN MONITORING PO).
  * Pemasangan pertama: Deploy → New deployment → Web app → Execute as: Me, Who has access: Anyone → Deploy,
@@ -17,9 +19,24 @@ const MRP_CONFIG = {
   MASTER_SHEET: 'MASTER_MATERIAL',
   BOM_SHEET: 'BOM_LIST',
   BOM_DETAIL_SHEET: 'BOM_DETAIL',
-  PLAN_SHEET: 'RENCANA_PRODUKSI',     // di file MRP ini
+  WEEK_SHEET: 'PEMBAGIAN_WEEK',
+  // Tab di file MRP ini
+  SKU_SHEET: 'SKU_MRP',
+  PLAN_SHEET: 'RENCANA_PRODUKSI',
   STOCK_SHEET: 'STOK',
-  PARAM_SHEET: 'PARAMETER_MATERIAL',
+  ADJ_SHEET: 'STOK_KOREKSI',
+  INC_SHEET: 'INCOMING_MANUAL',
+  LOG_SHEET: 'LOG_MRP',
+};
+
+// Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
+const MRP_HEAD = {
+  SKU_MRP: { head: ['KODE', 'NAMA', 'JENIS', 'BOM ID AKTIF', 'UKURAN BATCH (KG)', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6, 7, 8] },
+  RENCANA_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'QTY KG', 'BOM ID', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 5, 6, 7] },
+  STOK: { head: ['TANGGAL STOK', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
+  STOK_KOREKSI: { head: ['ID', 'TANGGAL', 'KODE', 'QTY (+/-)', 'ALASAN', 'DIBUAT'], text: [1, 2, 3, 5, 6] },
+  INCOMING_MANUAL: { head: ['ID', 'BULAN', 'WEEK', 'KODE', 'QTY (+/-)', 'KETERANGAN', 'DIBUAT'], text: [1, 2, 3, 4, 6, 7] },
+  LOG_MRP: { head: ['WAKTU', 'AKSI', 'RINGKASAN'], text: [1, 2, 3] },
 };
 
 /* ================= Baca data ================= */
@@ -38,15 +55,30 @@ function doGet(e) {
       .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]), s_(r[7])]);
     const details = rows_(db.getSheetByName(MRP_CONFIG.BOM_DETAIL_SHEET), 10)
       .map(r => [s_(r[0]), s_(r[5]), s_(r[6]), n_(r[7]), s_(r[8]), s_(r[9])]);
-    // Data MRP di file ini (masih kosong sampai diisi)
-    const plan = rows_(ss.getSheetByName(MRP_CONFIG.PLAN_SHEET), 9)
-      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), s_(r[7]), d_(r[8], tz, 'yyyy-MM-dd HH:mm')]);
+    // weeks: [bulan yyyy-MM, week, tanggal awal, tanggal akhir] — diringkas dari PEMBAGIAN_WEEK
+    const weeks = [];
+    rows_(db.getSheetByName(MRP_CONFIG.WEEK_SHEET), 4).forEach(r => {
+      const d = d_(r[0], tz, 'yyyy-MM-dd'), w = s_(r[2]), b = d_(r[3], tz, 'yyyy-MM') || d.slice(0, 7);
+      if (!d || !w) return;
+      const last = weeks[weeks.length - 1];
+      if (last && last[0] === b && last[1] === w) last[3] = d; else weeks.push([b, w, d, d]);
+    });
+
+    const skus = rows_(ss.getSheetByName(MRP_CONFIG.SKU_SHEET), 8)
+      .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), d_(r[7], tz, 'yyyy-MM-dd HH:mm')]);
+    const plan = rows_(ss.getSheetByName(MRP_CONFIG.PLAN_SHEET), 7)
+      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')]);
     const stock = rows_(ss.getSheetByName(MRP_CONFIG.STOCK_SHEET), 7)
-      .map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd'), s_(r[6])]);
-    const params = rows_(ss.getSheetByName(MRP_CONFIG.PARAM_SHEET), 4)
-      .map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3])]);
+      .map(r => [d_(r[0], tz, 'yyyy-MM-dd'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6])]);
+    const adj = rows_(ss.getSheetByName(MRP_CONFIG.ADJ_SHEET), 6)
+      .map(r => [s_(r[0]), d_(r[1], tz, 'yyyy-MM-dd'), s_(r[2]), n_(r[3]), s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd HH:mm')]);
+    const inc = rows_(ss.getSheetByName(MRP_CONFIG.INC_SHEET), 7)
+      .map(r => [s_(r[0]), d_(r[1], tz, 'yyyy-MM'), s_(r[2]), s_(r[3]), n_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')]);
+    const log = rows_(ss.getSheetByName(MRP_CONFIG.LOG_SHEET), 3)
+      .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
+
     return json_({
-      ok: true, master, boms, details, plan, stock, params,
+      ok: true, master, boms, details, weeks, skus, plan, stock, adj, inc, log,
       databaseUrl: db.getUrl(), mrpUrl: ss.getUrl(),
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -55,7 +87,7 @@ function doGet(e) {
   }
 }
 
-/* ================= Tulis data (disiapkan) ================= */
+/* ================= Tulis data ================= */
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
@@ -65,9 +97,21 @@ function doPost(e) {
     const pin = PropertiesService.getScriptProperties().getProperty('UPLOAD_PIN');
     if (!pin) return json_({ ok: false, error: 'PIN belum diatur. Isi UPLOAD_PIN di Apps Script MRP → Project Settings → Script Properties.' });
     if (String(body.pin || '') !== String(pin)) return json_({ ok: false, error: 'PIN salah. Periksa lagi PIN Anda.' });
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const tz = ss.getSpreadsheetTimeZone();
+    const now = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
     const action = body.action || '';
+    let res;
     if (action === 'verify') return json_({ ok: true });
-    return json_({ ok: false, error: 'Aksi belum tersedia: ' + action });
+    else if (action === 'savePlan') res = savePlan_(ss, body.cells || [], now);
+    else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
+    else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
+    else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
+    else if (action === 'addAdj') res = addAdj_(ss, body, now);
+    else if (action === 'addInc') res = addInc_(ss, body, now);
+    else if (action === 'delRow') res = delRow_(ss, body.kind, body.id, now);
+    else return json_({ ok: false, error: 'Aksi tidak dikenal: ' + action });
+    return json_(Object.assign({ ok: true, time: now }, res || {}));
   } catch (err) {
     return json_({ ok: false, error: String(err.message || err) });
   } finally {
@@ -75,8 +119,140 @@ function doPost(e) {
   }
 }
 
+// Simpan beberapa sel rencana sekaligus (dari edit per sel di website). kg kosong/0 tanpa BOM = baris dihapus.
+function savePlan_(ss, cells, now) {
+  const sh = sheet_(ss, MRP_CONFIG.PLAN_SHEET);
+  const last = sh.getLastRow();
+  const keys = last > 1 ? sh.getRange(2, 1, last - 1, 3).getDisplayValues().map(r => r[0] + '|' + r[1] + '|' + r[2]) : [];
+  const idx = new Map(keys.map((k, i) => [k, i + 2]));
+  const del = [], add = [];
+  let n = 0;
+  cells.forEach(c => {
+    const bulan = s_(c.bulan), week = s_(c.week), kode = s_(c.kode);
+    if (!/^\d{4}-\d{2}$/.test(bulan) || !/^W[1-5]$/.test(week) || !kode) return;
+    const kg = c.kg === '' || c.kg === null || c.kg === undefined ? '' : Number(c.kg);
+    const bom = s_(c.bom);
+    const row = [bulan, week, kode, kg === '' || isNaN(kg) ? '' : kg, bom, 'Website', now];
+    const at = idx.get(bulan + '|' + week + '|' + kode);
+    const empty = !(Number(kg) > 0) && !bom;
+    if (at) { if (empty) del.push(at); else sh.getRange(at, 1, 1, 7).setValues([row]); }
+    else if (!empty) add.push(row);
+    n++;
+  });
+  if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 7).setValues(add);
+  del.sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
+  if (n === 1) {
+    const c = cells[0];
+    log_(ss, now, 'Edit rencana', `${c.kode} ${c.bulan} ${c.week}: ${c.kg === '' ? 'dikosongkan' : c.kg + ' kg'}`);
+  } else if (n) log_(ss, now, 'Edit rencana', `${n} sel diubah`);
+  return { saved: n };
+}
+
+// Upload rencana: semua baris di bulan yang ada di file diganti dengan isi file
+function replacePlan_(ss, months, rows, file, now) {
+  const sh = sheet_(ss, MRP_CONFIG.PLAN_SHEET);
+  const mset = new Set(months.map(s_));
+  const last = sh.getLastRow();
+  const tz = ss.getSpreadsheetTimeZone();
+  const keep = last > 1 ? sh.getRange(2, 1, last - 1, 7).getValues()
+    .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')])
+    .filter(r => r[0] && !mset.has(r[0])) : [];
+  const fresh = rows.map(r => [s_(r[0]), s_(r[1]), s_(r[2]), Number(r[3]) || 0, s_(r[4]), 'Upload' + (file ? ': ' + file : ''), now])
+    .filter(r => mset.has(r[0]) && /^W[1-5]$/.test(r[1]) && r[2] && r[3] > 0);
+  const all = keep.concat(fresh);
+  if (last > 1) sh.getRange(2, 1, last - 1, 7).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 7).setValues(all);
+  log_(ss, now, 'Upload rencana', `${file || 'file'} · bulan ${[...mset].join(', ')} · ${fresh.length} sel`);
+  return { saved: fresh.length };
+}
+
+function saveSku_(ss, k, now) {
+  const kode = s_(k.kode);
+  if (!kode) throw new Error('Kode SKU wajib diisi.');
+  const sh = sheet_(ss, MRP_CONFIG.SKU_SHEET);
+  const last = sh.getLastRow();
+  const codes = last > 1 ? sh.getRange(2, 1, last - 1, 1).getDisplayValues().map(r => r[0]) : [];
+  const at = codes.indexOf(kode);
+  const row = [kode, s_(k.nama), s_(k.jenis) || 'SKU', s_(k.bom), s_(k.batch), (s_(k.aktif) || 'Y').toUpperCase() === 'N' ? 'N' : 'Y', s_(k.catatan), now];
+  if (at >= 0) sh.getRange(at + 2, 1, 1, 8).setValues([row]);
+  else sh.getRange(last + 1, 1, 1, 8).setValues([row]);
+  log_(ss, now, at >= 0 ? 'Ubah SKU' : 'Tambah SKU', `${kode} · BOM ${row[3] || '-'} · batch ${row[4] || '-'} · aktif ${row[5]}`);
+  return {};
+}
+
+// Upload stok: snapshot lama diganti seluruhnya
+function uploadStock_(ss, date, rows, file, now) {
+  const tgl = s_(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Tanggal stok wajib diisi.');
+  const sh = sheet_(ss, MRP_CONFIG.STOCK_SHEET);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 7).clearContent();
+  const out = rows.map(r => [tgl, s_(r[0]), s_(r[1]), Number(r[2]) || 0, s_(r[3]), 'Upload' + (file ? ': ' + file : ''), ''])
+    .filter(r => r[1]);
+  if (out.length) sh.getRange(2, 1, out.length, 7).setValues(out);
+  log_(ss, now, 'Upload stok', `${file || 'file'} · per ${tgl} · ${out.length} material`);
+  return { saved: out.length };
+}
+
+function addAdj_(ss, b, now) {
+  const kode = s_(b.kode), qty = Number(b.qty);
+  if (!kode || !qty) throw new Error('Kode dan qty koreksi wajib diisi.');
+  if (!s_(b.alasan)) throw new Error('Alasan koreksi wajib diisi.');
+  const sh = sheet_(ss, MRP_CONFIG.ADJ_SHEET);
+  const id = 'K' + Date.now();
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 6).setValues([[id, s_(b.tanggal) || now.slice(0, 10), kode, qty, s_(b.alasan), now]]);
+  log_(ss, now, 'Koreksi stok', `${kode} ${qty > 0 ? '+' : ''}${qty} · ${s_(b.alasan)}`);
+  return { id };
+}
+
+function addInc_(ss, b, now) {
+  const kode = s_(b.kode), qty = Number(b.qty);
+  if (!kode || !qty) throw new Error('Kode dan qty incoming wajib diisi.');
+  if (!/^\d{4}-\d{2}$/.test(s_(b.bulan)) || !/^W[1-5]$/.test(s_(b.week))) throw new Error('Pilih bulan dan week.');
+  if (!s_(b.ket)) throw new Error('Keterangan wajib diisi.');
+  const sh = sheet_(ss, MRP_CONFIG.INC_SHEET);
+  const id = 'I' + Date.now();
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 7).setValues([[id, s_(b.bulan), s_(b.week), kode, qty, s_(b.ket), now]]);
+  log_(ss, now, 'Incoming manual', `${kode} ${qty > 0 ? '+' : ''}${qty} · ${s_(b.bulan)} ${s_(b.week)} · ${s_(b.ket)}`);
+  return { id };
+}
+
+function delRow_(ss, kind, id, now) {
+  const name = kind === 'adj' ? MRP_CONFIG.ADJ_SHEET : kind === 'inc' ? MRP_CONFIG.INC_SHEET : '';
+  if (!name || !id) throw new Error('Baris yang dihapus tidak jelas.');
+  const sh = sheet_(ss, name);
+  const last = sh.getLastRow();
+  const ids = last > 1 ? sh.getRange(2, 1, last - 1, 1).getDisplayValues().map(r => r[0]) : [];
+  const at = ids.indexOf(String(id));
+  if (at < 0) throw new Error('Baris sudah tidak ada. Muat ulang data.');
+  const info = sh.getRange(at + 2, 1, 1, sh.getLastColumn()).getDisplayValues()[0].join(' · ');
+  sh.deleteRow(at + 2);
+  log_(ss, now, kind === 'adj' ? 'Hapus koreksi stok' : 'Hapus incoming manual', info);
+  return {};
+}
+
 /* ================= Bantuan ================= */
 
+// Ambil tab; kalau belum ada, dibuat lengkap dengan judul kolom dan format teks
+function sheet_(ss, name) {
+  let sh = ss.getSheetByName(name);
+  const def = MRP_HEAD[name];
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (def) {
+      sh.getRange(1, 1, 1, def.head.length).setValues([def.head]).setFontWeight('bold');
+      sh.setFrozenRows(1);
+    }
+  }
+  if (def && !sh.getRange(2, def.text[0]).getNumberFormat().startsWith('@')) {
+    def.text.forEach(c => sh.getRange(2, c, sh.getMaxRows() - 1, 1).setNumberFormat('@'));
+  }
+  return sh;
+}
+function log_(ss, now, aksi, ringkasan) {
+  const sh = sheet_(ss, MRP_CONFIG.LOG_SHEET);
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 3).setValues([[now, aksi, ringkasan]]);
+}
 function rows_(sh, cols) {
   if (!sh) return [];
   const last = sh.getLastRow();

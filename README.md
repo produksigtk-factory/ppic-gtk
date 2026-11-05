@@ -50,3 +50,13 @@ Menambah menu baru: tambahkan link di `.menu` (index.html), `<section id="view-.
 - Perubahan per upload (tab `LOG_PERUBAHAN`): PO baru, baris baru/dihapus, qty order berubah, jadwal baru/berubah/dihapus, diterima. Dibandingkan dengan isi sheet sebelum ditimpa. Upload ke sheet kosong tidak dicatat (data awal).
 - Ketepatan kirim supplier (estimasi): penerimaan yang terdeteksi antar-upload; terlambat bila upload sebelumnya sudah melewati tanggal jadwal tetapi barang belum diterima.
 - Kalender Kedatangan: jadwal belum Done per tanggal (hijau = dijadwalkan, merah = lewat jadwal) dan janji kirim dari follow-up (emas).
+
+## MRP tahap 1 (menu MRP)
+
+- **Rencana Produksi**: kg per SKU per week (W1–W5, 3 bulan), edit per sel atau upload sheet PLAN WEEKLY.
+- **Kebutuhan Material**: rencana dipecah lewat BOM aktif (ekstrak/bulk dipecah sampai bahan baku) per material per week.
+- **Proyeksi Stok**: stok awal (upload stok + koreksi) + incoming (jadwal PO terbuka dari Monitoring PO + incoming manual) − kebutuhan, saldo berjalan per week.
+- **Parameter SKU**: BOM aktif, ukuran batch, aktif/tidak (tab SKU_MRP).
+- **Update Data MRP**: upload stok Odoo dan rencana produksi, riwayat LOG_MRP.
+
+Data disimpan di Google Sheet MRP PPIC GTK: SKU_MRP, RENCANA_PRODUKSI, STOK, STOK_KOREKSI, INCOMING_MANUAL, LOG_MRP. Week diambil dari tab PEMBAGIAN_WEEK di DATABASE PPIC GTK.

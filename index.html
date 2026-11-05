@@ -44,6 +44,11 @@
           <span>MRP</span><span class="chev" aria-hidden="true"></span>
         </button>
         <div class="submenu">
+          <a class="menu-item sub" href="#/mrp/rencana" data-route="mrp/rencana">Rencana Produksi</a>
+          <a class="menu-item sub" href="#/mrp/kebutuhan" data-route="mrp/kebutuhan">Kebutuhan Material</a>
+          <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
+          <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
+          <a class="menu-item sub" href="#/mrp/update" data-route="mrp/update">Update Data MRP</a>
           <a class="menu-item sub" href="#/mrp/bom" data-route="mrp/bom">Bill of Material</a>
           <a class="menu-item sub" href="#/mrp/material" data-route="mrp/material">Daftar Material</a>
           <a class="menu-item sub" href="#/mrp/dipakai" data-route="mrp/dipakai">Material Dipakai di Mana</a>
@@ -94,16 +99,17 @@
               <div><dt>Jadwal 7 hari ke depan</dt><dd id="hWeek">–</dd></div>
             </dl>
           </a>
-          <a class="module" href="#/mrp/bom">
+          <a class="module" href="#/mrp/proyeksi">
             <div class="module-head">
               <h2>MRP</h2>
-              <span class="module-link">Buka Bill of Material</span>
+              <span class="module-link">Buka Proyeksi Stok</span>
             </div>
-            <p class="module-desc">Dasar perhitungan kebutuhan material: BOM tiap produk (bertingkat sampai bahan dasar) dan daftar material dari DATABASE PPIC.</p>
+            <p class="module-desc">Rencana produksi per week dipecah lewat BOM (sampai bahan baku ekstrak) menjadi kebutuhan RM/PM, lalu dibandingkan dengan stok dan jadwal PO.</p>
             <dl class="module-stats">
+              <div><dt>Material akan kurang</dt><dd id="hMrpShort">–</dd></div>
               <div><dt>Produk ber-BOM</dt><dd id="hMrpProd">–</dd></div>
               <div><dt>Versi BOM</dt><dd id="hMrpBom">–</dd></div>
-              <div><dt>Material di master</dt><dd id="hMrpMat">–</dd></div>
+
             </dl>
           </a>
           <a class="module" href="#/po/supplier">
@@ -495,10 +501,111 @@
         <div id="uResult"><p class="mrp-empty">Pilih material untuk melihat pemakaiannya.</p></div>
       </section>
 
+
+      <!-- ================= MRP: RENCANA PRODUKSI ================= -->
+      <section id="view-mrp-rencana" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat rencana produksi…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru di Google Sheet MRP PPIC GTK lalu Deploy → Manage deployments → Edit → New version → Deploy.</div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Ketik kg langsung di sel; tersimpan otomatis ke Google Sheet MRP PPIC GTK. Enter / panah atas-bawah untuk pindah baris.</p><span class="pl-save" id="plSave"></span></div>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-field"><span class="sr">Rentang bulan</span><select id="plHz" title="Rentang 3 bulan yang ditampilkan"></select></label>
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="plQ" placeholder="Cari kode atau nama SKU"></label>
+          <label class="tb-check"><input type="checkbox" id="plOnly"> Hanya yang ada rencana</label>
+          <button class="btn btn-ghost btn-sm" id="plUpload">Upload Excel</button>
+          <button class="btn btn-sm" id="plExport">Unduh Excel</button>
+        </div>
+        <p class="mrp-count" id="plInfo"></p>
+        <div class="table-wrap pl-wrap">
+          <table class="po-table pl-table" id="plTable"><thead id="plHead"></thead><tbody id="plRows"></tbody><tfoot id="plFoot"></tfoot></table>
+        </div>
+        <p class="hint">Kg per SKU per week, sama seperti kolom <em>Minimum Kg Batch Size</em> di MPS. Sel kuning = kg tidak bisa disusun dari ukuran batch SKU (hanya peringatan). Versi BOM yang dipilih di tabel ini hanya untuk hitungan sementara; versi tetap diatur di Parameter SKU.</p>
+      </section>
+
+      <!-- ================= MRP: KEBUTUHAN MATERIAL ================= -->
+      <section id="view-mrp-kebutuhan" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Menghitung kebutuhan material…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-field"><span class="sr">Rentang bulan</span><select id="kbHz"></select></label>
+          <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="kbQ" placeholder="Cari kode atau nama material"></label>
+          <label class="tb-field"><span class="sr">Kategori</span><select id="kbKat"><option value="">Semua kategori</option></select></label>
+          <label class="tb-check"><input type="checkbox" id="kbMade"> Tampilkan ekstrak/bulk (diproduksi sendiri)</label>
+          <button class="btn btn-sm" id="kbExport">Unduh Excel</button>
+        </div>
+        <p class="mrp-count" id="kbInfo"></p>
+        <div class="table-wrap pl-wrap">
+          <table class="po-table pl-table"><thead id="kbHead"></thead><tbody id="kbRows"></tbody></table>
+        </div>
+        <p class="hint">Kebutuhan = qty material ÷ qty batch BOM × pcs rencana; ekstrak/bulk dipecah sesuai kebutuhannya sampai bahan baku. Klik baris untuk melihat SKU mana yang memakai.</p>
+      </section>
+
+      <!-- ================= MRP: PROYEKSI STOK ================= -->
+      <section id="view-mrp-proyeksi" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Menghitung proyeksi stok…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik sebuah material untuk menambah incoming manual atau koreksi stok.</p></div>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-field"><span class="sr">Rentang bulan</span><select id="pjHz"></select></label>
+          <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
+          <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
+          <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
+          <button class="btn btn-sm" id="pjExport">Unduh Excel</button>
+        </div>
+        <p class="pj-note" id="pjNote"></p>
+        <p class="mrp-count" id="pjInfo"></p>
+        <div class="table-wrap pl-wrap">
+          <table class="po-table pl-table pj-table"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
+        </div>
+        <p class="hint">Angka tebal = saldo akhir week (stok awal + incoming − kebutuhan, dibawa ke week berikutnya). <span class="pj-in">+hijau</span> = incoming PO/manual, <span class="pj-out">−abu</span> = kebutuhan. Jadwal PO yang sudah lewat tapi belum datang dimasukkan ke week pertama.</p>
+      </section>
+
+      <!-- ================= MRP: PARAMETER SKU ================= -->
+      <section id="view-mrp-sku" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat parameter SKU…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik baris untuk mengubah BOM aktif, ukuran batch, atau status aktif.</p></div>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="skQ" placeholder="Cari kode atau nama"></label>
+          <label class="tb-field"><span class="sr">Jenis</span><select id="skJenis"><option value="">Semua</option><option value="SKU">SKU</option><option value="Ekstrak">Ekstrak/bulk</option><option value="off">Tidak aktif</option></select></label>
+          <button class="btn btn-sm" id="skAdd">Tambah SKU</button>
+        </div>
+        <p class="mrp-count" id="skInfo"></p>
+        <div class="table-wrap mrp-wrap">
+          <table class="po-table mrp-table sk-table"><thead><tr><th>Kode</th><th>Nama</th><th>Jenis</th><th>BOM aktif</th><th>Ukuran batch (kg)</th><th>Ekstrak/bulk di BOM</th><th>Aktif</th><th>Catatan</th><th>Diubah</th></tr></thead><tbody id="skRows"></tbody></table>
+        </div>
+      </section>
+
+      <!-- ================= MRP: UPDATE DATA ================= -->
+      <section id="view-mrp-update" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="update-card">
+          <h2>Upload stok RM/PM</h2>
+          <p class="lead">File export stok dari Odoo. Stok lama diganti seluruhnya dengan isi file. Kolom yang dicari: kode atau produk (mis. <em>Product</em>, <em>Internal Reference</em>) dan qty (mis. <em>On Hand</em>, <em>Quantity</em>); baris dengan kode sama dijumlahkan.</p>
+          <p class="check" id="upStockNow"></p>
+          <label class="file-drop" for="stockFile"><input type="file" id="stockFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file stok</span><span class="file-name" id="stockName">Belum ada file</span></label>
+          <label class="field up-date"><span>Tanggal stok *</span><input type="date" id="stockDate"></label>
+          <p class="check" id="stockCheck"></p>
+          <div class="send-row"><button class="btn" id="stockSend" disabled>Simpan stok ke Google Sheet</button><p class="send-result" id="stockResult" aria-live="polite"></p></div>
+        </div>
+        <div class="update-card">
+          <h2>Upload rencana produksi</h2>
+          <p class="lead">Sheet <em>PLAN WEEKLY</em> dari template (kolom KODE + "W1 NOVEMBER" …), atau file hasil <em>Unduh Excel</em> di Rencana Produksi. Bulan yang ada di file diganti seluruhnya; bulan lain tidak berubah.</p>
+          <p class="check" id="upPlanNow"></p>
+          <label class="file-drop" for="planFile"><input type="file" id="planFile" accept=".xls,.xlsx,.xlsm"><span class="file-btn">Pilih file rencana</span><span class="file-name" id="planName">Belum ada file</span></label>
+          <p class="check" id="planCheck"></p>
+          <div class="send-row"><button class="btn" id="planSend" disabled>Simpan rencana ke Google Sheet</button><p class="send-result" id="planResult" aria-live="polite"></p></div>
+        </div>
+        <div class="update-card">
+          <h2>Riwayat MRP</h2>
+          <div class="table-wrap"><table class="po-table"><thead><tr><th>Waktu</th><th>Aksi</th><th>Ringkasan</th></tr></thead><tbody id="upLog"></tbody></table></div>
+        </div>
+      </section>
+
       <!-- ================= MRP: PEMERIKSAAN DATA ================= -->
       <section id="view-mrp-cek" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memeriksa BOM dan daftar material…</div>
-        <p class="lead">Data BOM dan master material yang perlu dirapikan sebelum dipakai untuk menghitung kebutuhan material.</p>
+        <p class="lead">Data BOM, master material, rencana produksi, dan PO yang perlu dirapikan supaya hitungan kebutuhan material benar.</p>
         <div class="chg-types" id="kTabs" role="tablist" aria-label="Jenis pemeriksaan"></div>
         <article class="att-card" id="kCard">
           <header class="att-head"><h2 id="kTitle"></h2><p class="card-sub" id="kDesc"></p></header>

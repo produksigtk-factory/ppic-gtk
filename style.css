@@ -876,3 +876,61 @@ body.edit-on .dt-grid .fu-box { max-width: 760px; }
   .mrp-side { position: static; max-height: 360px; }
 }
 .mrp-tree td:nth-child(3), .mrp-tree td:nth-child(6), .mrp-detail .sched td:nth-child(3) { white-space: nowrap; }
+
+/* ---------- MRP tahap 1: rencana, kebutuhan, proyeksi ---------- */
+.mono { font-variant-numeric: tabular-nums; }
+.tb-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink); white-space: nowrap; }
+.pl-wrap { max-height: calc(100vh - 230px); overflow: auto; }
+.pl-table { border-collapse: separate; border-spacing: 0; }
+.pl-table th, .pl-table td { white-space: nowrap; }
+.pl-table thead th { position: sticky; top: 0; z-index: 3; background: #f7f9fb; }
+.pl-table thead tr:nth-child(2) th { top: 31px; }
+.pl-table tfoot td { position: sticky; bottom: 0; background: #f2f6f3; z-index: 2; border-top: 2px solid var(--line); }
+.pl-table .pl-sticky { position: sticky; z-index: 2; background: var(--surface); }
+.pl-table thead .pl-sticky, .pl-table tfoot .pl-sticky { z-index: 4; background: #f7f9fb; }
+.pl-table tfoot .pl-sticky { background: #f2f6f3; }
+.pl-table .pl-c1 { left: 0; min-width: 92px; }
+.pl-table .pl-c2 { left: 92px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--line); }
+.pl-mhead th { font-size: 12px; text-transform: none; color: var(--muted); border-bottom: 1px solid var(--line); }
+.pl-month { text-align: center; color: var(--brand-dark) !important; font-weight: 700 !important; border-left: 2px solid #c9d8ce; }
+.pl-w small { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.pl-table .m-start { border-left: 2px solid #c9d8ce; }
+.pl-cell { min-width: 74px; }
+.pl-in { width: 76px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; text-align: right; background: #fff; font-variant-numeric: tabular-nums; }
+.pl-in:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(16,106,58,.14); }
+.pl-in.is-bad { border-color: var(--late); background: var(--late-soft); }
+.pl-warn { background: #fff4cf !important; }
+.pl-warn .pl-in { background: #fff8de; border-color: #e6c35a; }
+.pl-warn-t { color: #8a6100; font-weight: 600; }
+.pl-bomc select { max-width: 210px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; background: #fff; }
+.pl-tmp { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--wait-soft); color: #8a5a00; font-size: 11px; font-weight: 600; }
+.pl-bad { color: var(--late); font-weight: 600; }
+.pl-chip { display: inline-block; padding: 0 6px; border-radius: 6px; background: var(--brand-soft); color: var(--brand-dark); font-size: 12px; font-weight: 600; }
+.pl-save { margin-left: auto; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pl-save.is-ok { color: var(--done); }
+.pl-save.is-err { color: var(--late); white-space: normal; }
+.mrp-editbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.pj-note { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+.pj-cell b { display: block; }
+.pj-cell small { display: flex; gap: 6px; justify-content: flex-end; font-size: 11px; }
+.pj-in { color: var(--done); font-weight: 600; }
+.pj-out { color: var(--muted); }
+.pj-cell.is-neg { background: var(--late-soft); }
+.pj-cell.is-neg b { color: var(--late); }
+.pl-table .is-past { background: #f4f5f7; color: #9aa6b2; }
+.pl-mini { font-size: 13px; }
+.pl-mini th, .pl-mini td { white-space: nowrap; padding: 6px 8px; }
+.pj-detail .pj-sum td, .pj-detail .pj-sum th { border-top: 2px solid var(--line); }
+.pj-h { margin: 16px 0 6px; font-size: 14px; }
+.pj-list { margin: 0; padding-left: 18px; font-size: 13px; }
+.pj-list li { margin: 2px 0; }
+.pj-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.pj-src { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin: 0; }
+.sk-table tr.is-off td { color: #9aa6b2; }
+.up-date { display: inline-flex; flex-direction: column; margin: 12px 0 0; max-width: 220px; }
+.up-date input { padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+#view-mrp-update .update-card + .update-card { margin-top: 16px; }
+.dlg-wide .table-wrap { max-height: 45vh; overflow: auto; }
+.pl-table td { padding-top: 5px; padding-bottom: 5px; }
+.pl-table .pl-in { padding: 3px 6px; }
+#plHz, #kbHz, #pjHz { min-width: 270px; }
