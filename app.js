@@ -612,8 +612,8 @@
           <div class="wide"><dt>Catatan</dt><dd>${f.note ? esc(f.note) : '–'}</dd></div></dl>
          <p class="hint">Terakhir diubah ${esc(f.time)}. Tetap tersimpan walaupun data Odoo di-upload ulang.</p>`
       : `<p class="hint">Belum ada follow-up untuk ${esc(r.po)} / ${esc(r.code)}.</p>`;
-    return `<div class="fu-box"><div class="fu-box-head"><h4>Follow-up</h4>
-      ${ed ? '<button type="button" class="btn btn-sm" data-act="follow">Isi follow-up</button>' : '<span class="hint">Aktifkan Mode edit untuk mengisi.</span>'}</div>${body}</div>`;
+    return `<section class="dt-card fu-box"><div class="fu-box-head"><h4 class="dt-h">Follow-up</h4>
+      ${ed ? '<button type="button" class="btn btn-sm" data-act="follow">Isi follow-up</button>' : '<span class="hint">Aktifkan Mode edit untuk mengisi.</span>'}</div>${body}</section>`;
   }
 
   function editFollow(r) {
@@ -642,21 +642,46 @@
   }
 
   function detailHtml(r) {
-    const amount = r.price === '' ? '–' : fmtNum(r.qty * r.price);
     const ed = state.edit.on;
-    const cols = ed ? 6 : 5;
-    const rows = r.sched.length ? r.sched.map((s) => {
+    const u = esc(r.uom), k = esc(r.kurs);
+    const pct = r.qty ? Math.round(Math.min(Math.max(r.rec, 0), r.qty) / r.qty * 100) : 0;
+    const money = (v) => (r.price === '' ? '–' : `${fmtNum(Math.round(v))} <small>${k}</small>`);
+
+    // Ringkasan: angka penting dalam kotak-kotak kecil
+    const tile = (label, value, sub, cls = '') =>
+      `<div class="dt-tile ${cls}"><span class="dt-k">${label}</span><span class="dt-v">${value}</span>${sub ? `<span class="dt-sub">${sub}</span>` : ''}</div>`;
+    const tiles = [
+      tile('Harga satuan', r.price === '' ? '–' : money(Number(r.price))),
+      tile('Nilai baris PO', r.price === '' ? '–' : money(r.qty * Number(r.price))),
+      tile('Sudah diterima', `${fmtNum(r.rec)} <small>/ ${fmtNum(r.qty)} ${u}</small>`,
+        `<span class="dt-bar"><i style="width:${pct}%"></i></span>${pct}% · sisa ${fmtNum(Math.max(0, r.sisa))} ${u}`),
+      r.shortage > 0
+        ? tile('Shortage', `${fmtNum(r.shortage)} <small>${u}</small>`,
+          (r.lateDays ? `Terlambat ${r.lateDays} hari, sejak ${fmtDate(r.oldestLate)}` : 'Kurang kirim')
+          + (r.shortValue ? `<br>Nilai ${fmtNum(Math.round(r.shortValue))} ${k}` : ''), 'is-late')
+        : tile('Jadwal berikutnya', r.next ? fmtDate(r.next.date) : '–',
+          r.next ? `${fmtNum(r.next.qty)} ${u}` : (r.status === 'done' ? 'Sudah lengkap' : 'Belum ada jadwal'), r.status === 'done' ? 'is-done' : ''),
+    ].join('');
+
+    // Jadwal pengiriman
+    const sRows = r.sched.length ? r.sched.map((s) => {
       const late = s.status !== 'Done' && s.date && s.date < r.today;
+      const pill = s.status === 'Done' ? '<span class="pill pill-done">Sudah datang</span>'
+        : late ? `<span class="pill pill-late">Lewat ${daysBetween(s.date, r.today)} hari</span>`
+        : s.date ? '<span class="pill pill-wait">Menunggu</span>' : '<span class="pill">Belum ada tanggal</span>';
       const act = ed ? `<td class="row-actions">
           <button type="button" class="btn-link" data-act="editSched" data-n="${s.n}">Ubah</button>
           <button type="button" class="btn-link danger" data-act="delSched" data-n="${s.n}">Hapus</button></td>` : '';
-      return `<tr class="${late ? 'is-late' : ''}"><td>${s.n}</td><td>${fmtDate(s.date)}</td>
-        <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td><td>${esc(s.status)}${late ? ' (lewat jadwal)' : ''}${s.short ? ` · <b class="short-qty">shortage ${fmtNum(s.short)}</b>` : ''}</td>${act}</tr>`;
-    }).join('') : `<tr><td colspan="${cols}">Belum ada jadwal pengiriman.</td></tr>`;
-    const dup = r.dupCount > 1
-      ? `<p class="hint">Kode ${esc(r.code)} muncul ${r.dupCount}× di ${esc(r.po)}. Odoo tidak membedakan jadwalnya, jadwal di bawah adalah gabungan; qty diterima dibagi berurutan ke tiap baris.</p>` : '';
-    const man = r.manual
-      ? `<p class="manual-note">PO ini pernah diedit manual (${[r.manual.lines && 'baris PO', r.manual.sched && 'jadwal'].filter(Boolean).join(' dan ')}) pada ${esc(r.manual.time)}. Saat upload export Odoo berikutnya, Anda akan ditanya mau memakai data Odoo atau mempertahankan edit ini.</p>` : '';
+      return `<tr><td class="c-n">${s.n}</td><td class="c-date">${fmtDate(s.date)}</td>
+        <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td>
+        <td class="num">${s.short ? `<b class="short-qty">${fmtNum(s.short)}</b>` : '<span class="muted">–</span>'}</td>
+        <td>${pill}<span class="odoo-st">${esc(s.status || '')}</span></td>${act}</tr>`;
+    }).join('') : `<tr><td colspan="${ed ? 7 : 6}" class="muted">Belum ada jadwal pengiriman.</td></tr>`;
+
+    const notes = [];
+    if (r.dupCount > 1) notes.push(`Kode ${esc(r.code)} muncul ${r.dupCount}× di ${esc(r.po)}. Odoo tidak membedakan jadwalnya, jadi jadwal di atas adalah gabungan dan qty diterima dibagi berurutan ke tiap baris.`);
+    if (r.manual) notes.push(`PO ini pernah diedit manual (${[r.manual.lines && 'baris PO', r.manual.sched && 'jadwal'].filter(Boolean).join(' dan ')}) pada ${esc(r.manual.time)}. Saat upload export Odoo berikutnya, Anda akan ditanya mau memakai data Odoo atau mempertahankan edit ini.`);
+
     const tools = ed ? `<div class="detail-tools" data-key="${esc(r.key)}">
         <button type="button" class="btn btn-sm" data-act="editLine">Ubah baris PO</button>
         <button type="button" class="btn btn-sm" data-act="addSched">Tambah jadwal</button>
@@ -664,15 +689,16 @@
       </div>` : '';
     return `<tr class="detail"><td colspan="10"><div class="detail-box" data-key="${esc(r.key)}">
       ${tools}
-      <div class="detail-meta">
-        <span>Harga satuan <b>${r.price === '' ? '–' : fmtNum(r.price)} ${esc(r.kurs)}</b></span>
-        <span>Nilai PO baris ini <b>${amount} ${esc(r.kurs)}</b></span>
-        <span>Progres <b>${r.qty ? Math.round(Math.min(r.rec, r.qty) / r.qty * 100) : 0}%</b></span>
-        ${r.shortage > 0 ? `<span>Shortage <b class="short-qty">${fmtNum(r.shortage)} ${esc(r.uom)}</b>${r.lateDays ? `, terlambat ${r.lateDays} hari sejak ${fmtDate(r.oldestLate)}` : ' (kurang kirim)'}${r.shortValue ? ` · nilai ${fmtNum(Math.round(r.shortValue))} ${esc(r.kurs)}` : ''}</span>` : ''}
+      <div class="dt-tiles">${tiles}</div>
+      <div class="dt-grid">
+        <section class="dt-card">
+          <h4 class="dt-h">Jadwal pengiriman <span class="muted">${r.sched.length} jadwal</span></h4>
+          <div class="sched-wrap"><table class="sched"><thead><tr><th>Ke</th><th>Tanggal</th><th class="num">Qty jadwal</th><th class="num">Diterima</th><th class="num">Kurang</th><th>Status</th>${ed ? '<th></th>' : ''}</tr></thead>
+          <tbody>${sRows}</tbody></table></div>
+        </section>
+        ${followBox(r)}
       </div>
-      ${followBox(r)}
-      <table class="sched"><thead><tr><th>Jadwal ke</th><th>Tanggal</th><th class="num">Qty jadwal</th><th class="num">Qty diterima</th><th>Status</th>${ed ? '<th></th>' : ''}</tr></thead>
-      <tbody>${rows}</tbody></table>${dup}${man}
+      ${notes.map((n, i) => `<p class="dt-note${r.manual && i === notes.length - 1 ? ' is-manual' : ''}">${n}</p>`).join('')}
     </div></td></tr>`;
   }
 
