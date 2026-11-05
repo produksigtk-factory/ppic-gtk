@@ -155,7 +155,7 @@
 
           <article class="card">
             <header class="card-head"><h2>Supplier dengan shortage terbesar</h2></header>
-            <p class="card-sub">Urut nilai shortage (IDR). Klik untuk melihat baris PO supplier tersebut.</p>
+            <p class="card-sub">Urut nilai shortage (IDR). Klik nama untuk melihat baris PO, atau "Pesan" untuk menyusun pesan follow-up ke supplier.</p>
             <div class="hbars" id="dSupShort"></div>
           </article>
 
@@ -306,7 +306,8 @@
         </div>
 
         <div class="result-bar">
-          <span id="resultInfo"></span>
+          <span class="result-left"><span id="resultInfo"></span>
+            <button class="btn btn-sm" id="btnMsg" hidden title="Susun pesan WhatsApp/email ke supplier yang dipilih berisi item yang belum datang">Buat pesan ke supplier</button></span>
           <span class="legend">
             <span><i class="seg seg-done"></i>Sudah datang</span>
             <span><i class="seg seg-late"></i>Lewat jadwal</span>

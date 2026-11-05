@@ -558,6 +558,7 @@
       $('rows').innerHTML = view.map(rowHtml).join('');
     }
     $('btnMore').hidden = rows.length <= state.shown;
+    $('btnMsg').hidden = !$('fSupplier').value;
     state.lastRows = rows;
   }
 
@@ -713,6 +714,7 @@
     state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
   $('btnMore').addEventListener('click', () => { state.shown += PAGE; render(); });
+  $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
   $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true) : loadData()));
 
   const toggleRow = (tr) => { const k = tr.dataset.key; state.openKey = state.openKey === k ? null : k; render(); };
@@ -794,12 +796,15 @@
   function hbars(el, items, empty) {
     if (!items.length) { el.innerHTML = `<p class="muted dash-empty">${empty}</p>`; el._items = []; return; }
     const max = Math.max(1, ...items.map((x) => x.value));
-    el.innerHTML = items.map((x, i) => `
+    el.innerHTML = items.map((x, i) => {
+      const bar = `
       <button class="hbar ${x.cls || ''}" data-i="${i}" data-tip="${esc(x.tip)}" aria-label="${esc(x.label + ': ' + x.tip)}">
         <span class="hbar-label">${esc(x.label)}</span>
         <span class="hbar-track"><span class="hbar-fill" style="width:${x.value ? Math.max(1.5, x.value / max * 100) : 0}%"></span></span>
         <span class="hbar-val">${esc(x.text)}</span>
-      </button>`).join('');
+      </button>`;
+      return x.msg ? `<div class="hbar-wrap">${bar}<button class="btn btn-ghost btn-xs" data-msg="${i}" title="Buat pesan follow-up untuk ${esc(x.label)}">Pesan</button></div>` : bar;
+    }).join('');
     el._items = items;
   }
 
@@ -877,7 +882,7 @@
     });
     hbars($('dSupShort'), [...bySup.entries()].sort((a, b) => b[1].v - a[1].v || b[1].n - a[1].n).slice(0, 8).map(([sup, x]) => ({
       label: sup, value: x.v || x.n, text: x.v ? fmtRp(x.v) : `${x.n} baris`, cls: 'is-late',
-      tip: `${nf.format(x.n)} baris shortage · ${fmtRp(x.v)}`, go: { supplier: sup, status: 'late', sort: 'late-desc' },
+      tip: `${nf.format(x.n)} baris shortage · ${fmtRp(x.v)}`, go: { supplier: sup, status: 'late', sort: 'late-desc' }, msg: true,
     })), 'Tidak ada shortage.');
 
     // Belum lengkap per jenis
@@ -948,9 +953,16 @@
       return goMonitor(g === 'short' ? { status: 'late', sort: 'late-desc' } : g === 'todo' ? { status: 'late', follow: 'todo', sort: 'late-desc' }
         : g === 'week' ? { arrive: 'week', sort: 'next-asc' } : { status: 'open' });
     }
+    const mb = e.target.closest('[data-msg]');
+    if (mb) {
+      const it = mb.closest('.hbars')._items[Number(mb.dataset.msg)];
+      if (it) openSupplierMsg({ supplier: it.label, from: 'dash' });
+      return;
+    }
     const bar = e.target.closest('.vbar, .hbar');
     if (bar) {
-      const it = bar.parentElement._items[Number(bar.dataset.i)];
+      const box = bar.parentElement._items ? bar.parentElement : bar.closest('.hbars');
+      const it = box && box._items[Number(bar.dataset.i)];
       if (it && it.chg) { CHG.upload = null; CHG.type = it.chg; CHG.shown = 200; location.hash = '#/po/perubahan'; renderChanges(); return; }
       if (it && it.go) goMonitor(it.go);
       return;
@@ -1192,9 +1204,150 @@
     return data;
   }
 
+
+  /* ---------- Pesan follow-up ke supplier (disalin, dikirim sendiri lewat WA/email) ---------- */
+  const dfLong = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  const fmtLong = (s) => { if (!s) return '–'; const [y, m, d] = s.split('-').map(Number); return dfLong.format(new Date(y, m - 1, d)); };
+  const MSG = {};
+
+  // Baris dasar sesuai asal tombol: tabel Monitoring (tampil / semua PO supplier) atau Dashboard
+  function msgBaseRows(o, scope) {
+    if (o.from === 'mon' && scope === 'view') return byStatus(byMonth(filteredNoMonth()), state.status);
+    const jenis = o.from === 'mon' ? $('fJenis').value : $('dJenis').value;
+    return state.rows.filter((r) => r.supplier === o.supplier && jenisOk(r, jenis));
+  }
+
+  // Kelompokkan per PO + kode (kode ganda dalam satu PO digabung)
+  function msgItems(rows, mode) {
+    const today = todayStr(), groups = new Map();
+    rows.forEach((r) => {
+      if (r.status === 'done') return;
+      const k = r.po + '|' + r.code;
+      const g = groups.get(k) || { r, qty: 0 };
+      g.qty += mode === 'short' ? r.shortage : Math.max(0, r.sisa);
+      groups.set(k, g);
+    });
+    const items = [];
+    groups.forEach((g) => {
+      if (!(g.qty > 0)) return;
+      const r = g.r;
+      let parts = [];
+      if (mode === 'short') {
+        parts = r.sched.filter((x) => x.short > 0).map((x) => ({
+          q: x.short, done: x.status === 'Done', date: x.date, late: x.status !== 'Done' && x.date ? daysBetween(x.date, today) : 0 }));
+      } else {
+        parts = r.sched.filter((x) => x.status !== 'Done' && (Number(x.qty) || 0) > (Number(x.rec) || 0)).map((x) => ({
+          q: (Number(x.qty) || 0) - (Number(x.rec) || 0), done: false, date: x.date, late: x.date && x.date < today ? daysBetween(x.date, today) : 0 }));
+      }
+      items.push({ r, qty: g.qty, parts, oldest: parts.map((p) => p.date).filter(Boolean).sort()[0] || '9999' });
+    });
+    items.sort((a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.r.po < b.r.po ? -1 : a.r.po > b.r.po ? 1 : a.r.idx - b.r.idx));
+    return items;
+  }
+
+  function msgText(sup, items, mode) {
+    const h = new Date().getHours();
+    const waktu = h < 11 ? 'pagi' : h < 15 ? 'siang' : h < 18 ? 'sore' : 'malam';
+    const m = String(sup).match(/^(.*?),\s*(PT|CV|UD|PD|Tbk|Ltd|Co\.?,? Ltd)\.?$/i);
+    const nama = m ? `${m[2].length <= 3 ? m[2].toUpperCase() : m[2]} ${m[1]}` : sup;   // "Sumber Kemas, PT" → "PT Sumber Kemas"
+    const out = [`Selamat ${waktu} Bapak/Ibu tim ${nama},`, ''];
+    out.push(mode === 'short'
+      ? 'Kami dari PPIC Gondowangi ingin konfirmasi item PO berikut yang sudah lewat jadwal kirim tetapi belum kami terima lengkap:'
+      : 'Kami dari PPIC Gondowangi ingin konfirmasi item PO berikut yang masih belum kami terima lengkap:');
+    let po = '', n = 0;
+    items.forEach((it) => {
+      const r = it.r, u = r.uom ? ' ' + r.uom : '';
+      if (r.po !== po) { po = r.po; n = 0; out.push('', `*${r.po}* (order ${fmtLong(r.date)})`); }
+      n++;
+      out.push(`${n}. [${r.code}] ${r.name}`);
+      const multi = it.parts.length > 1;
+      const desc = it.parts.map((p) => {
+        const q = multi ? `${nf.format(p.q)}${u} ` : '';
+        if (p.done) return `${q}kurang kirim dari pengiriman ${fmtLong(p.date)}`;
+        if (!p.date) return `${q}belum ada tanggal kirim`;
+        return `${q}jadwal ${fmtLong(p.date)}${p.late > 0 ? ` (lewat ${p.late} hari)` : ''}`;
+      });
+      out.push(`   Kurang ${nf.format(it.qty)}${u}${desc.length ? ' · ' + desc.join('; ') : ' · belum ada jadwal kirim'}`);
+      const f = r.follow;
+      if (f && f.promise) out.push(`   Janji kirim sebelumnya: ${fmtLong(f.promise)}`);
+    });
+    out.push('', 'Mohon konfirmasi rencana pengiriman untuk item di atas. Terima kasih.');
+    return out.join('\n');
+  }
+
+  function openSupplierMsg(o) {
+    if (!o.supplier) return;
+    MSG.o = o;
+    const allSup = msgBaseRows(o, 'all');
+    MSG.mode = allSup.some((r) => r.shortage > 0) ? 'short' : 'open';
+    MSG.scope = o.from === 'mon' ? 'view' : 'all';
+    const scopeSel = o.from === 'mon'
+      ? `<label class="field"><span>Ambil dari</span><select id="msgScope">
+          <option value="view">Baris yang tampil di tabel</option>
+          <option value="all">Semua PO supplier ini</option></select></label>`
+      : '';
+    openDialog({
+      title: 'Pesan follow-up ke supplier',
+      ok: 'Tutup', cancel: false, wide: true,
+      body: `
+        <p class="dlg-lead">${esc(o.supplier)}. Pesan tidak dikirim otomatis: salin lalu kirim sendiri lewat WhatsApp atau email.</p>
+        <div class="form-grid">
+          <label class="field"><span>Isi pesan</span><select id="msgMode">
+            <option value="short">Shortage saja (lewat jadwal / kurang kirim)</option>
+            <option value="open">Semua yang belum lengkap</option></select></label>
+          ${scopeSel}
+        </div>
+        <p class="msg-info" id="msgInfo"></p>
+        <label class="field msg-field"><span>Pesan (bisa diubah sebelum disalin)</span><textarea id="msgText" rows="14" spellcheck="false"></textarea></label>
+        <div class="msg-actions">
+          <button type="button" class="btn" id="msgCopy">Salin pesan</button>
+          <a class="btn btn-ghost" id="msgWa" target="_blank" rel="noopener">Buka WhatsApp</a>
+          <a class="btn btn-ghost" id="msgMail">Buka email</a>
+          <span class="msg-copied" id="msgCopied" role="status"></span>
+        </div>`,
+      onSubmit: null,
+    });
+    $('msgMode').value = MSG.mode;
+    if ($('msgScope')) $('msgScope').value = MSG.scope;
+    const regen = () => {
+      MSG.mode = $('msgMode').value;
+      if ($('msgScope')) MSG.scope = $('msgScope').value;
+      const rows = msgBaseRows(o, MSG.scope).filter((r) => r.supplier === o.supplier);
+      const items = msgItems(rows, MSG.mode);
+      const nPo = new Set(items.map((x) => x.r.po)).size;
+      $('msgInfo').textContent = items.length
+        ? `${nf.format(nPo)} PO · ${nf.format(items.length)} material`
+        : (MSG.mode === 'short' ? 'Tidak ada shortage untuk supplier ini pada pilihan di atas. Pilih "Semua yang belum lengkap" atau "Semua PO supplier ini".'
+          : 'Semua item supplier ini sudah lengkap pada pilihan di atas.');
+      $('msgText').value = items.length ? msgText(o.supplier, items, MSG.mode) : '';
+      syncLinks();
+    };
+    const syncLinks = () => {
+      const t = $('msgText').value, on = !!t.trim();
+      $('msgCopy').disabled = !on;
+      $('msgWa').href = on ? 'https://wa.me/?text=' + encodeURIComponent(t) : '#';
+      $('msgMail').href = on ? `mailto:?subject=${encodeURIComponent('Konfirmasi pengiriman PO - ' + o.supplier)}&body=${encodeURIComponent(t)}` : '#';
+      ['msgWa', 'msgMail'].forEach((id) => $(id).classList.toggle('is-disabled', !on));
+      $('msgCopied').textContent = '';
+    };
+    $('msgMode').addEventListener('change', regen);
+    if ($('msgScope')) $('msgScope').addEventListener('change', regen);
+    $('msgText').addEventListener('input', syncLinks);
+    $('msgCopy').addEventListener('click', async () => {
+      const t = $('msgText').value;
+      try { await navigator.clipboard.writeText(t); }
+      catch (e) { $('msgText').select(); document.execCommand('copy'); }
+      $('msgCopied').textContent = 'Pesan disalin.';
+    });
+    regen();
+    $('msgText').focus();
+  }
+
   /* ---------- Jendela form ---------- */
   let dlgSubmit = null;
-  function openDialog({ title, body, ok = 'Simpan', danger = false, onSubmit }) {
+  function openDialog({ title, body, ok = 'Simpan', danger = false, onSubmit, cancel = true, wide = false }) {
+    $('dlgCancel').hidden = !cancel;
+    $('dlg').classList.toggle('dlg-wide', wide);
     $('dlgTitle').textContent = title;
     $('dlgBody').innerHTML = body;
     $('dlgError').textContent = '';

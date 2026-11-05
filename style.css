@@ -508,6 +508,18 @@ th[aria-sort="descending"] .sort-ind::before { content: "↓"; }
 .kpi-warn { color: var(--late); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .field textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font: inherit; resize: vertical; background: var(--surface); }
 
+/* ---------- Pesan ke supplier ---------- */
+.result-left { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.btn-xs { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+.hbar-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.dlg.dlg-wide { width: min(760px, calc(100vw - 32px)); }
+.msg-info { margin: 12px 0 6px !important; font-size: 13px; color: var(--muted); }
+.msg-field { display: flex; flex-direction: column; gap: 4px; }
+.msg-field textarea { width: 100%; font-size: 13px; line-height: 1.5; min-height: 260px; }
+.msg-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.msg-actions .is-disabled { pointer-events: none; opacity: .45; }
+.msg-copied { color: var(--done); font-weight: 600; font-size: 13px; }
+
 /* ---------- Perubahan data ---------- */
 .chg-types { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
 .chg-type { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
