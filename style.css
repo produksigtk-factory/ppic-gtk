@@ -816,3 +816,12 @@ body.edit-on .dt-grid .fu-box { max-width: 760px; }
   .cal-counts .cc { justify-content: center; padding: 0 4px; }
 }
 .cal-counts .cc { gap: 4px; }
+
+/* Cancel PO */
+.b-cancel { background: #f3e1e1; color: #8a1c1c; }
+.stat-cancel .stat-num { color: #8a1c1c; }
+.cancel-why { margin-top: 3px; font-size: 11.5px; color: #8a1c1c; max-width: 160px; line-height: 1.35; }
+.btn-cancel { background: var(--surface); color: #8a1c1c; border-color: #e3b9b9; }
+.btn-cancel:hover { border-color: #8a1c1c; background: #fbf1f1; filter: none; }
+.tools-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+.dt-note.is-cancel { border-left-color: #8a1c1c; color: #6b1a1a; background: #fdf6f6; }

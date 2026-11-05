@@ -56,9 +56,10 @@
     wait: { label: 'Dijadwalkan', cls: 'b-wait' },
     none: { label: 'Belum dijadwalkan', cls: 'b-none' },
     takeout: { label: 'Take out', cls: 'b-takeout' },
+    cancel: { label: 'Cancel', cls: 'b-cancel' },
   };
   // Baris yang tidak ditunggu lagi: sudah lengkap, atau di-take out (qty order 0)
-  const isClosed = (r) => r.status === 'done' || r.status === 'takeout';
+  const isClosed = (r) => r.status === 'done' || r.status === 'takeout' || r.status === 'cancel';
 
 
   /* ---------- Urutkan lewat judul kolom (semua tabel) ---------- */
@@ -98,7 +99,7 @@
       th.classList.toggle('is-sorted', !!on);
     });
   }
-  const STATUS_ORDER = { late: 0, short: 1, wait: 2, none: 3, done: 4, takeout: 5 };
+  const STATUS_ORDER = { late: 0, short: 1, wait: 2, none: 3, done: 4, takeout: 5, cancel: 6 };
   const PO_GET = {
     po: (r) => r.po, date: (r) => r.date, supplier: (r) => r.supplier, name: (r) => r.name, qty: (r) => r.qty,
     sisa: (r) => Math.max(0, r.sisa), shortage: (r) => r.shortage || null, nsched: (r) => r.sched.length,
@@ -261,6 +262,8 @@
       setManual(data.manual);
       state.editLog = data.editLog || [];
       setFollow(data.followups);
+      setCancel(data.cancels);
+      state.noCancelScript = !Array.isArray(data.cancels);
       state.changes = data.changes || [];
       state.noFollowScript = !Array.isArray(data.followups);
       if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
@@ -291,6 +294,12 @@
   function setFollow(list) {
     state.follow = new Map((list || []).map((f) => [f[0] + '|' + f[1], { status: f[2], promise: normDate(f[3]), note: f[4], time: f[5] }]));
   }
+
+  // PO / baris yang di-cancel lewat website: Map "PO|kode" (kode kosong = seluruh PO) → { reason, time, by }
+  function setCancel(list) {
+    state.cancel = new Map((list || []).map((c) => [c[0] + '|' + c[1], { po: c[0], code: c[1], reason: c[2], time: c[3], by: c[4] }]));
+  }
+  const cancelOf = (po, code) => (state.cancel ? state.cancel.get(po + '|') || state.cancel.get(po + '|' + code) || null : null);
 
   function setManual(list) {
     state.manual = new Map((list || []).map((m) => [m[0], { lines: !!m[1], sched: !!m[2], time: m[3], by: m[4] }]));
@@ -395,8 +404,10 @@
         const rec = isLast ? remain : (takeout ? 0 : Math.min(qty, remain));   // penerimaan dibagi berurutan ke baris kode yang sama
         remain -= rec;
         const sisa = qty - rec;
+        const cancel = cancelOf(l[0], l[3]);
         let status;
-        if (takeout) status = 'takeout';
+        if (cancel) status = 'cancel';
+        else if (takeout) status = 'takeout';
         else if (sisa <= 0) status = 'done';
         else if (hasLate) status = 'late';
         else if (shortage > 0) status = 'short';
@@ -412,12 +423,12 @@
           po: l[0], date, month: date.slice(0, 7), supplier: l[2], code: l[3], name: l[4], jenis: l[5],
           qty, uom: l[7], price: l[8], kurs: l[9], lineKe: l[10], dupCount: items.length,
           amount: l[8] === '' ? 0 : qty * Number(l[8]),
-          pendingDates: takeout ? [] : pending.map((s) => s.date).filter(Boolean),
+          pendingDates: takeout || cancel ? [] : pending.map((s) => s.date).filter(Boolean),
           manual: state.manual ? state.manual.get(l[0]) || null : null,
           follow: state.follow ? state.follow.get(k) || null : null,
-          rec, sisa, status, sched, next: takeout ? null : next, today, first: i === 0, takeout,
-          shortage: short, lateDays: short ? lateDays : 0, oldestLate: short ? oldest : '',
-          sisaValue: Math.max(0, sisa) * price, shortValue: short * price,
+          rec, sisa, status, sched, next: takeout || cancel ? null : next, today, first: i === 0, takeout, cancel,
+          shortage: cancel ? 0 : short, lateDays: short && !cancel ? lateDays : 0, oldestLate: short && !cancel ? oldest : '',
+          sisaValue: cancel ? 0 : Math.max(0, sisa) * price, shortValue: cancel ? 0 : short * price,
           search: (l[0] + ' ' + l[2] + ' ' + l[3] + ' ' + l[4]).toLowerCase(),
         });
       });
@@ -492,7 +503,7 @@
   }
 
   // Semua saringan kecuali bulan (dipakai juga untuk angka di tab bulan)
-  function filteredNoMonth() {
+  function filteredNoMonth(withCancel) {
     const q = $('q').value.trim().toLowerCase();
     const jenis = $('fJenis').value, sup = $('fSupplier').value, kurs = $('fKurs').value, arr = $('fArrive').value;
     const man = $('fManual').value, fol = $('fFollow').value;
@@ -507,11 +518,12 @@
       (!sup || r.supplier === sup) &&
       (!kurs || r.kurs === kurs) &&
       matchArrive(r, arr) &&
-      matchDate(r, dType, dFrom, dTo));
+      matchDate(r, dType, dFrom, dTo) &&
+      (withCancel || r.status !== 'cancel'));        // baris cancel disembunyikan kecuali tombol Cancel dipilih
   }
   const byMonth = (rows) => { const m = activeMonth(); return m === 'all' ? rows : rows.filter((r) => r.month === m); };
 
-  const byStatus = (rows, st) => st === 'all' ? rows
+  const byStatus = (rows, st) => st === 'all' ? rows.filter((r) => r.status !== 'cancel')
     : st === 'open' ? rows.filter((r) => !isClosed(r))
     : st === 'late' ? rows.filter((r) => r.shortage > 0)
     : rows.filter((r) => r.status === st);
@@ -558,17 +570,21 @@
 
   /* ---------- Tampilan ---------- */
   function render() {
-    const noMonth = filteredNoMonth();
+    const noMonth = filteredNoMonth(state.status === 'cancel');
     renderMonthBar(noMonth);
     renderActiveFilters();
     const base = byMonth(noMonth);
-    $('cAll').textContent = nf.format(base.length);
-    $('cOpen').textContent = nf.format(byStatus(base, 'open').length);
-    $('cLate').textContent = nf.format(byStatus(base, 'late').length);
-    $('cDone').textContent = nf.format(byStatus(base, 'done').length);
-    const nTake = byStatus(base, 'takeout').length;
+    const live = base.filter((r) => r.status !== 'cancel');      // angka status tidak menghitung baris cancel
+    $('cAll').textContent = nf.format(live.length);
+    $('cOpen').textContent = nf.format(byStatus(live, 'open').length);
+    $('cLate').textContent = nf.format(byStatus(live, 'late').length);
+    $('cDone').textContent = nf.format(byStatus(live, 'done').length);
+    const nTake = byStatus(live, 'takeout').length;
     $('cTakeout').textContent = nf.format(nTake);
     $('cTakeout').closest('.stat').hidden = !nTake && state.status !== 'takeout';   // hanya muncul bila ada baris take out
+    const nCancel = byMonth(filteredNoMonth(true)).filter((r) => r.status === 'cancel').length;
+    $('cCancel').textContent = nf.format(nCancel);
+    $('cCancel').closest('.stat').hidden = !nCancel && state.status !== 'cancel';
     document.querySelectorAll('.stat').forEach((b) => b.classList.toggle('is-active', b.dataset.status === state.status));
 
     const rows = applyColSort(byStatus(base, state.status).slice().sort(SORTS[$('fSort').value] || SORTS['date-asc']), colSort.po, PO_GET);
@@ -606,7 +622,7 @@
     const next = r.next ? `${fmtDate(r.next.date)}<div class="strip-cap">${fmtNum(r.next.qty)} ${esc(r.uom)}</div>` : '–';
     const open = state.openKey === r.key;
     const man = r.manual ? `<span class="tag-manual" title="Terakhir diedit ${esc(r.manual.time)}">Diedit manual</span>` : '';
-    let html = `<tr class="row${open ? ' is-open' : ''}${r.status === 'takeout' ? ' is-takeout' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
+    let html = `<tr class="row${open ? ' is-open' : ''}${r.status === 'takeout' || r.status === 'cancel' ? ' is-takeout' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
       <td class="po">${esc(r.po)}${man}</td>
       <td class="date">${fmtDate(r.date)}</td>
       <td class="supplier">${esc(r.supplier)}</td>
@@ -616,7 +632,7 @@
       <td class="num">${r.shortage > 0 ? `<span class="short-qty">${fmtNum(r.shortage)}</span><div class="strip-cap short-cap">${r.lateDays ? r.lateDays + ' hari' : 'kurang kirim'}</div>` : '<span class="muted">–</span>'}</td>
       <td>${stripHtml(r)}</td>
       <td class="date">${next}</td>
-      <td><span class="badge ${st.cls}">${st.label}</span>${followChip(r)}</td>
+      <td><span class="badge ${st.cls}" ${r.cancel ? `title="${esc(r.cancel.reason)}"` : ''}>${st.label}${r.cancel && !r.cancel.code ? ' PO' : ''}</span>${r.cancel ? `<div class="cancel-why">${esc(r.cancel.reason)}</div>` : followChip(r)}</td>
     </tr>`;
     if (open) html += detailHtml(r);
     return html;
@@ -689,7 +705,7 @@
           (r.lateDays ? `Terlambat ${r.lateDays} hari, sejak ${fmtDate(r.oldestLate)}` : 'Kurang kirim')
           + (r.shortValue ? `<br>Nilai ${fmtNum(Math.round(r.shortValue))} ${k}` : ''), 'is-late')
         : tile('Jadwal berikutnya', r.next ? fmtDate(r.next.date) : '–',
-          r.next ? `${fmtNum(r.next.qty)} ${u}` : (r.status === 'done' ? 'Sudah lengkap' : r.status === 'takeout' ? 'Qty order 0 (take out)' : 'Belum ada jadwal'), r.status === 'done' ? 'is-done' : ''),
+          r.next ? `${fmtNum(r.next.qty)} ${u}` : (r.status === 'done' ? 'Sudah lengkap' : r.status === 'cancel' ? 'Di-cancel, tidak ditunggu' : r.status === 'takeout' ? 'Qty order 0 (take out)' : 'Belum ada jadwal'), r.status === 'done' ? 'is-done' : ''),
     ].join('');
 
     // Jadwal pengiriman
@@ -708,6 +724,7 @@
     }).join('') : `<tr><td colspan="${ed ? 7 : 6}" class="muted">Belum ada jadwal pengiriman.</td></tr>`;
 
     const notes = [];
+    if (r.cancel) notes.push(`<b>Di-cancel ${r.cancel.code ? 'baris ini' : 'seluruh ' + esc(r.po)}</b> pada ${esc(r.cancel.time)}. Alasan: ${esc(r.cancel.reason)}. Tidak dihitung di status, shortage, Dashboard, Kalender, dan MoQ. Tanda cancel tidak tertimpa upload Odoo.`);
     if (r.dupCount > 1) notes.push(`Kode ${esc(r.code)} muncul ${r.dupCount}× di ${esc(r.po)}. Odoo tidak membedakan jadwalnya, jadi jadwal di atas adalah gabungan dan qty diterima dibagi berurutan ke tiap baris.`);
     if (r.manual) notes.push(`PO ini pernah diedit manual (${[r.manual.lines && 'baris PO', r.manual.sched && 'jadwal'].filter(Boolean).join(' dan ')}) pada ${esc(r.manual.time)}. Saat upload export Odoo berikutnya, Anda akan ditanya mau memakai data Odoo atau mempertahankan edit ini.`);
 
@@ -715,6 +732,10 @@
         <button type="button" class="btn btn-sm" data-act="editLine">Ubah baris PO</button>
         <button type="button" class="btn btn-sm" data-act="addSched">Tambah jadwal</button>
         <button type="button" class="btn btn-sm btn-danger" data-act="delLine">Hapus baris PO</button>
+        <span class="tools-sep" aria-hidden="true"></span>
+        ${r.cancel ? `<button type="button" class="btn btn-sm btn-ghost" data-act="uncancel">Aktifkan lagi ${r.cancel.code ? 'baris' : 'PO'}</button>`
+          : `<button type="button" class="btn btn-sm btn-cancel" data-act="cancelLine">Cancel baris</button>
+             <button type="button" class="btn btn-sm btn-cancel" data-act="cancelPo">Cancel PO ${esc(r.po)}</button>`}
       </div>` : '';
     return `<tr class="detail"><td colspan="10"><div class="detail-box" data-key="${esc(r.key)}">
       ${tools}
@@ -727,7 +748,7 @@
         </section>
         ${followBox(r)}
       </div>
-      ${notes.map((n, i) => `<p class="dt-note${r.manual && i === notes.length - 1 ? ' is-manual' : ''}">${n}</p>`).join('')}
+      ${notes.map((n, i) => `<p class="dt-note${r.cancel && i === 0 ? ' is-cancel' : r.manual && i === notes.length - 1 ? ' is-manual' : ''}">${n}</p>`).join('')}
     </div></td></tr>`;
   }
 
@@ -834,6 +855,7 @@
       'Jumlah Jadwal': r.sched.length,
       'Jadwal Berikutnya': r.next ? r.next.date : '', 'Qty Jadwal Berikutnya': r.next ? r.next.qty : '',
       'Status': STATUS[r.status].label,
+      'Alasan Cancel': r.cancel ? r.cancel.reason : '',
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Monitoring PO');
@@ -855,7 +877,7 @@
 
   function dashRows() {
     const j = $('dJenis').value, sp = $('dSup').value;
-    return state.rows.filter((r) => jenisOk(r, j) && (!sp || r.supplier === sp));
+    return state.rows.filter((r) => r.status !== 'cancel' && jenisOk(r, j) && (!sp || r.supplier === sp));
   }
 
   function fillDashOptions() {
@@ -1330,6 +1352,7 @@
     sch.forEach((x) => { const k = x[0] + '|' + x[1]; sq.set(k, (sq.get(k) || 0) + (Number(x[4]) || 0)); });
     const groups = new Map();
     state.rows.forEach((r) => {
+      if (r.status === 'cancel') return;                // yang di-cancel dicek di daftar tersendiri
       const k = r.po + '|' + r.code;
       const g = groups.get(k) || { r, qty: 0 };
       g.qty += r.qty; groups.set(k, g);
@@ -1349,11 +1372,25 @@
     });
     const byDate = (a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.r.po < b.r.po ? -1 : a.r.po > b.r.po ? 1 : a.r.idx - b.r.idx);
     mism.sort(byDate); takeout.sort(byDate);
-    return { orphans, mism, takeout };
+    // Di-cancel di website tetapi di export Odoo masih aktif (qty order > 0)
+    const cancelled = [];
+    (state.cancel ? [...state.cancel.values()] : []).forEach((c) => {
+      const rs = state.rows.filter((r) => r.po === c.po && (!c.code || r.code === c.code));
+      const qty = rs.reduce((t, r) => t + r.qty, 0);
+      if (!rs.length || qty <= 0) return;
+      const seen = new Set(); let pend = 0, rec = 0;
+      rs.forEach((r) => {
+        const k = r.po + '|' + r.code; if (seen.has(k)) return; seen.add(k);
+        r.sched.forEach((x) => { rec += Number(x.rec) || 0; if (x.status !== 'Done') pend += Math.max(0, (Number(x.qty) || 0) - (Number(x.rec) || 0)); });
+      });
+      cancelled.push({ c, r: rs[0], n: rs.length, qty, uom: rs[0].uom, pend, rec });
+    });
+    cancelled.sort((a, b) => (a.c.time > b.c.time ? -1 : 1));
+    return { orphans, mism, takeout, cancelled };
   }
   function renderAttention() {
     if (!state.rows) return;
-    const { orphans, mism, takeout } = attentionData();
+    const { orphans, mism, takeout, cancelled } = attentionData();
     const q = ($('aq').value || '').trim().toLowerCase(), j = $('aJenis').value;
     const hit = (t) => !q || q.split(/\s+/).every((w) => t.toLowerCase().includes(w));
     const o = orphans.filter((x) => hit(`${x.po} ${x.code} ${x.name}`));
@@ -1369,6 +1406,16 @@
         <td class="num">${x.pend > 0 ? fmtNum(x.pend) + ' ' + u : '–'}</td><td class="date">${x.next ? fmtDate(x.next) : '–'}</td>
         <td class="num">${x.rec > 0 ? fmtNum(x.rec) + ' ' + u : '–'}</td><td>${ket}</td></tr>`;
     }).join('') : '<tr class="empty"><td colspan="8">Tidak ada. Semua baris take out sudah bersih dari jadwal dan penerimaan.</td></tr>';
+    const cx = cancelled.filter((x) => jenisOk(x.r, j) || !x.c.code ? hit(`${x.c.po} ${x.c.code} ${x.r.supplier} ${x.c.reason}`) : false);
+    $('aCancelN').textContent = nf.format(cx.length);
+    $('aCancel').innerHTML = cx.length ? cx.map((x) => {
+      const u = x.c.code ? esc(x.uom) : '';
+      const ket = ['Di Odoo masih aktif' + (x.c.code ? ` (qty ${fmtNum(x.qty)} ${u})` : ` (${x.n} baris)`),
+        x.pend > 0 ? `masih ada jadwal belum Done${x.c.code ? ` ${fmtNum(x.pend)} ${u}` : ''}` : '', x.rec > 0 ? 'sudah ada penerimaan' : ''].filter(Boolean).join('; ');
+      return `<tr class="row" data-po="${esc(x.c.po)}" data-code="${esc(x.c.code)}" tabindex="0">
+        <td class="po">${esc(x.c.po)}</td><td>${x.c.code ? `<div class="mat-name">${esc(x.r.name)}</div><div class="mat-code">${esc(x.c.code)}</div>` : '<b>Seluruh PO</b>'}</td>
+        <td class="supplier">${esc(x.r.supplier)}</td><td>${esc(x.c.reason)}</td><td class="date">${esc(String(x.c.time).slice(0, 16))}</td><td>${ket}.</td></tr>`;
+    }).join('') : '<tr class="empty"><td colspan="6">Tidak ada. Semua yang di-cancel sudah tidak aktif di export Odoo.</td></tr>';
     $('aOrphanN').textContent = nf.format(o.length);
     $('aMismatchN').textContent = nf.format(m.length);
     $('aOrphan').innerHTML = o.length ? o.map((x) => `<tr>
@@ -1388,12 +1435,18 @@
         <td>${x.diff > 0 ? `Jadwal lebih ${fmtNum(x.diff)} ${u} dari order` : `Jadwal kurang ${fmtNum(-x.diff)} ${u} dari order`}</td></tr>`;
     }).join('') : '<tr class="empty"><td colspan="8">Tidak ada. Semua total jadwal sama dengan qty order.</td></tr>';
     // Angka di menu: jadwal tanpa baris PO + selisih untuk RM dan PM
-    const badge = orphans.length + mism.filter((x) => jenisOk(x.r, RMPM)).length + takeout.filter((x) => jenisOk(x.r, RMPM)).length;
+    const badge = orphans.length + mism.filter((x) => jenisOk(x.r, RMPM)).length + takeout.filter((x) => jenisOk(x.r, RMPM)).length + cancelled.length;
     $('attBadge').hidden = !badge;
     $('attBadge').textContent = badge;
   }
   $('aq').addEventListener('input', () => renderAttention());
   $('aJenis').addEventListener('change', () => renderAttention());
+  $('aCancel').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.row'); if (!tr) return;
+    const r = state.rows.find((x) => x.po === tr.dataset.po && (!tr.dataset.code || x.code === tr.dataset.code));
+    state.status = 'cancel';
+    if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '', status: 'cancel' });
+  });
   $('aTakeout').addEventListener('click', (e) => {
     const tr = e.target.closest('tr.row'); if (!tr) return;
     const r = state.rows.find((x) => x.key === tr.dataset.key);
@@ -1431,7 +1484,7 @@
 
   // Baris dasar sesuai asal tombol: tabel Monitoring (tampil / semua PO supplier) atau Dashboard
   function msgBaseRows(o, scope) {
-    if (o.from === 'mon' && scope === 'view') return byStatus(byMonth(filteredNoMonth()), state.status);
+    if (o.from === 'mon' && scope === 'view') return byStatus(byMonth(filteredNoMonth(state.status === 'cancel')), state.status);
     const jenis = o.from === 'mon' ? $('fJenis').value : $('dJenis').value;
     return state.rows.filter((r) => r.supplier === o.supplier && jenisOk(r, jenis));
   }
@@ -1773,12 +1826,60 @@
     });
   }
 
+  // Cancel PO / baris: ditandai di website (tab PO_CANCEL), wajib alasan, bisa diaktifkan lagi
+  const CANCEL_REASONS = ['Supplier tidak sanggup kirim', 'Ganti supplier', 'Salah order / dobel', 'Kebutuhan dibatalkan', 'Harga / spesifikasi tidak sesuai', 'Lainnya'];
+  function cancelDialog(r, whole) {
+    if (state.noCancelScript) {
+      openDialog({ title: 'Apps Script perlu diperbarui', ok: 'Mengerti', onSubmit: async () => {},
+        body: '<p>Cancel PO membutuhkan Apps Script versi terbaru. Tempel Code.gs terbaru lalu buat versi deployment baru.</p>' });
+      return;
+    }
+    const lines = state.rows.filter((x) => x.po === r.po && (whole || x.code === r.code));
+    const open = lines.filter((x) => !isClosed(x));
+    openDialog({
+      title: whole ? `Cancel seluruh ${r.po}?` : `Cancel baris ${r.code} di ${r.po}?`, ok: whole ? 'Cancel PO' : 'Cancel baris', danger: true,
+      body: `<p class="dlg-lead">${esc(r.supplier)} · ${whole ? `${lines.length} baris material, ${open.length} masih belum lengkap` : `${esc(r.name)} · ${fmtNum(r.qty)} ${esc(r.uom)}`}</p>
+        <div class="form-grid">
+          <label class="field span-2"><span>Alasan *</span><select name="reason" required><option value="">Pilih alasan…</option>${CANCEL_REASONS.map((x) => `<option>${esc(x)}</option>`).join('')}</select></label>
+          <label class="field span-2"><span>Keterangan</span><textarea name="note" rows="2" placeholder="Misal: diganti PO baru ke supplier lain, sudah konfirmasi ke Purchasing"></textarea></label>
+        </div>
+        <p class="hint">${whole ? 'Semua baris PO ini' : 'Baris ini'} disembunyikan dari tabel dan tidak dihitung di status, shortage, Dashboard, Kalender, maupun MoQ. Data Odoo tidak berubah; tanda cancel tetap ada walau export Odoo di-upload ulang. Bisa diaktifkan lagi kapan saja.</p>`,
+      onSubmit: async (fd) => {
+        if (!fd.reason) throw new Error('Pilih alasan cancel.');
+        if (fd.reason === 'Lainnya' && !fd.note.trim()) throw new Error('Isi keterangan untuk alasan "Lainnya".');
+        const reason = fd.reason === 'Lainnya' ? fd.note.trim() : fd.reason + (fd.note.trim() ? ' — ' + fd.note.trim() : '');
+        const res = await api('setCancel', { data: { po: r.po, code: whole ? '' : r.code, cancel: true, reason } });
+        setCancel(res.cancels);
+        if (res.editLog) state.editLog = res.editLog;
+        state.openKey = null;
+        refreshAll();
+        return `${whole ? r.po : r.po + ' / ' + r.code} di-cancel ${savedAt(res)}. Lihat lewat tombol status "Cancel".`;
+      },
+    });
+  }
+  function uncancelDialog(r) {
+    const c = r.cancel; if (!c) return;
+    openDialog({
+      title: c.code ? `Aktifkan lagi baris ${c.code} di ${c.po}?` : `Aktifkan lagi ${c.po}?`, ok: 'Aktifkan lagi',
+      body: `<p>Di-cancel ${esc(c.time)} dengan alasan: <b>${esc(c.reason)}</b>.</p><p class="hint">${c.code ? 'Baris ini' : 'Semua baris PO ini'} kembali dihitung seperti biasa.</p>`,
+      onSubmit: async () => {
+        const res = await api('setCancel', { data: { po: c.po, code: c.code, cancel: false } });
+        setCancel(res.cancels);
+        if (res.editLog) state.editLog = res.editLog;
+        refreshAll();
+        flashRow(state.openKey);
+        return `${c.code ? c.po + ' / ' + c.code : c.po} aktif lagi ${savedAt(res)}`;
+      },
+    });
+  }
+
   $('rows').addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]'); if (!b || !state.edit.on) return;
     const box = b.closest('[data-key]'); const r = box && findRow(box.dataset.key); if (!r) return;
     const s = b.dataset.n ? r.sched.find((x) => String(x.n) === b.dataset.n) : null;
     ({ follow: () => editFollow(r), editLine: () => editLine(r), delLine: () => deleteLine(r), addSched: () => editSched(r, null),
-       editSched: () => editSched(r, s), delSched: () => deleteSched(r, s) })[b.dataset.act]();
+       editSched: () => editSched(r, s), delSched: () => deleteSched(r, s),
+       cancelLine: () => cancelDialog(r, false), cancelPo: () => cancelDialog(r, true), uncancel: () => uncancelDialog(r) })[b.dataset.act]();
   });
   $('btnAddLine').addEventListener('click', () => editLine(null));
 

@@ -231,6 +231,7 @@
               <button class="stat stat-late" data-status="late" title="Shortage: jadwal sudah lewat tetapi belum diterima, atau kurang kirim"><span class="stat-num" id="cLate">–</span><span class="stat-label">Shortage</span></button>
               <button class="stat stat-done" data-status="done" title="Sudah lengkap diterima"><span class="stat-num" id="cDone">–</span><span class="stat-label">Lengkap</span></button>
               <button class="stat stat-takeout" data-status="takeout" title="Take out: qty order 0 di PO-DET"><span class="stat-num" id="cTakeout">–</span><span class="stat-label">Take out</span></button>
+              <button class="stat stat-cancel" data-status="cancel" title="PO atau baris yang di-cancel lewat website (disembunyikan dari tabel bawaan)"><span class="stat-num" id="cCancel">–</span><span class="stat-label">Cancel</span></button>
             </div>
             <label class="tb-search"><span class="sr">Cari</span>
               <input type="search" id="q" placeholder="Cari No PO, supplier, kode, atau nama material">
@@ -368,6 +369,19 @@
             <table class="po-table att-table">
               <thead><tr><th>No PO</th><th>Material (dari PO-DEL)</th><th class="num">Jadwal</th><th class="num">Qty jadwal</th><th class="num">Diterima</th><th>Jadwal terawal</th><th>Keterangan</th></tr></thead>
               <tbody id="aOrphan"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="att-card">
+          <header class="att-head">
+            <h2>Di-cancel di website, masih aktif di Odoo <span class="att-count" id="aCancelN">0</span></h2>
+            <p class="card-sub">PO atau baris yang ditandai Cancel lewat website, tetapi di export Odoo terakhir masih ada dengan qty order. Batalkan juga di Odoo (atau ubah qty jadi 0) supaya data sama; daftar ini kosong sendiri setelah export berikutnya. Klik baris untuk membukanya.</p>
+          </header>
+          <div class="table-wrap att-wrap">
+            <table class="po-table att-table">
+              <thead><tr><th>No PO</th><th>Yang di-cancel</th><th>Supplier</th><th>Alasan</th><th>Dicancel</th><th>Keterangan</th></tr></thead>
+              <tbody id="aCancel"></tbody>
             </table>
           </div>
         </article>

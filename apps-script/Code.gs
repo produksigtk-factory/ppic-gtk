@@ -19,6 +19,7 @@ const CONFIG = {
   MANUAL_SHEET: 'PO_MANUAL',   // PO yang pernah diedit manual (dipakai untuk konfirmasi saat upload)
   EDIT_LOG_SHEET: 'LOG_EDIT',  // riwayat edit manual
   FOLLOWUP_SHEET: 'PO_FOLLOWUP',   // tindak lanjut per PO + kode (tidak tersentuh upload)
+  CANCEL_SHEET: 'PO_CANCEL',       // PO / baris yang di-cancel lewat website (tidak tersentuh upload)
   CHANGE_SHEET: 'LOG_PERUBAHAN',   // perubahan yang terdeteksi di setiap upload export Odoo
   SUPPLIER_SHEET: 'SUPPLIER_MATERIAL',  // di DATABASE PPIC: hasil hitung otomatis (jangan diketik)
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
@@ -52,6 +53,7 @@ function doGet(e) {
     manual: readManual_(ss, tz),
     editLog: readEditLog_(ss, tz, 300),
     followups: readFollowups_(ss, tz),
+    cancels: readCancels_(ss, tz),
     changes: readChanges_(ss, 4000),
     lastUpload: lastUpload_(ss, tz),
     readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
@@ -92,6 +94,13 @@ function doPost(e) {
     }
 
     const user = String(body.user || '').trim() || 'Website';
+
+    if (action === 'setCancel') {
+      setCancel_(ss, body, user, stamp, tz);
+      markSupplierStale_();
+      scheduleMonitorRefresh_();
+      return json_({ ok: true, time: stamp, cancels: readCancels_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
+    }
 
     if (action === 'saveFollowup') {
       saveFollowup_(ss, body, user, stamp, tz);
@@ -527,6 +536,57 @@ function saveFollowup_(ss, body, user, stamp, tz) {
   logEdit_(ss, log);
 }
 
+/* ================= Cancel PO (PO_CANCEL) ================= */
+// Kolom: NO PO | KODE (kosong = seluruh PO) | ALASAN | DIBATALKAN | OLEH. Tidak tersentuh upload.
+
+function cancelSheet_(ss) {
+  let sh = ss.getSheetByName(CONFIG.CANCEL_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.CANCEL_SHEET);
+    sh.getRange(1, 1, 1, 5).setValues([['NO PO', 'KODE (KOSONG = SELURUH PO)', 'ALASAN', 'DIBATALKAN', 'OLEH']]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange('A:B').setNumberFormat('@');
+    sh.getRange('D:D').setNumberFormat('@');
+  }
+  return sh;
+}
+
+function readCancels_(ss, tz) {
+  const sh = ss.getSheetByName(CONFIG.CANCEL_SHEET);
+  if (!sh) return [];
+  return readRows_(sh, 5).map(r => [str_(r[0]), str_(r[1]), String(r[2] || ''), show_(r[3], tz), String(r[4] || '')]);
+}
+
+function cancelSet_(ss) {
+  const set = {};
+  const sh = ss.getSheetByName(CONFIG.CANCEL_SHEET);
+  if (sh) readRows_(sh, 2).forEach(r => { set[str_(r[0]) + '|' + str_(r[1])] = true; });
+  return set;
+}
+
+function setCancel_(ss, body, user, stamp, tz) {
+  const d = body.data || {};
+  const po = str_(d.po), kode = str_(d.code);          // kode kosong = seluruh PO
+  if (!po) throw new Error('No PO wajib ada.');
+  const sh = cancelSheet_(ss);
+  const t = readRowsIdx_(sh, 5);
+  const i = t.rows.findIndex(r => str_(r[0]) === po && str_(r[1]) === kode);
+  const what = kode ? 'baris' : 'PO';
+  if (d.cancel) {
+    const reason = String(d.reason || '').trim();
+    if (!reason) throw new Error('Alasan cancel wajib diisi.');
+    const row = [po, kode, reason, stamp, user];
+    const at = i >= 0 ? t.rowNo[i] : Math.max(sh.getLastRow(), 1) + 1;
+    sh.getRange(at, 1, 1, 5).setValues([row]);
+    logEdit_(ss, [[stamp, user, kode ? 'Cancel baris' : 'Cancel PO', po, kode, 'Alasan', i >= 0 ? String(t.rows[i][2]) : '', reason]]);
+  } else {
+    if (i < 0) throw new Error('Tanda cancel untuk ' + what + ' ini tidak ditemukan. Muat ulang data lalu coba lagi.');
+    const old = String(t.rows[i][2]);
+    sh.deleteRow(t.rowNo[i]);
+    logEdit_(ss, [[stamp, user, kode ? 'Aktifkan lagi baris' : 'Aktifkan lagi PO', po, kode, 'Alasan cancel', old, '']]);
+  }
+}
+
 /* ================= Supplier & MoQ per material ================= */
 // SUPPLIER_MATERIAL (di DATABASE PPIC, hasil hitung — jangan diketik): satu baris per material RM/PM + supplier.
 // MoQ = histori, yaitu qty terkecil dalam satu PO untuk material + supplier tersebut.
@@ -571,9 +631,12 @@ function rebuildSupplier_(ss, db, tz) {
 
   // Ringkas riwayat PO per material + supplier
   const pairs = {}, byCode = {};
+  const cancelled = cancelSet_(ss);
   readRows_(ss.getSheetByName(CONFIG.LINE_SHEET), 10).forEach(r => {
     const kode = str_(r[3]), sup = str_(r[2]);
     if (!inMaster[kode] || !sup) return;
+    if ((Number(r[6]) || 0) <= 0) return;                                        // take out (qty 0) tidak dihitung
+    if (cancelled[str_(r[0]) + '|'] || cancelled[str_(r[0]) + '|' + kode]) return;   // PO / baris yang di-cancel tidak dihitung
     const k = kode + '|' + sup;
     let p = pairs[k];
     if (!p) { p = pairs[k] = { sup: sup, poQty: {}, total: 0, last: null, leads: {} }; (byCode[kode] = byCode[kode] || []).push(p); }
@@ -789,8 +852,11 @@ function buildMonitorSheet_(ss, tz) {
     });
   });
 
+  const cancels = {};
+  readCancels_(ss, tz).forEach(c => { cancels[c[0] + '|' + c[1]] = c[2]; });
   const out = lines.map(x => {
     const r = x.r, k = str_(r[0]) + '|' + str_(r[3]);
+    const cancelWhy = cancels[str_(r[0]) + '|'] || cancels[k];
     const qty = Number(r[6]) || 0, price = r[8] === '' ? '' : Number(r[8]);
     const lineKe = num_(r[10]) || 1, n = groups[k].length;
     const first = lineKe === Math.min.apply(null, groups[k].map(y => num_(y.r[10]) || 1));
@@ -802,6 +868,7 @@ function buildMonitorSheet_(ss, tz) {
     }
     const o = os.get(x);
     const notes = [];
+    if (cancelWhy) notes.push('CANCEL (website): ' + cancelWhy + '.');
     if (qty <= 0) notes.push('Take out (qty order 0).');
     if (n > 1) notes.push('Kode ganda di PO ini: jadwal tercatat di baris pertama, qty diterima dibagi berurutan ke tiap baris.');
     if (list.length > 5) notes.push('Jadwal lebih dari 5, selengkapnya di PO_SCHEDULE.');
