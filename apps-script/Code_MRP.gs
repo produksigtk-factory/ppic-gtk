@@ -33,18 +33,18 @@ function doGet(e) {
     // boms    : [bomId, kodeProduk, namaProduk, qtyBatch, uom, reference, jumlahKomponen, catatan]
     // details : [bomId, kodeMaterial, namaMaterial, qtyMaterial, uom, kategori]
     const master = rows_(db.getSheetByName(MRP_CONFIG.MASTER_SHEET), 4)
-      .map(r => [s_(r[0]), String(r[1] || ''), String(r[2] || ''), String(r[3] || '')]);
+      .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3])]);
     const boms = rows_(db.getSheetByName(MRP_CONFIG.BOM_SHEET), 8)
-      .map(r => [s_(r[0]), s_(r[1]), String(r[2] || ''), n_(r[3]), String(r[4] || ''), String(r[5] || ''), n_(r[6]), String(r[7] || '')]);
+      .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]), s_(r[7])]);
     const details = rows_(db.getSheetByName(MRP_CONFIG.BOM_DETAIL_SHEET), 10)
-      .map(r => [s_(r[0]), s_(r[5]), String(r[6] || ''), n_(r[7]), String(r[8] || ''), String(r[9] || '')]);
+      .map(r => [s_(r[0]), s_(r[5]), s_(r[6]), n_(r[7]), s_(r[8]), s_(r[9])]);
     // Data MRP di file ini (masih kosong sampai diisi)
     const plan = rows_(ss.getSheetByName(MRP_CONFIG.PLAN_SHEET), 9)
-      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), String(r[2] || ''), n_(r[3]), String(r[4] || ''), s_(r[5]), String(r[6] || ''), String(r[7] || ''), d_(r[8], tz, 'yyyy-MM-dd HH:mm')]);
+      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), s_(r[7]), d_(r[8], tz, 'yyyy-MM-dd HH:mm')]);
     const stock = rows_(ss.getSheetByName(MRP_CONFIG.STOCK_SHEET), 7)
-      .map(r => [s_(r[0]), String(r[1] || ''), n_(r[2]), String(r[3] || ''), String(r[4] || ''), d_(r[5], tz, 'yyyy-MM-dd'), String(r[6] || '')]);
+      .map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd'), s_(r[6])]);
     const params = rows_(ss.getSheetByName(MRP_CONFIG.PARAM_SHEET), 4)
-      .map(r => [s_(r[0]), String(r[1] || ''), n_(r[2]), String(r[3] || '')]);
+      .map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3])]);
     return json_({
       ok: true, master, boms, details, plan, stock, params,
       databaseUrl: db.getUrl(), mrpUrl: ss.getUrl(),
