@@ -770,3 +770,7 @@ th[aria-sort="descending"] .sort-ind::before { content: "↓"; }
 @media (max-width: 1500px) { .mon-top .stat { padding: 7px 9px; gap: 5px; } .toolbar:not(.toolbar-2) .tb-field { flex-basis: 170px; } }
 .tb-search { min-width: 140px; }
 .tb-search { flex: 1 1 160px; }
+.b-takeout { background: #eceff3; color: #4b5b6c; text-decoration: line-through; text-decoration-color: rgba(75, 91, 108, .5); }
+.stat-takeout .stat-num { color: #5b6b7d; }
+.po-table tr.row.is-takeout td { color: #7a8796; }
+.po-table tr.row.is-takeout .mat-name { text-decoration: line-through; text-decoration-color: rgba(122, 135, 150, .6); }

@@ -231,6 +231,7 @@
               <button class="stat stat-open" data-status="open" title="Belum lengkap diterima"><span class="stat-num" id="cOpen">–</span><span class="stat-label">Belum lengkap</span></button>
               <button class="stat stat-late" data-status="late" title="Shortage: jadwal sudah lewat tetapi belum diterima, atau kurang kirim"><span class="stat-num" id="cLate">–</span><span class="stat-label">Shortage</span></button>
               <button class="stat stat-done" data-status="done" title="Sudah lengkap diterima"><span class="stat-num" id="cDone">–</span><span class="stat-label">Lengkap</span></button>
+              <button class="stat stat-takeout" data-status="takeout" title="Take out: qty order 0 di PO-DET"><span class="stat-num" id="cTakeout">–</span><span class="stat-label">Take out</span></button>
             </div>
             <label class="tb-search"><span class="sr">Cari</span>
               <input type="search" id="q" placeholder="Cari No PO, supplier, kode, atau nama material">
@@ -368,6 +369,19 @@
             <table class="po-table att-table">
               <thead><tr><th>No PO</th><th>Material (dari PO-DEL)</th><th class="num">Jadwal</th><th class="num">Qty jadwal</th><th class="num">Diterima</th><th>Jadwal terawal</th><th>Keterangan</th></tr></thead>
               <tbody id="aOrphan"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="att-card">
+          <header class="att-head">
+            <h2>Take out tapi masih ada jadwal / penerimaan <span class="att-count" id="aTakeoutN">0</span></h2>
+            <p class="card-sub">Qty order sudah 0 (take out) di PO-DET, tetapi di PO-DEL masih ada jadwal yang belum Done atau sudah ada barang diterima. Baris ini tidak dihitung sebagai belum lengkap, shortage, maupun di Kalender. Batalkan jadwalnya di Odoo bila memang tidak dikirim. Klik baris untuk membukanya.</p>
+          </header>
+          <div class="table-wrap att-wrap">
+            <table class="po-table att-table">
+              <thead><tr><th>No PO</th><th>Tgl order</th><th>Supplier</th><th>Material</th><th class="num">Jadwal belum Done</th><th>Jadwal terdekat</th><th class="num">Sudah diterima</th><th>Keterangan</th></tr></thead>
+              <tbody id="aTakeout"></tbody>
             </table>
           </div>
         </article>

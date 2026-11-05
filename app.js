@@ -55,7 +55,10 @@
     short: { label: 'Kurang kirim', cls: 'b-late' },
     wait: { label: 'Dijadwalkan', cls: 'b-wait' },
     none: { label: 'Belum dijadwalkan', cls: 'b-none' },
+    takeout: { label: 'Take out', cls: 'b-takeout' },
   };
+  // Baris yang tidak ditunggu lagi: sudah lengkap, atau di-take out (qty order 0)
+  const isClosed = (r) => r.status === 'done' || r.status === 'takeout';
 
 
   /* ---------- Urutkan lewat judul kolom (semua tabel) ---------- */
@@ -95,7 +98,7 @@
       th.classList.toggle('is-sorted', !!on);
     });
   }
-  const STATUS_ORDER = { late: 0, short: 1, wait: 2, none: 3, done: 4 };
+  const STATUS_ORDER = { late: 0, short: 1, wait: 2, none: 3, done: 4, takeout: 5 };
   const PO_GET = {
     po: (r) => r.po, date: (r) => r.date, supplier: (r) => r.supplier, name: (r) => r.name, qty: (r) => r.qty,
     sisa: (r) => Math.max(0, r.sisa), shortage: (r) => r.shortage || null, nsched: (r) => r.sched.length,
@@ -235,10 +238,10 @@
     const seen = new Set();
     rows.forEach((r) => {
       const k = r.po + '|' + r.code;
-      if (r.status === 'done' || seen.has(k)) return; seen.add(k);
+      if (isClosed(r) || seen.has(k)) return; seen.add(k);
       r.sched.forEach((s) => { if (s.status !== 'Done' && s.date >= today && s.date <= plus7) week++; });
     });
-    $('hOpen').textContent = nf.format(rows.filter((r) => r.status !== 'done').length);
+    $('hOpen').textContent = nf.format(rows.filter((r) => !isClosed(r)).length);
     $('hLate').textContent = nf.format(rows.filter((r) => r.shortage > 0).length);
     $('hWeek').textContent = nf.format(week);
   }
@@ -381,20 +384,25 @@
       });
       const lateDays = oldest ? Math.round((new Date(today) - new Date(oldest)) / 86400000) : 0;
       let shortRemain = shortage;   // dibagi berurutan ke baris kode yang sama, seperti qty diterima
+      // Baris qty 0 = take out: tidak ikut menerima pembagian qty diterima/shortage (kecuali semua baris take out)
+      const activeIdx = items.map((it, i) => ((Number(it.l[6]) || 0) > 0 ? i : -1)).filter((i) => i >= 0);
+      const lastActive = activeIdx.length ? activeIdx[activeIdx.length - 1] : items.length - 1;
 
       items.forEach(({ idx, l }, i) => {
         const qty = Number(l[6]) || 0;
-        const isLast = i === items.length - 1;
-        const rec = isLast ? remain : Math.min(qty, remain);   // penerimaan dibagi berurutan ke baris kode yang sama
+        const takeout = qty <= 0;
+        const isLast = i === lastActive;
+        const rec = isLast ? remain : (takeout ? 0 : Math.min(qty, remain));   // penerimaan dibagi berurutan ke baris kode yang sama
         remain -= rec;
         const sisa = qty - rec;
         let status;
-        if (qty > 0 && sisa <= 0) status = 'done';
+        if (takeout) status = 'takeout';
+        else if (sisa <= 0) status = 'done';
         else if (hasLate) status = 'late';
         else if (shortage > 0) status = 'short';
         else if (pending.length) status = 'wait';
         else status = 'none';
-        const short = isLast ? shortRemain : Math.min(Math.max(0, sisa), shortRemain);
+        const short = !activeIdx.length || takeout ? 0 : isLast ? shortRemain : Math.min(Math.max(0, sisa), shortRemain);
         shortRemain -= short;
         const price = l[8] === '' ? 0 : Number(l[8]);
 
@@ -404,10 +412,10 @@
           po: l[0], date, month: date.slice(0, 7), supplier: l[2], code: l[3], name: l[4], jenis: l[5],
           qty, uom: l[7], price: l[8], kurs: l[9], lineKe: l[10], dupCount: items.length,
           amount: l[8] === '' ? 0 : qty * Number(l[8]),
-          pendingDates: pending.map((s) => s.date).filter(Boolean),
+          pendingDates: takeout ? [] : pending.map((s) => s.date).filter(Boolean),
           manual: state.manual ? state.manual.get(l[0]) || null : null,
           follow: state.follow ? state.follow.get(k) || null : null,
-          rec, sisa, status, sched, next, today, first: i === 0,
+          rec, sisa, status, sched, next: takeout ? null : next, today, first: i === 0, takeout,
           shortage: short, lateDays: short ? lateDays : 0, oldestLate: short ? oldest : '',
           sisaValue: Math.max(0, sisa) * price, shortValue: short * price,
           search: (l[0] + ' ' + l[2] + ' ' + l[3] + ' ' + l[4]).toLowerCase(),
@@ -446,10 +454,10 @@
   };
   function matchArrive(r, v) {
     if (!v) return true;
-    if (r.status === 'done') return false;   // baris yang sudah lengkap tidak menunggu kedatangan lagi
+    if (isClosed(r)) return false;   // baris yang sudah lengkap / take out tidak menunggu kedatangan lagi
     const t = todayStr();
     const d = r.pendingDates;
-    if (v === 'none') return r.status !== 'done' && !d.length;
+    if (v === 'none') return !isClosed(r) && !d.length;
     if (v === 'late') return d.some((x) => x < t);
     if (v === 'today') return d.includes(t);
     if (v === 'week') { const e = ymd(new Date(Date.now() + 7 * 86400000)); return d.some((x) => x >= t && x <= e); }
@@ -469,7 +477,7 @@
   function matchFollow(r, v) {
     const f = r.follow;
     if (v === 'todo') return r.shortage > 0 && (!f || f.status === 'Belum dihubungi');
-    if (v === 'promise-late') return r.status !== 'done' && f && f.promise && f.promise < todayStr();
+    if (v === 'promise-late') return !isClosed(r) && f && f.promise && f.promise < todayStr();
     if (v === 'has') return !!f;
     return f && f.status === v;
   }
@@ -477,7 +485,7 @@
   // Saringan khusus dari klik grafik di Dashboard PO
   function matchDrill(r, dr) {
     if (dr.type === 'arrive') {          // ada jadwal belum Done pada rentang tanggal
-      return r.status !== 'done' && r.pendingDates.some((x) => x >= dr.from && x <= dr.to);
+      return !isClosed(r) && r.pendingDates.some((x) => x >= dr.from && x <= dr.to);
     }
     if (dr.type === 'age') return r.shortage > 0 && r.lateDays >= dr.min && r.lateDays <= dr.max;
     return true;
@@ -504,7 +512,7 @@
   const byMonth = (rows) => { const m = activeMonth(); return m === 'all' ? rows : rows.filter((r) => r.month === m); };
 
   const byStatus = (rows, st) => st === 'all' ? rows
-    : st === 'open' ? rows.filter((r) => r.status !== 'done')
+    : st === 'open' ? rows.filter((r) => !isClosed(r))
     : st === 'late' ? rows.filter((r) => r.shortage > 0)
     : rows.filter((r) => r.status === st);
 
@@ -558,6 +566,9 @@
     $('cOpen').textContent = nf.format(byStatus(base, 'open').length);
     $('cLate').textContent = nf.format(byStatus(base, 'late').length);
     $('cDone').textContent = nf.format(byStatus(base, 'done').length);
+    const nTake = byStatus(base, 'takeout').length;
+    $('cTakeout').textContent = nf.format(nTake);
+    $('cTakeout').closest('.stat').hidden = !nTake && state.status !== 'takeout';   // hanya muncul bila ada baris take out
     document.querySelectorAll('.stat').forEach((b) => b.classList.toggle('is-active', b.dataset.status === state.status));
 
     const rows = applyColSort(byStatus(base, state.status).slice().sort(SORTS[$('fSort').value] || SORTS['date-asc']), colSort.po, PO_GET);
@@ -595,7 +606,7 @@
     const next = r.next ? `${fmtDate(r.next.date)}<div class="strip-cap">${fmtNum(r.next.qty)} ${esc(r.uom)}</div>` : '–';
     const open = state.openKey === r.key;
     const man = r.manual ? `<span class="tag-manual" title="Terakhir diedit ${esc(r.manual.time)}">Diedit manual</span>` : '';
-    let html = `<tr class="row${open ? ' is-open' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
+    let html = `<tr class="row${open ? ' is-open' : ''}${r.status === 'takeout' ? ' is-takeout' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
       <td class="po">${esc(r.po)}${man}</td>
       <td class="date">${fmtDate(r.date)}</td>
       <td class="supplier">${esc(r.supplier)}</td>
@@ -614,7 +625,7 @@
   function followChip(r) {
     const f = r.follow;
     if (!f) return r.shortage > 0 ? '<div class="fu fu-todo">Belum di-follow up</div>' : '';
-    const late = f.promise && f.promise < todayStr() && r.status !== 'done';
+    const late = f.promise && f.promise < todayStr() && !isClosed(r);
     const cls = f.status === 'Eskalasi' ? 'fu-esc' : f.status === 'Selesai' ? 'fu-done' : f.status === 'Belum dihubungi' ? 'fu-todo' : 'fu-ok';
     return `<div class="fu ${cls}" title="${esc(f.note || '')}">${esc(f.status)}</div>`
       + (f.promise ? `<div class="fu-promise${late ? ' is-late' : ''}">Janji ${fmtDate(f.promise)}${late ? ' · lewat' : ''}</div>` : '');
@@ -676,7 +687,7 @@
           (r.lateDays ? `Terlambat ${r.lateDays} hari, sejak ${fmtDate(r.oldestLate)}` : 'Kurang kirim')
           + (r.shortValue ? `<br>Nilai ${fmtNum(Math.round(r.shortValue))} ${k}` : ''), 'is-late')
         : tile('Jadwal berikutnya', r.next ? fmtDate(r.next.date) : '–',
-          r.next ? `${fmtNum(r.next.qty)} ${u}` : (r.status === 'done' ? 'Sudah lengkap' : 'Belum ada jadwal'), r.status === 'done' ? 'is-done' : ''),
+          r.next ? `${fmtNum(r.next.qty)} ${u}` : (r.status === 'done' ? 'Sudah lengkap' : r.status === 'takeout' ? 'Qty order 0 (take out)' : 'Belum ada jadwal'), r.status === 'done' ? 'is-done' : ''),
     ].join('');
 
     // Jadwal pengiriman
@@ -889,7 +900,7 @@
     const isIdr = (r) => String(r.kurs).toUpperCase() === 'IDR';
 
     // KPI
-    const open = rows.filter((r) => r.status !== 'done');
+    const open = rows.filter((r) => !isClosed(r));
     $('kActive').textContent = nf.format(new Set(open.map((r) => r.po)).size);
     $('kActiveSub').textContent = `${nf.format(open.length)} baris belum lengkap · ${nf.format(new Set(open.map((r) => r.supplier)).size)} supplier`;
     $('kOut').textContent = fmtRp(open.filter(isIdr).reduce((t, r) => t + r.sisaValue, 0));
@@ -1178,15 +1189,18 @@
 
   function calItems() {
     const j = $('cJenis').value, sp = $('cSup').value, today = todayStr();
-    const out = [];
+    const out = [], seen = new Set();
     state.rows.forEach((r) => {
-      if (!jenisOk(r, j) || (sp && r.supplier !== sp) || r.status === 'done') return;
-      if (r.first) r.sched.forEach((s) => {
+      if (!jenisOk(r, j) || (sp && r.supplier !== sp) || isClosed(r)) return;
+      const k = r.po + '|' + r.code;
+      if (seen.has(k)) return;          // jadwal dicatat sekali per PO + kode, pada baris pertama yang masih ditunggu
+      seen.add(k);
+      r.sched.forEach((s) => {
         if (s.status === 'Done' || !s.date) return;
         const gap = Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0));
         if (gap) out.push({ date: s.date, r, qty: gap, kind: s.date < today ? 'late' : 'wait' });
       });
-      if (r.first && r.follow && r.follow.promise) out.push({ date: r.follow.promise, r, qty: r.shortage || Math.max(0, r.sisa), kind: 'promise' });
+      if (r.follow && r.follow.promise) out.push({ date: r.follow.promise, r, qty: r.shortage || Math.max(0, r.sisa), kind: 'promise' });
     });
     return out;
   }
@@ -1306,22 +1320,41 @@
       const g = groups.get(k) || { r, qty: 0 };
       g.qty += r.qty; groups.set(k, g);
     });
-    const mism = [];
+    const mism = [], takeout = [];
     groups.forEach((g, k) => {
+      if (g.qty <= 0) {                            // semua baris kode ini take out (qty 0)
+        const pend = g.r.sched.filter((x) => x.status !== 'Done').reduce((t, x) => t + Math.max(0, (Number(x.qty) || 0) - (Number(x.rec) || 0)), 0);
+        const rec = g.r.sched.reduce((t, x) => t + (Number(x.rec) || 0), 0);
+        const nPend = g.r.sched.filter((x) => x.status !== 'Done' && (Number(x.qty) || 0) > (Number(x.rec) || 0)).length;
+        if (pend > 0 || rec > 0) takeout.push({ r: g.r, pend, rec, nPend, next: g.r.sched.filter((x) => x.status !== 'Done' && x.date).map((x) => x.date).sort()[0] || '' });
+        return;                                    // tidak dihitung lagi di "Total jadwal ≠ qty order"
+      }
       if (!sq.has(k)) return;                      // belum ada jadwal: bukan selisih
       const tot = sq.get(k);
       if (!near(tot, g.qty)) mism.push({ r: g.r, qty: g.qty, tot, diff: tot - g.qty });
     });
-    mism.sort((a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.r.po < b.r.po ? -1 : a.r.po > b.r.po ? 1 : a.r.idx - b.r.idx));
-    return { orphans, mism };
+    const byDate = (a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.r.po < b.r.po ? -1 : a.r.po > b.r.po ? 1 : a.r.idx - b.r.idx);
+    mism.sort(byDate); takeout.sort(byDate);
+    return { orphans, mism, takeout };
   }
   function renderAttention() {
     if (!state.rows) return;
-    const { orphans, mism } = attentionData();
+    const { orphans, mism, takeout } = attentionData();
     const q = ($('aq').value || '').trim().toLowerCase(), j = $('aJenis').value;
     const hit = (t) => !q || q.split(/\s+/).every((w) => t.toLowerCase().includes(w));
     const o = orphans.filter((x) => hit(`${x.po} ${x.code} ${x.name}`));
     const m = mism.filter((x) => jenisOk(x.r, j) && hit(x.r.search));
+    const t = takeout.filter((x) => jenisOk(x.r, j) && hit(x.r.search));
+    $('aTakeoutN').textContent = nf.format(t.length);
+    $('aTakeout').innerHTML = t.length ? t.map((x) => {
+      const r = x.r, u = esc(r.uom);
+      const ket = [x.pend > 0 ? `Masih ada ${x.nPend} jadwal belum Done (${fmtNum(x.pend)} ${u})` : '', x.rec > 0 ? `Sudah diterima ${fmtNum(x.rec)} ${u}` : ''].filter(Boolean).join('; ');
+      return `<tr class="row" data-key="${esc(r.key)}" tabindex="0">
+        <td class="po">${esc(r.po)}</td><td class="date">${fmtDate(r.date)}</td><td class="supplier">${esc(r.supplier)}</td>
+        <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}${r.jenis ? ' · ' + esc(r.jenis) : ''}</div></td>
+        <td class="num">${x.pend > 0 ? fmtNum(x.pend) + ' ' + u : '–'}</td><td class="date">${x.next ? fmtDate(x.next) : '–'}</td>
+        <td class="num">${x.rec > 0 ? fmtNum(x.rec) + ' ' + u : '–'}</td><td>${ket}</td></tr>`;
+    }).join('') : '<tr class="empty"><td colspan="8">Tidak ada. Semua baris take out sudah bersih dari jadwal dan penerimaan.</td></tr>';
     $('aOrphanN').textContent = nf.format(o.length);
     $('aMismatchN').textContent = nf.format(m.length);
     $('aOrphan').innerHTML = o.length ? o.map((x) => `<tr>
@@ -1341,12 +1374,17 @@
         <td>${x.diff > 0 ? `Jadwal lebih ${fmtNum(x.diff)} ${u} dari order` : `Jadwal kurang ${fmtNum(-x.diff)} ${u} dari order`}</td></tr>`;
     }).join('') : '<tr class="empty"><td colspan="8">Tidak ada. Semua total jadwal sama dengan qty order.</td></tr>';
     // Angka di menu: jadwal tanpa baris PO + selisih untuk RM dan PM
-    const badge = orphans.length + mism.filter((x) => jenisOk(x.r, RMPM)).length;
+    const badge = orphans.length + mism.filter((x) => jenisOk(x.r, RMPM)).length + takeout.filter((x) => jenisOk(x.r, RMPM)).length;
     $('attBadge').hidden = !badge;
     $('attBadge').textContent = badge;
   }
   $('aq').addEventListener('input', () => renderAttention());
   $('aJenis').addEventListener('change', () => renderAttention());
+  $('aTakeout').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.row'); if (!tr) return;
+    const r = state.rows.find((x) => x.key === tr.dataset.key);
+    if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' });
+  });
   $('aMismatch').addEventListener('click', (e) => {
     const tr = e.target.closest('tr.row'); if (!tr) return;
     const r = state.rows.find((x) => x.key === tr.dataset.key);
@@ -1388,7 +1426,7 @@
   function msgItems(rows, mode) {
     const today = todayStr(), groups = new Map();
     rows.forEach((r) => {
-      if (r.status === 'done') return;
+      if (isClosed(r)) return;
       const k = r.po + '|' + r.code;
       const g = groups.get(k) || { r, qty: 0 };
       g.qty += mode === 'short' ? r.shortage : Math.max(0, r.sisa);
