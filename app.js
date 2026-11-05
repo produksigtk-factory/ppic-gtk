@@ -1245,10 +1245,10 @@
       const n = { wait: 0, late: 0, promise: 0 };
       list.forEach((it) => { n[it.kind]++; });
       const cls = ['cal-cell', d.slice(0, 7) !== month ? 'is-other' : '', d === today ? 'is-today' : '', d === sel ? 'is-sel' : '', list.length ? 'has' : ''].join(' ');
-      const label = `${dayLong.format(new Date(d + 'T00:00:00'))}: ${n.wait} dijadwalkan, ${n.late} lewat jadwal, ${n.promise} janji kirim`;
+      const label = `${dayLong.format(new Date(d + 'T00:00:00'))}: ${n.wait} akan datang, ${n.late} lewat jadwal, ${n.promise} janji kirim`;
       html += `<button class="${cls}" data-d="${d}" role="gridcell" aria-label="${esc(label)}" aria-pressed="${d === sel}">
         <span class="cal-num">${+d.slice(8)}</span>
-        <span class="cal-counts">${n.late ? `<span class="cc cc-late">${n.late}</span>` : ''}${n.wait ? `<span class="cc cc-wait">${n.wait}</span>` : ''}${n.promise ? `<span class="cc cc-promise">${n.promise}</span>` : ''}</span>
+        <span class="cal-counts">${n.late ? `<span class="cc cc-late"><b>${n.late}</b><span class="cc-t"> lewat jadwal</span></span>` : ''}${n.wait ? `<span class="cc cc-wait"><b>${n.wait}</b><span class="cc-t"> akan datang</span></span>` : ''}${n.promise ? `<span class="cc cc-promise"><b>${n.promise}</b><span class="cc-t"> janji kirim</span></span>` : ''}${list.length ? `<span class="cc-sup">${new Set(list.map((it) => it.r.supplier)).size} supplier</span>` : ''}</span>
       </button>`;
     }
     $('cGrid').innerHTML = html;
