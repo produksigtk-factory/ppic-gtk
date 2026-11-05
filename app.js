@@ -156,6 +156,7 @@
     $('lnkSheet').title = r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
     $('btnReload').title = r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
+    document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
     renderFresh();
     closeMenu();
     window.scrollTo(0, 0);
@@ -516,20 +517,17 @@
   function renderActiveFilters() {
     const chips = [];
     const m = activeMonth();
-    if (m !== 'all') chips.push(['month', `Bulan order: ${monthLabel(m, true)}`]);
-    if (state.status !== 'all') chips.push(['status', 'Status: ' + { open: 'Belum lengkap diterima', late: 'Shortage (lewat jadwal / kurang kirim)', done: 'Sudah lengkap' }[state.status]]);
-    if ($('q').value.trim()) chips.push(['q', `Cari: "${$('q').value.trim()}"`]);
-    if ($('fSupplier').value) chips.push(['fSupplier', 'Supplier: ' + $('fSupplier').value]);
-    if ($('fJenis').value) chips.push(['fJenis', 'Jenis: ' + jenisLabel($('fJenis').value)]);
+    // Bulan, status, cari, supplier, dan jenis sudah terlihat di baris atas; chip hanya untuk saringan lain
     if ($('fArrive').value) chips.push(['fArrive', 'Jadwal: ' + ARRIVE[$('fArrive').value]]);
     if ($('fKurs').value) chips.push(['fKurs', 'Kurs: ' + $('fKurs').value]);
     if (state.drill) chips.push(['drill', state.drill.label]);
     if ($('fFollow').value) chips.push(['fFollow', 'Follow-up: ' + (FOLLOW_LABEL[$('fFollow').value] || $('fFollow').value)]);
     if ($('fManual').value) chips.push(['fManual', $('fManual').value === 'yes' ? 'Hanya PO yang diedit manual' : 'Hanya PO tanpa edit manual']);
-    $('activeFilters').innerHTML = chips.length
-      ? '<span class="af-label">Saringan aktif:</span>' + chips.map(([k, t]) =>
-          `<button class="chip" data-clear="${k}" title="Hapus saringan ini">${esc(t)}<span class="chip-x" aria-hidden="true">×</span><span class="sr">hapus</span></button>`).join('')
-      : '<span class="af-label">Tidak ada saringan, semua baris ditampilkan.</span>';
+    $('activeFilters').innerHTML = chips.map(([k, t]) =>
+      `<button class="chip" data-clear="${k}" title="Hapus saringan ini">${esc(t)}<span class="chip-x" aria-hidden="true">×</span><span class="sr">hapus</span></button>`).join('');
+    const nMore = ['fArrive', 'fKurs', 'fFollow', 'fManual'].filter((id) => $(id).value).length + ($('fSort').value !== 'date-asc' && $('fSort').value !== 'col' ? 1 : 0);
+    $('btnMoreFilters').textContent = nMore ? `Saringan lain · ${nMore}` : 'Saringan lain';
+    $('btnMoreFilters').classList.toggle('is-on', nMore > 0 || !$('moreFilters').hidden);
   }
 
   /* ---------- Tampilan ---------- */
@@ -740,6 +738,16 @@
     state.status = 'all'; state.month = null; state.shown = PAGE; state.openKey = null; state.monthScrolled = false; render();
   });
   $('btnMore').addEventListener('click', () => { state.shown += PAGE; render(); });
+  // Baris berikutnya dimuat otomatis saat tabel digulir mendekati bawah
+  $('monWrap').addEventListener('scroll', () => {
+    const w = $('monWrap');
+    if (!$('btnMore').hidden && w.scrollTop + w.clientHeight > w.scrollHeight - 300) { state.shown += PAGE; render(); }
+  }, { passive: true });
+  $('btnMoreFilters').addEventListener('click', () => {
+    const p = $('moreFilters'); p.hidden = !p.hidden;
+    $('btnMoreFilters').setAttribute('aria-expanded', String(!p.hidden));
+    renderActiveFilters();
+  });
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
   $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true) : loadData()));
 

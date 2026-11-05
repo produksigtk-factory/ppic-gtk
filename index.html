@@ -216,39 +216,37 @@
           </div>
         </div>
 
-        <!-- Bulan order -->
-        <div class="month-block">
-          <div class="month-head">
-            <h2>Bulan order</h2>
-            <p class="hint">Berdasarkan Order Date. Saat dibuka, website menampilkan bulan berjalan.</p>
+        <div class="mon-top">
+          <!-- Bulan order -->
+          <div class="month-line">
+            <span class="line-label" title="Berdasarkan Order Date. Saat dibuka, website menampilkan bulan berjalan.">Bulan order</span>
+            <div class="month-bar" id="monthBar" role="group" aria-label="Pilih bulan order"></div>
           </div>
-          <div class="month-bar" id="monthBar" role="group" aria-label="Pilih bulan order"></div>
-        </div>
 
-        <!-- Status -->
-        <div class="status-row" id="statusRow" role="group" aria-label="Saring berdasarkan status">
-          <button class="stat" data-status="all"><span class="stat-num" id="cAll">–</span><span class="stat-label">Semua baris PO</span></button>
-          <button class="stat stat-open" data-status="open"><span class="stat-num" id="cOpen">–</span><span class="stat-label">Belum lengkap diterima</span></button>
-          <button class="stat stat-late" data-status="late"><span class="stat-num" id="cLate">–</span><span class="stat-label">Shortage: lewat jadwal / kurang kirim</span></button>
-          <button class="stat stat-done" data-status="done"><span class="stat-num" id="cDone">–</span><span class="stat-label">Sudah lengkap</span></button>
-        </div>
-        <p class="hint">Angka di kotak mengikuti bulan dan saringan yang dipilih. Klik kotak untuk menampilkan status itu saja.</p>
+          <!-- Status + saringan utama -->
+          <div class="toolbar">
+            <div class="status-row" id="statusRow" role="group" aria-label="Saring berdasarkan status">
+              <button class="stat" data-status="all" title="Semua baris PO pada bulan dan saringan yang dipilih"><span class="stat-num" id="cAll">–</span><span class="stat-label">Semua</span></button>
+              <button class="stat stat-open" data-status="open" title="Belum lengkap diterima"><span class="stat-num" id="cOpen">–</span><span class="stat-label">Belum lengkap</span></button>
+              <button class="stat stat-late" data-status="late" title="Shortage: jadwal sudah lewat tetapi belum diterima, atau kurang kirim"><span class="stat-num" id="cLate">–</span><span class="stat-label">Shortage</span></button>
+              <button class="stat stat-done" data-status="done" title="Sudah lengkap diterima"><span class="stat-num" id="cDone">–</span><span class="stat-label">Lengkap</span></button>
+            </div>
+            <label class="tb-search"><span class="sr">Cari</span>
+              <input type="search" id="q" placeholder="Cari No PO, supplier, kode, atau nama material">
+            </label>
+            <label class="tb-field"><span class="sr">Supplier</span>
+              <select id="fSupplier" title="Supplier"><option value="">Semua supplier</option></select>
+            </label>
+            <label class="tb-field tb-narrow"><span class="sr">Jenis material</span>
+              <select id="fJenis" title="Jenis material"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
+            </label>
+            <button class="btn btn-ghost btn-sm" id="btnMoreFilters" aria-expanded="false" aria-controls="moreFilters">Saringan lain</button>
+            <button class="btn btn-ghost btn-sm" id="btnReset" title="Kembali ke bulan berjalan dan kosongkan semua saringan">Reset</button>
+            <button class="btn btn-sm" id="btnExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
+          </div>
 
-        <!-- Saringan -->
-        <div class="filter-panel">
-          <div class="filter-grid">
-            <label class="field span-2">
-              <span>Cari</span>
-              <input type="search" id="q" placeholder="No PO, supplier, kode, atau nama material">
-            </label>
-            <label class="field">
-              <span>Supplier</span>
-              <select id="fSupplier"><option value="">Semua supplier</option></select>
-            </label>
-            <label class="field">
-              <span>Jenis material</span>
-              <select id="fJenis"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
-            </label>
+          <!-- Saringan tambahan (dibuka lewat tombol "Saringan lain") -->
+          <div class="more-filters" id="moreFilters" hidden>
             <label class="field">
               <span>Jadwal kedatangan</span>
               <select id="fArrive">
@@ -297,25 +295,21 @@
                 <option value="late-desc">Paling lama terlambat</option>
               </select>
             </label>
-            <div class="filter-actions">
-              <button class="btn btn-ghost" id="btnReset" title="Kembali ke bulan berjalan dan kosongkan semua saringan">Reset saringan</button>
-              <button class="btn" id="btnExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
-            </div>
           </div>
-          <div class="active-filters" id="activeFilters" aria-live="polite"></div>
+
+          <div class="result-bar">
+            <span class="result-left"><span id="resultInfo"></span>
+              <button class="btn btn-sm" id="btnMsg" hidden title="Susun pesan WhatsApp/email ke supplier yang dipilih berisi item yang belum datang">Buat pesan ke supplier</button></span>
+            <div class="active-filters" id="activeFilters" aria-live="polite"></div>
+            <span class="legend">
+              <span><i class="seg seg-done"></i>Sudah datang</span>
+              <span><i class="seg seg-late"></i>Lewat jadwal</span>
+              <span><i class="seg seg-wait"></i>Menunggu</span>
+            </span>
+          </div>
         </div>
 
-        <div class="result-bar">
-          <span class="result-left"><span id="resultInfo"></span>
-            <button class="btn btn-sm" id="btnMsg" hidden title="Susun pesan WhatsApp/email ke supplier yang dipilih berisi item yang belum datang">Buat pesan ke supplier</button></span>
-          <span class="legend">
-            <span><i class="seg seg-done"></i>Sudah datang</span>
-            <span><i class="seg seg-late"></i>Lewat jadwal</span>
-            <span><i class="seg seg-wait"></i>Menunggu</span>
-          </span>
-        </div>
-
-        <div class="table-wrap">
+        <div class="table-wrap mon-table" id="monWrap">
           <table class="po-table freeze-first">
             <thead>
               <tr>
@@ -333,9 +327,8 @@
             </thead>
             <tbody id="rows"></tbody>
           </table>
+          <div class="more"><button class="btn btn-ghost" id="btnMore" hidden>Tampilkan 100 baris lagi</button></div>
         </div>
-        <div class="more"><button class="btn btn-ghost" id="btnMore" hidden>Tampilkan 100 baris lagi</button></div>
-        <p class="hint center">Klik sebuah baris untuk melihat semua jadwal pengirimannya.</p>
       </section>
 
       <!-- ================= UPDATE DATA PO ================= -->
