@@ -633,8 +633,17 @@ function writeLog_(ss, stamp, body, result) {
 function lastUpload_(ss, tz) {
   const sh = ss.getSheetByName(CONFIG.LOG_SHEET);
   if (!sh || sh.getLastRow() < 2) return null;
-  const v = sh.getRange(sh.getLastRow(), 1, 1, 3).getValues()[0];
-  return { time: isDate_(v[0]) ? Utilities.formatDate(v[0], tz, 'yyyy-MM-dd HH:mm') : String(v[0]), det: v[1], del: v[2] };
+  const n = Math.min(500, sh.getLastRow() - 1);
+  const rows = sh.getRange(sh.getLastRow() - n + 1, 1, n, 3).getValues();
+  const t = (v) => (isDate_(v) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd HH:mm') : String(v));
+  const v = rows[rows.length - 1];
+  const out = { time: t(v[0]), det: v[1], del: v[2], detTime: '', detFile: '', delTime: '', delFile: '' };
+  // Waktu upload terakhir masing-masing file (PO-DET dan PO-DEL bisa di-upload terpisah)
+  for (let i = rows.length - 1; i >= 0 && (!out.detTime || !out.delTime); i--) {
+    if (!out.detTime && str_(rows[i][1])) { out.detTime = t(rows[i][0]); out.detFile = str_(rows[i][1]); }
+    if (!out.delTime && str_(rows[i][2])) { out.delTime = t(rows[i][0]); out.delFile = str_(rows[i][2]); }
+  }
+  return out;
 }
 
 function isDate_(v) { return Object.prototype.toString.call(v) === '[object Date]'; }

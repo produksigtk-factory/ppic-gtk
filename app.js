@@ -182,28 +182,29 @@
     const show = state.freshLoaded && r && (r.actions || r.view === 'view-beranda');
     box.hidden = !show;
     if (!show) return;
-    const up = state.lastUpload;
+    const ut = uploadTimes();
+    const whenOf = (t) => { const d = String(t).slice(0, 10), c = String(t).slice(11, 16); return d === todayStr() ? `hari ini ${c}` : `${fmtDate(d)} ${c}`; };
     let level, title, note;
-    if (!up || !up.time) {
+    if (!ut.det && !ut.del) {
       level = 'late';
       title = 'Belum ada upload lewat website.';
       note = 'Catatan perubahan dan ketepatan kirim baru terisi setelah export Odoo di-upload di menu Update Data PO.';
     } else {
-      const date = String(up.time).slice(0, 10), clock = String(up.time).slice(11, 16);
-      const n = workdaysSince(date);
-      const when = date === todayStr() ? `hari ini ${clock}` : `${fmtDate(date)} ${clock}`;
-      if (n >= FRESH_LATE) {
+      // Dinilai dari file yang paling lama tidak diperbarui
+      const files = [['PO-DET', ut.det], ['PO-DEL', ut.del]].map(([f, t]) => ({ f, t, n: t ? workdaysSince(String(t).slice(0, 10)) : Infinity }));
+      const worst = files.reduce((a, b2) => (b2.n > a.n ? b2 : a));
+      note = files.map((x) => `${x.f}: ${x.t ? whenOf(x.t) : 'belum pernah'}`).join(' · ') + '.';
+      if (worst.n >= FRESH_LATE) {
         level = 'late';
-        title = `Data PO sudah ${n} hari kerja tidak diperbarui.`;
-        note = `Upload terakhir ${when}. Status, shortage, dan kalender bisa sudah tidak sesuai Odoo.`;
-      } else if (n >= FRESH_WARN) {
+        title = worst.n === Infinity ? `${worst.f} belum pernah di-upload lewat website.` : `${worst.f} sudah ${worst.n} hari kerja tidak diperbarui.`;
+        note += worst.f === 'PO-DEL' ? ' Status, shortage, dan kalender bisa sudah tidak sesuai Odoo.' : ' PO dan baris baru dari Odoo bisa belum masuk.';
+      } else if (worst.n >= FRESH_WARN) {
         level = 'warn';
-        title = `Data PO terakhir diperbarui ${n} hari kerja lalu.`;
-        note = `Upload terakhir ${when}. Sebaiknya upload export Odoo terbaru.`;
+        title = `${worst.f} terakhir diperbarui ${worst.n} hari kerja lalu.`;
+        note += ' Sebaiknya upload export Odoo terbaru.';
       } else {
         level = 'ok';
         title = 'Data PO terkini.';
-        note = `Upload terakhir ${when}.`;
       }
     }
     box.className = `fresh is-${level}${r.view === 'view-po-update' ? ' on-update' : ''}`;
@@ -312,11 +313,18 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return s;
     return `${date === todayStr() ? 'hari ini' : fmtDate(date)}${clock ? ' ' + clock : ''}`;
   }
+  // Waktu upload terakhir per file. Apps Script lama hanya mengirim baris LOG_UPLOAD terakhir.
+  function uploadTimes() {
+    const up = state.lastUpload;
+    if (!up) return { det: '', del: '' };
+    if ('detTime' in up) return { det: up.detTime || '', del: up.delTime || '' };
+    return { det: up.det ? up.time : '', del: up.del ? up.time : '' };
+  }
   function renderDataInfo() {
     if (!state.freshLoaded) return;
-    const up = state.lastUpload && state.lastUpload.time;
+    const ut = uploadTimes();
     const ed = state.editLog && state.editLog[0] && state.editLog[0][0];
-    const parts = [`Upload terakhir: ${whenText(up)}`, `Revisi manual terakhir: ${whenText(ed)}`];
+    const parts = [`Upload PO-DET: ${whenText(ut.det)}`, `Upload PO-DEL: ${whenText(ut.del)}`, `Revisi manual: ${whenText(ed)}`];
     if (state.readAt) parts.push(`Data dibaca ${whenText(state.readAt)}`);
     $('dataInfo').textContent = parts.join(' · ');
   }
