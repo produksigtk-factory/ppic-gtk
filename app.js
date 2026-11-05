@@ -132,6 +132,7 @@
     'po/perubahan':      { view: 'view-po-perubahan',      crumb: 'Purchase Order',            title: 'Perubahan Data',  actions: 'po' },
     'po/monitoring':     { view: 'view-po-monitoring',     crumb: 'Purchase Order',            title: 'Monitoring PO',   actions: 'po' },
     'po/update':         { view: 'view-po-update',         crumb: 'Purchase Order',            title: 'Update Data PO',  actions: 'po' },
+    'po/perhatian':      { view: 'view-po-perhatian',      crumb: 'Purchase Order',            title: 'Perhatian Khusus', actions: 'po' },
     'po/riwayat':        { view: 'view-po-riwayat',        crumb: 'Purchase Order',            title: 'Riwayat Edit PO', actions: 'po' },
     'po/supplier':       { view: 'view-po-supplier',       crumb: 'Purchase Order',            title: 'Supplier & MoQ',  actions: 'sup' },
   };
@@ -300,6 +301,7 @@
     renderChanges();
     renderCal();
     renderLog();
+    renderAttention();
     renderDataInfo();
   }
 
@@ -447,6 +449,14 @@
     return true;
   }
 
+  const DATE_TYPE = { order: 'Tgl order', sched: 'Tgl jadwal kirim', pending: 'Tgl jadwal belum datang' };
+  function matchDate(r, type, from, to) {
+    if (!from && !to) return true;
+    const ok = (x) => !!x && (!from || x >= from) && (!to || x <= to);
+    if (type === 'order') return ok(r.date);
+    if (type === 'pending') return r.sched.some((s) => s.status !== 'Done' && ok(s.date));
+    return r.sched.some((s) => ok(s.date));
+  }
   const FOLLOW_LABEL = { todo: 'Shortage belum di-follow up', 'promise-late': 'Janji kirim sudah lewat', has: 'Ada catatan follow-up' };
   function matchFollow(r, v) {
     const f = r.follow;
@@ -470,6 +480,7 @@
     const q = $('q').value.trim().toLowerCase();
     const jenis = $('fJenis').value, sup = $('fSupplier').value, kurs = $('fKurs').value, arr = $('fArrive').value;
     const man = $('fManual').value, fol = $('fFollow').value;
+    const dType = $('fDateType').value, dFrom = $('fFrom').value, dTo = $('fTo').value;
     const dr = state.drill;
     return state.rows.filter((r) =>
       (!dr || matchDrill(r, dr)) &&
@@ -479,7 +490,8 @@
       jenisOk(r, jenis) &&
       (!sup || r.supplier === sup) &&
       (!kurs || r.kurs === kurs) &&
-      matchArrive(r, arr));
+      matchArrive(r, arr) &&
+      matchDate(r, dType, dFrom, dTo));
   }
   const byMonth = (rows) => { const m = activeMonth(); return m === 'all' ? rows : rows.filter((r) => r.month === m); };
 
@@ -518,16 +530,14 @@
     const chips = [];
     const m = activeMonth();
     // Bulan, status, cari, supplier, dan jenis sudah terlihat di baris atas; chip hanya untuk saringan lain
-    if ($('fArrive').value) chips.push(['fArrive', 'Jadwal: ' + ARRIVE[$('fArrive').value]]);
-    if ($('fKurs').value) chips.push(['fKurs', 'Kurs: ' + $('fKurs').value]);
     if (state.drill) chips.push(['drill', state.drill.label]);
-    if ($('fFollow').value) chips.push(['fFollow', 'Follow-up: ' + (FOLLOW_LABEL[$('fFollow').value] || $('fFollow').value)]);
-    if ($('fManual').value) chips.push(['fManual', $('fManual').value === 'yes' ? 'Hanya PO yang diedit manual' : 'Hanya PO tanpa edit manual']);
+    const df = $('fFrom').value, dt = $('fTo').value;
+    if (df || dt) chips.push(['date', `${DATE_TYPE[$('fDateType').value]}: ${df ? fmtDate(df) : '…'} – ${dt ? fmtDate(dt) : '…'}`]);
     $('activeFilters').innerHTML = chips.map(([k, t]) =>
       `<button class="chip" data-clear="${k}" title="Hapus saringan ini">${esc(t)}<span class="chip-x" aria-hidden="true">×</span><span class="sr">hapus</span></button>`).join('');
-    const nMore = ['fArrive', 'fKurs', 'fFollow', 'fManual'].filter((id) => $(id).value).length + ($('fSort').value !== 'date-asc' && $('fSort').value !== 'col' ? 1 : 0);
-    $('btnMoreFilters').textContent = nMore ? `Saringan lain · ${nMore}` : 'Saringan lain';
-    $('btnMoreFilters').classList.toggle('is-on', nMore > 0 || !$('moreFilters').hidden);
+    // Saringan yang sedang dipakai diberi tanda supaya mudah terlihat
+    ['q', 'fSupplier', 'fArrive', 'fKurs', 'fFollow', 'fManual', 'fFrom', 'fTo'].forEach((id) => $(id).classList.toggle('is-set', !!$(id).value));
+    $('fJenis').classList.toggle('is-set', $('fJenis').value !== RMPM);
   }
 
   /* ---------- Tampilan ---------- */
@@ -725,12 +735,14 @@
     if (k === 'month') state.month = 'all';
     else if (k === 'status') state.status = 'all';
     else if (k === 'drill') state.drill = null;
+    else if (k === 'date') { $('fFrom').value = ''; $('fTo').value = ''; }
     else $(k).value = '';
     state.shown = PAGE; render();
   });
 
   $('btnReset').addEventListener('click', () => {
-    ['q', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fFollow'].forEach((id) => { $(id).value = ''; });
+    ['q', 'fSupplier', 'fKurs', 'fArrive', 'fManual', 'fFollow', 'fFrom', 'fTo'].forEach((id) => { $(id).value = ''; });
+    $('fDateType').value = 'order';
     $('fJenis').value = RMPM;
     $('fSort').value = 'date-asc';
     colSort.po = null;
@@ -743,11 +755,30 @@
     const w = $('monWrap');
     if (!$('btnMore').hidden && w.scrollTop + w.clientHeight > w.scrollHeight - 300) { state.shown += PAGE; render(); }
   }, { passive: true });
-  $('btnMoreFilters').addEventListener('click', () => {
-    const p = $('moreFilters'); p.hidden = !p.hidden;
-    $('btnMoreFilters').setAttribute('aria-expanded', String(!p.hidden));
-    renderActiveFilters();
+  // Saring tanggal: Tgl order, Tgl jadwal kirim (semua), Tgl jadwal belum datang
+  const quickRange = (v) => {
+    const t = new Date(), y = t.getFullYear(), m = t.getMonth(), d = (x) => ymd(x);
+    const add = (n) => { const x = new Date(); x.setDate(x.getDate() + n); return d(x); };
+    if (v === 'today') return [d(t), d(t)];
+    if (v === 'last7') return [add(-6), d(t)];
+    if (v === 'next7') return [d(t), add(7)];
+    if (v === 'thism') return [d(new Date(y, m, 1)), d(new Date(y, m + 1, 0))];
+    if (v === 'lastm') return [d(new Date(y, m - 1, 1)), d(new Date(y, m, 0))];
+    if (v === 'nextm') return [d(new Date(y, m + 1, 1)), d(new Date(y, m + 2, 0))];
+    return null;
+  };
+  const dateChanged = () => {
+    if (($('fFrom').value || $('fTo').value) && activeMonth() !== 'all') state.month = 'all';   // supaya tidak bertabrakan dengan tab bulan
+    state.shown = PAGE; render();
+  };
+  $('fQuick').addEventListener('change', () => {
+    const r = quickRange($('fQuick').value);
+    if (r) { $('fFrom').value = r[0]; $('fTo').value = r[1]; }
+    $('fQuick').value = '';
+    dateChanged();
   });
+  ['fFrom', 'fTo'].forEach((id) => $(id).addEventListener('change', dateChanged));
+  $('fDateType').addEventListener('change', () => { if ($('fFrom').value || $('fTo').value) dateChanged(); });
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
   $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true) : loadData()));
 
@@ -955,7 +986,7 @@
 
   // Buka Monitoring PO dengan saringan dari Dashboard
   function goMonitor(go) {
-    ['q', 'fArrive', 'fKurs', 'fManual', 'fFollow'].forEach((id) => { $(id).value = ''; });
+    ['q', 'fArrive', 'fKurs', 'fManual', 'fFollow', 'fFrom', 'fTo'].forEach((id) => { $(id).value = ''; });
     if (go.follow) $('fFollow').value = go.follow;
     $('fJenis').value = go.jenis !== undefined ? go.jenis : $('dJenis').value;
     $('fSupplier').value = go.supplier !== undefined ? go.supplier : $('dSup').value;
@@ -1238,6 +1269,100 @@
     return data;
   }
 
+
+
+  /* ---------- Perhatian Khusus ---------- */
+  // 1) Jadwal di PO-DEL yang PO/kodenya tidak ada di baris PO  2) Total qty jadwal ≠ qty order
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  function orphanGroups(lineKeys, linePOs, schedules) {
+    const g = new Map();
+    schedules.forEach((x) => {
+      const k = x[0] + '|' + x[1];
+      if (lineKeys.has(k)) return;
+      const o = g.get(k) || { po: x[0], code: x[1], name: x[2], n: 0, qty: 0, rec: 0, first: '', poKnown: linePOs.has(x[0]) };
+      o.n++; o.qty += Number(x[4]) || 0; o.rec += Number(x[5]) || 0;
+      const d = normDate(x[6]); if (d && (!o.first || d < o.first)) o.first = d;
+      g.set(k, o);
+    });
+    return [...g.values()].sort((a, b) => (a.po < b.po ? -1 : a.po > b.po ? 1 : a.code < b.code ? -1 : 1));
+  }
+  function attentionData() {
+    const lines = state.raw.lines || [], sch = state.raw.schedules || [];
+    const lineKeys = new Set(lines.map((l) => l[0] + '|' + l[3]));
+    const orphans = orphanGroups(lineKeys, new Set(lines.map((l) => l[0])), sch);
+    const sq = new Map();
+    sch.forEach((x) => { const k = x[0] + '|' + x[1]; sq.set(k, (sq.get(k) || 0) + (Number(x[4]) || 0)); });
+    const groups = new Map();
+    state.rows.forEach((r) => {
+      const k = r.po + '|' + r.code;
+      const g = groups.get(k) || { r, qty: 0 };
+      g.qty += r.qty; groups.set(k, g);
+    });
+    const mism = [];
+    groups.forEach((g, k) => {
+      if (!sq.has(k)) return;                      // belum ada jadwal: bukan selisih
+      const tot = sq.get(k);
+      if (!near(tot, g.qty)) mism.push({ r: g.r, qty: g.qty, tot, diff: tot - g.qty });
+    });
+    mism.sort((a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.r.po < b.r.po ? -1 : a.r.po > b.r.po ? 1 : a.r.idx - b.r.idx));
+    return { orphans, mism };
+  }
+  function renderAttention() {
+    if (!state.rows) return;
+    const { orphans, mism } = attentionData();
+    const q = ($('aq').value || '').trim().toLowerCase(), j = $('aJenis').value;
+    const hit = (t) => !q || q.split(/\s+/).every((w) => t.toLowerCase().includes(w));
+    const o = orphans.filter((x) => hit(`${x.po} ${x.code} ${x.name}`));
+    const m = mism.filter((x) => jenisOk(x.r, j) && hit(x.r.search));
+    $('aOrphanN').textContent = nf.format(o.length);
+    $('aMismatchN').textContent = nf.format(m.length);
+    $('aOrphan').innerHTML = o.length ? o.map((x) => `<tr>
+        <td class="po">${esc(x.po)}</td>
+        <td><div class="mat-name">${esc(x.name)}</div><div class="mat-code">${esc(x.code)}</div></td>
+        <td class="num">${x.n}</td><td class="num">${fmtNum(x.qty)}</td><td class="num">${fmtNum(x.rec)}</td>
+        <td class="date">${fmtDate(x.first)}</td>
+        <td>${x.poKnown ? 'Kode ini tidak ada di baris PO tersebut' : 'PO belum ada di data PO (PO-DET)'}</td></tr>`).join('')
+      : '<tr class="empty"><td colspan="7">Tidak ada. Semua jadwal punya baris PO.</td></tr>';
+    $('aMismatch').innerHTML = m.length ? m.map((x) => {
+      const r = x.r, u = esc(r.uom);
+      return `<tr class="row" data-key="${esc(r.key)}" tabindex="0">
+        <td class="po">${esc(r.po)}</td><td class="date">${fmtDate(r.date)}</td><td class="supplier">${esc(r.supplier)}</td>
+        <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}${r.jenis ? ' · ' + esc(r.jenis) : ''}</div></td>
+        <td class="num">${fmtNum(x.qty)} ${u}</td><td class="num">${fmtNum(x.tot)} ${u}</td>
+        <td class="num"><b class="${x.diff > 0 ? 'diff-up' : 'diff-down'}">${x.diff > 0 ? '+' : '−'}${fmtNum(Math.abs(x.diff))}</b></td>
+        <td>${x.diff > 0 ? `Jadwal lebih ${fmtNum(x.diff)} ${u} dari order` : `Jadwal kurang ${fmtNum(-x.diff)} ${u} dari order`}</td></tr>`;
+    }).join('') : '<tr class="empty"><td colspan="8">Tidak ada. Semua total jadwal sama dengan qty order.</td></tr>';
+    // Angka di menu: jadwal tanpa baris PO + selisih untuk RM dan PM
+    const badge = orphans.length + mism.filter((x) => jenisOk(x.r, RMPM)).length;
+    $('attBadge').hidden = !badge;
+    $('attBadge').textContent = badge;
+  }
+  $('aq').addEventListener('input', () => renderAttention());
+  $('aJenis').addEventListener('change', () => renderAttention());
+  $('aMismatch').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.row'); if (!tr) return;
+    const r = state.rows.find((x) => x.key === tr.dataset.key);
+    if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' });
+  });
+
+  // Peringatan di halaman Update Data PO: jadwal di file PO-DEL yang belum punya baris PO
+  function renderDelWarn() {
+    const box = $('delWarn'), del = state.parsedDel;
+    if (!del) { box.hidden = true; box.innerHTML = ''; return; }
+    const det = state.parsedDet;
+    const lines = (state.raw.lines || []).filter((l) => !det || !det.pos.has(l[0]));
+    const keys = new Set(lines.map((l) => l[0] + '|' + l[3]));
+    const pos = new Set(lines.map((l) => l[0]));
+    if (det) det.rows.forEach((l) => { keys.add(l[0] + '|' + l[3]); pos.add(l[0]); });
+    const list = orphanGroups(keys, pos, del.rows);
+    if (!list.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const nPo = new Set(list.map((x) => x.po)).size;
+    box.hidden = false;
+    box.innerHTML = `<h4>Perhatian: ${nPo} PO / ${list.length} material di PO-DEL belum ada di data PO</h4>
+      <p>Jadwalnya tetap disimpan, tetapi belum tampil di Monitoring PO, Dashboard, dan Kalender sampai PO-DET yang memuat PO tersebut di-upload${det ? '' : ' (pilih juga file PO-DET bila ada)'}. Daftar ini juga ada di menu Perhatian Khusus.</p>
+      <ul class="warn-list">${list.slice(0, 15).map((x) => `<li><b>${esc(x.po)}</b> · [${esc(x.code)}] ${esc(x.name)} <span class="hint">(${x.n} jadwal${x.poKnown ? ', kode tidak ada di baris PO' : ''})</span></li>`).join('')}</ul>
+      ${list.length > 15 ? `<p class="hint">…dan ${list.length - 15} lainnya.</p>` : ''}`;
+  }
 
   /* ---------- Pesan follow-up ke supplier (disalin, dikirim sendiri lewat WA/email) ---------- */
   const dfLong = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -1745,6 +1870,7 @@
   }
 
   function renderConflicts() {
+    renderDelWarn();
     const list = conflicts();
     const box = $('conflictBox');
     [...state.choices.keys()].forEach((po) => { if (!list.some((c) => c.po === po)) state.choices.delete(po); });

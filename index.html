@@ -32,6 +32,7 @@
           <a class="menu-item sub" href="#/po/monitoring" data-route="po/monitoring">Monitoring PO</a>
           <a class="menu-item sub" href="#/po/kalender" data-route="po/kalender">Kalender Kedatangan</a>
           <a class="menu-item sub" href="#/po/perubahan" data-route="po/perubahan">Perubahan Data</a>
+          <a class="menu-item sub" href="#/po/perhatian" data-route="po/perhatian">Perhatian Khusus<span class="menu-badge" id="attBadge" hidden></span></a>
           <a class="menu-item sub" href="#/po/update" data-route="po/update">Update Data PO</a>
           <a class="menu-item sub" href="#/po/supplier" data-route="po/supplier">Supplier &amp; MoQ</a>
           <a class="menu-item sub" href="#/po/riwayat" data-route="po/riwayat">Riwayat Edit PO</a>
@@ -237,20 +238,18 @@
             <label class="tb-field"><span class="sr">Supplier</span>
               <select id="fSupplier" title="Supplier"><option value="">Semua supplier</option></select>
             </label>
-            <label class="tb-field tb-narrow"><span class="sr">Jenis material</span>
-              <select id="fJenis" title="Jenis material"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
-            </label>
-            <button class="btn btn-ghost btn-sm" id="btnMoreFilters" aria-expanded="false" aria-controls="moreFilters">Saringan lain</button>
             <button class="btn btn-ghost btn-sm" id="btnReset" title="Kembali ke bulan berjalan dan kosongkan semua saringan">Reset</button>
             <button class="btn btn-sm" id="btnExport" title="Unduh baris yang sedang tampil menjadi file Excel">Unduh Excel</button>
           </div>
 
-          <!-- Saringan tambahan (dibuka lewat tombol "Saringan lain") -->
-          <div class="more-filters" id="moreFilters" hidden>
-            <label class="field">
-              <span>Jadwal kedatangan</span>
-              <select id="fArrive">
-                <option value="">Semua</option>
+          <!-- Saringan tambahan + tanggal -->
+          <div class="toolbar toolbar-2">
+            <label class="tb-field tb-narrow"><span class="sr">Jenis material</span>
+              <select id="fJenis" title="Jenis material"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
+            </label>
+            <label class="tb-field"><span class="sr">Jadwal kedatangan</span>
+              <select id="fArrive" title="Jadwal kedatangan">
+                <option value="">Kedatangan: semua</option>
                 <option value="today">Dijadwalkan hari ini</option>
                 <option value="week">Dalam 7 hari ke depan</option>
                 <option value="month">Dijadwalkan bulan ini</option>
@@ -258,14 +257,12 @@
                 <option value="none">Belum ada jadwal</option>
               </select>
             </label>
-            <label class="field">
-              <span>Kurs</span>
-              <select id="fKurs"><option value="">Semua kurs</option></select>
+            <label class="tb-field tb-narrow"><span class="sr">Kurs</span>
+              <select id="fKurs" title="Kurs"><option value="">Kurs: semua</option></select>
             </label>
-            <label class="field">
-              <span>Follow-up</span>
-              <select id="fFollow">
-                <option value="">Semua</option>
+            <label class="tb-field"><span class="sr">Follow-up</span>
+              <select id="fFollow" title="Follow-up">
+                <option value="">Follow-up: semua</option>
                 <option value="todo">Shortage belum di-follow up</option>
                 <option value="Sudah dihubungi">Sudah dihubungi</option>
                 <option value="Eskalasi">Eskalasi</option>
@@ -274,27 +271,48 @@
                 <option value="has">Ada catatan follow-up</option>
               </select>
             </label>
-            <label class="field">
-              <span>Edit manual</span>
-              <select id="fManual">
-                <option value="">Semua PO</option>
-                <option value="yes">Hanya PO yang diedit manual</option>
+            <label class="tb-field tb-narrow"><span class="sr">Edit manual</span>
+              <select id="fManual" title="Edit manual">
+                <option value="">Edit manual: semua</option>
+                <option value="yes">Hanya PO diedit manual</option>
                 <option value="no">Hanya PO tanpa edit manual</option>
               </select>
             </label>
-            <label class="field">
-              <span>Urutkan</span>
-              <select id="fSort">
-                <option value="col" hidden>Sesuai judul kolom yang diklik</option>
-                <option value="date-asc">Order Date terlama dulu</option>
-                <option value="date-desc">Order Date terbaru dulu</option>
-                <option value="next-asc">Jadwal berikutnya terdekat</option>
-                <option value="sisa-desc">Sisa qty terbanyak</option>
-                <option value="amount-desc">Nilai PO terbesar</option>
-                <option value="short-desc">Nilai shortage terbesar</option>
-                <option value="late-desc">Paling lama terlambat</option>
+            <label class="tb-field"><span class="sr">Urutkan</span>
+              <select id="fSort" title="Urutkan">
+                <option value="col" hidden>Urut: sesuai judul kolom</option>
+                <option value="date-asc">Urut: Order Date terlama</option>
+                <option value="date-desc">Urut: Order Date terbaru</option>
+                <option value="next-asc">Urut: jadwal terdekat</option>
+                <option value="sisa-desc">Urut: sisa qty terbanyak</option>
+                <option value="amount-desc">Urut: nilai PO terbesar</option>
+                <option value="short-desc">Urut: nilai shortage terbesar</option>
+                <option value="late-desc">Urut: paling lama terlambat</option>
               </select>
             </label>
+            <div class="date-filter" role="group" aria-label="Saring tanggal">
+              <label><span class="sr">Jenis tanggal</span>
+                <select id="fDateType" title="Tanggal yang disaring">
+                  <option value="order">Tgl order</option>
+                  <option value="sched">Tgl jadwal kirim (semua)</option>
+                  <option value="pending">Tgl jadwal belum datang</option>
+                </select>
+              </label>
+              <label><span class="sr">Dari tanggal</span><input type="date" id="fFrom" title="Dari tanggal"></label>
+              <span class="df-sep" aria-hidden="true">–</span>
+              <label><span class="sr">Sampai tanggal</span><input type="date" id="fTo" title="Sampai tanggal"></label>
+              <label><span class="sr">Pilihan cepat</span>
+                <select id="fQuick" title="Isi rentang tanggal dengan cepat">
+                  <option value="">Cepat…</option>
+                  <option value="today">Hari ini</option>
+                  <option value="last7">7 hari terakhir</option>
+                  <option value="next7">7 hari ke depan</option>
+                  <option value="thism">Bulan ini</option>
+                  <option value="lastm">Bulan lalu</option>
+                  <option value="nextm">Bulan depan</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           <div class="result-bar">
@@ -329,6 +347,43 @@
           </table>
           <div class="more"><button class="btn btn-ghost" id="btnMore" hidden>Tampilkan 100 baris lagi</button></div>
         </div>
+      </section>
+
+      <!-- ================= PERHATIAN KHUSUS ================= -->
+      <section id="view-po-perhatian" class="view" hidden>
+        <p class="lead">Data PO yang perlu dicek karena tidak cocok antara PO-DET dan PO-DEL. Daftar ini dihitung ulang setiap kali data dimuat.</p>
+        <div class="att-tools">
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="aq" placeholder="Cari No PO, kode, atau nama material"></label>
+          <label class="tb-field tb-narrow"><span class="sr">Jenis material</span>
+            <select id="aJenis" title="Jenis material (untuk daftar Total jadwal ≠ qty order)"><option value="__RMPM">RM dan PM</option><option value="">Semua jenis</option></select>
+          </label>
+        </div>
+
+        <article class="att-card">
+          <header class="att-head">
+            <h2>Jadwal tanpa baris PO <span class="att-count" id="aOrphanN">0</span></h2>
+            <p class="card-sub">Ada di PO-DEL tetapi PO atau kodenya tidak ada di PO-DET, sehingga jadwal ini tidak tampil di Monitoring PO, Dashboard, maupun Kalender. Upload PO-DET yang memuat PO tersebut, atau tambahkan barisnya lewat Mode edit.</p>
+          </header>
+          <div class="table-wrap att-wrap">
+            <table class="po-table att-table">
+              <thead><tr><th>No PO</th><th>Material (dari PO-DEL)</th><th class="num">Jadwal</th><th class="num">Qty jadwal</th><th class="num">Diterima</th><th>Jadwal terawal</th><th>Keterangan</th></tr></thead>
+              <tbody id="aOrphan"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="att-card">
+          <header class="att-head">
+            <h2>Total jadwal ≠ qty order <span class="att-count" id="aMismatchN">0</span></h2>
+            <p class="card-sub">Jumlah qty semua jadwal pengiriman (selain Cancelled) berbeda dengan qty order di PO. Baris yang belum punya jadwal tidak dimasukkan. Klik baris untuk membukanya di Monitoring PO.</p>
+          </header>
+          <div class="table-wrap att-wrap">
+            <table class="po-table att-table">
+              <thead><tr><th>No PO</th><th>Tgl order</th><th>Supplier</th><th>Material</th><th class="num">Qty order</th><th class="num">Total jadwal</th><th class="num">Selisih</th><th>Keterangan</th></tr></thead>
+              <tbody id="aMismatch"></tbody>
+            </table>
+          </div>
+        </article>
       </section>
 
       <!-- ================= UPDATE DATA PO ================= -->
@@ -367,6 +422,7 @@
                 <h3>Masukkan PIN dan kirim</h3>
                 <p>Boleh mengirim salah satu file saja. Data di Google Sheet langsung berubah setelah tombol ditekan.</p>
               </div>
+              <div class="warn-box" id="delWarn" hidden></div>
               <div class="conflict-box" id="conflictBox" hidden></div>
               <div class="send-row">
                 <label class="field">

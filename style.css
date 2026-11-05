@@ -712,3 +712,61 @@ th[aria-sort="descending"] .sort-ind::before { content: "↓"; }
   .mon-top .stat:nth-child(2n) { border-right: 0; }
   .mon-top .stat:nth-child(n+3) { border-bottom: 0; }
 }
+
+/* Saringan baris kedua + tanggal */
+.toolbar-2 .tb-field { flex: 0 1 200px; min-width: 140px; }
+.toolbar-2 .tb-field.tb-narrow { flex-basis: 150px; min-width: 120px; }
+.toolbar-2 select { height: 34px; }
+.date-filter {
+  display: inline-flex; align-items: center; gap: 0; flex: 0 1 auto; min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; height: 34px;
+}
+.date-filter label { display: flex; height: 100%; }
+.date-filter select, .date-filter input {
+  height: 100%; border: 0; border-right: 1px solid var(--line); background: transparent; padding: 0 8px; font-size: 13px; min-width: 0;
+}
+.date-filter label:last-child select { border-right: 0; }
+.date-filter #fDateType { font-weight: 600; color: var(--brand-dark); background: var(--brand-soft); }
+.date-filter input[type="date"] { width: 132px; border-right: 0; }
+.date-filter .df-sep { padding: 0 2px; color: var(--muted); }
+.date-filter label:nth-of-type(3) input { border-right: 1px solid var(--line); }
+.date-filter select:focus, .date-filter input:focus { outline: 2px solid #8cc5a1; outline-offset: -2px; }
+.toolbar select.is-set, .toolbar input.is-set { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-dark); font-weight: 600; }
+.date-filter input.is-set { background: var(--brand-soft); border-color: var(--line); }
+
+/* Menu: angka perhatian */
+.menu-badge {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 8px;
+  border-radius: 999px; background: var(--late); color: #fff; font-size: 11.5px; font-weight: 700; vertical-align: 1px;
+}
+
+/* Perhatian Khusus */
+.att-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
+.att-tools .tb-search { max-width: 520px; }
+.att-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 16px; }
+.att-head h2 { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.att-head .card-sub { margin: 4px 0 12px; max-width: 110ch; }
+.att-count { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--late-soft); color: var(--late); font-size: 12.5px; }
+.att-wrap { max-height: 60vh; border-radius: var(--radius-sm); }
+.att-table { min-width: 860px; }
+.att-table tr.row { cursor: pointer; }
+.diff-up { color: #8a5d06; }
+.diff-down { color: var(--late); }
+
+/* Peringatan di halaman upload */
+.warn-box { margin: 14px 0 0; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--wait-soft); border: 1px solid #ecd59f; border-left: 4px solid var(--wait); color: #5c4105; }
+.warn-box h4 { margin: 0 0 4px; font-size: 14px; }
+.warn-box p { margin: 0 0 6px; font-size: 13px; }
+.warn-list { margin: 4px 0 0; padding-left: 18px; font-size: 13px; max-height: 220px; overflow: auto; }
+@media (max-width: 900px) {
+  .toolbar-2 .tb-field, .toolbar-2 .tb-field.tb-narrow { flex: 1 1 45%; }
+  .date-filter { flex: 1 1 100%; flex-wrap: wrap; height: auto; }
+  .date-filter label { height: 34px; }
+  .date-filter input[type="date"] { width: 120px; }
+}
+.toolbar-2 .tb-field { flex: 0 1 175px; min-width: 120px; }
+.toolbar-2 .tb-field.tb-narrow { flex: 0 1 140px; min-width: 110px; }
+.toolbar:not(.toolbar-2) .tb-field { flex-basis: 200px; min-width: 150px; }
+@media (max-width: 1500px) { .mon-top .stat { padding: 7px 9px; gap: 5px; } .toolbar:not(.toolbar-2) .tb-field { flex-basis: 170px; } }
+.tb-search { min-width: 140px; }
+.tb-search { flex: 1 1 160px; }
