@@ -45,24 +45,10 @@ function doGet(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const tz = ss.getSpreadsheetTimeZone();
-    const db = SpreadsheetApp.openById(MRP_CONFIG.DATABASE_ID);
-    // master  : [kode, nama, uom, kategori]
-    // boms    : [bomId, kodeProduk, namaProduk, qtyBatch, uom, reference, jumlahKomponen, catatan]
-    // details : [bomId, kodeMaterial, namaMaterial, qtyMaterial, uom, kategori]
-    const master = rows_(db.getSheetByName(MRP_CONFIG.MASTER_SHEET), 4)
-      .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3])]);
-    const boms = rows_(db.getSheetByName(MRP_CONFIG.BOM_SHEET), 8)
-      .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]), s_(r[7])]);
-    const details = rows_(db.getSheetByName(MRP_CONFIG.BOM_DETAIL_SHEET), 10)
-      .map(r => [s_(r[0]), s_(r[5]), s_(r[6]), n_(r[7]), s_(r[8]), s_(r[9])]);
-    // weeks: [bulan yyyy-MM, week, tanggal awal, tanggal akhir] — diringkas dari PEMBAGIAN_WEEK
-    const weeks = [];
-    rows_(db.getSheetByName(MRP_CONFIG.WEEK_SHEET), 4).forEach(r => {
-      const d = d_(r[0], tz, 'yyyy-MM-dd'), w = s_(r[2]), b = d_(r[3], tz, 'yyyy-MM') || d.slice(0, 7);
-      if (!d || !w) return;
-      const last = weeks[weeks.length - 1];
-      if (last && last[0] === b && last[1] === w) last[3] = d; else weeks.push([b, w, d, d]);
-    });
+    // BOM, master, dan week dari DATABASE PPIC GTK jarang berubah: disimpan di cache Apps Script 10 menit.
+    // Tombol "Muat ulang data" di website mengirim fresh=1 sehingga selalu dibaca langsung.
+    const D = dbData_(tz, e && e.parameter && e.parameter.fresh === '1');
+    const master = D.master, boms = D.boms, details = D.details, weeks = D.weeks;
 
     const skus = rows_(ss.getSheetByName(MRP_CONFIG.SKU_SHEET), 8)
       .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), d_(r[7], tz, 'yyyy-MM-dd HH:mm')]);
@@ -79,12 +65,64 @@ function doGet(e) {
 
     return json_({
       ok: true, master, boms, details, weeks, skus, plan, stock, adj, inc, log,
-      databaseUrl: db.getUrl(), mrpUrl: ss.getUrl(),
+      databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
   } catch (err) {
     return json_({ ok: false, error: String(err.message || err) });
   }
+}
+
+// master  : [kode, nama, uom, kategori]
+// boms    : [bomId, kodeProduk, namaProduk, qtyBatch, uom, reference, jumlahKomponen, catatan]
+// details : [bomId, kodeMaterial, namaMaterial, qtyMaterial, uom, kategori]
+// weeks   : [bulan yyyy-MM, week, tanggal awal, tanggal akhir] — diringkas dari PEMBAGIAN_WEEK
+function dbData_(tz, fresh) {
+  const cache = CacheService.getScriptCache();
+  if (!fresh) {
+    const hit = getBig_(cache, 'mrp_db');
+    if (hit) { hit.cached = true; return hit; }
+  }
+  const db = SpreadsheetApp.openById(MRP_CONFIG.DATABASE_ID);
+  const master = rows_(db.getSheetByName(MRP_CONFIG.MASTER_SHEET), 4)
+    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3])]);
+  const boms = rows_(db.getSheetByName(MRP_CONFIG.BOM_SHEET), 8)
+    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]), s_(r[7])]);
+  const details = rows_(db.getSheetByName(MRP_CONFIG.BOM_DETAIL_SHEET), 10)
+    .map(r => [s_(r[0]), s_(r[5]), s_(r[6]), n_(r[7]), s_(r[8]), s_(r[9])]);
+  const weeks = [];
+  rows_(db.getSheetByName(MRP_CONFIG.WEEK_SHEET), 4).forEach(r => {
+    const d = d_(r[0], tz, 'yyyy-MM-dd'), w = s_(r[2]), b = d_(r[3], tz, 'yyyy-MM') || d.slice(0, 7);
+    if (!d || !w) return;
+    const last = weeks[weeks.length - 1];
+    if (last && last[0] === b && last[1] === w) last[3] = d; else weeks.push([b, w, d, d]);
+  });
+  const out = { master, boms, details, weeks, dbUrl: db.getUrl() };
+  putBig_(cache, 'mrp_db', out, 600);
+  out.cached = false;
+  return out;
+}
+// Cache Apps Script maksimal 100 KB per kunci: data dipecah beberapa kunci
+function putBig_(cache, key, obj, ttl) {
+  try {
+    const s = JSON.stringify(obj), size = 90000, parts = {};
+    const n = Math.ceil(s.length / size);
+    if (n > 60) return;                                   // terlalu besar: tidak di-cache
+    for (let i = 0; i < n; i++) parts[key + '_' + i] = s.slice(i * size, (i + 1) * size);
+    parts[key + '_n'] = String(n);
+    cache.putAll(parts, ttl);
+  } catch (e) { /* cache gagal: data tetap dibaca langsung */ }
+}
+function getBig_(cache, key) {
+  try {
+    const n = Number(cache.get(key + '_n'));
+    if (!n) return null;
+    const keys = []; for (let i = 0; i < n; i++) keys.push(key + '_' + i);
+    const got = cache.getAll(keys);
+    let s = '';
+    for (let i = 0; i < n; i++) { if (got[keys[i]] == null) return null; s += got[keys[i]]; }
+    return JSON.parse(s);
+  } catch (e) { return null; }
 }
 
 /* ================= Tulis data ================= */

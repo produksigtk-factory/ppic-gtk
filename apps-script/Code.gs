@@ -4,6 +4,7 @@
  *
  * Dipasang di: MONITORING PO → Extensions → Apps Script.
  * - doGet  : website membaca PO_LINE, PO_SCHEDULE, tanda edit manual, dan riwayat edit.
+ *            Disimpan di cache 5 menit (dihapus setiap upload/edit); ?fresh=1 selalu membaca langsung.
  *            ?view=supplier → daftar supplier & MoQ (histori) per material RM/PM (tab SUPPLIER_MATERIAL di DATABASE PPIC).
  * - doPost : upload export Odoo dan edit manual dari website (dilindungi PIN).
  *
@@ -47,7 +48,14 @@ function doGet(e) {
   if (props.getProperty('MONITOR_VERSION') !== MONITOR_VERSION) {
     try { refreshMonitorSheet(); props.setProperty('MONITOR_VERSION', MONITOR_VERSION); } catch (err) { /* tetap kirim data ke website */ }
   }
-  return json_({
+  // Isi lengkap disimpan di cache Apps Script (maks. 5 menit) supaya website terbuka cepat.
+  // Cache dihapus setiap ada upload/edit dari website; tombol "Muat ulang data" mengirim fresh=1 (selalu baca langsung).
+  const cache = CacheService.getScriptCache();
+  if (p.fresh !== '1') {
+    const hit = getBig_(cache, 'po_main');
+    if (hit) { hit.cached = true; return json_(hit); }
+  }
+  const out = {
     ok: true,
     lines: readRows_(ss.getSheetByName(CONFIG.LINE_SHEET), 11).map(r => lineOut_(r, tz)),
     schedules: readRows_(ss.getSheetByName(CONFIG.SCHED_SHEET), 8).map(r => schedOut_(r, tz)),
@@ -58,7 +66,35 @@ function doGet(e) {
     changes: readChanges_(ss, 4000),
     lastUpload: lastUpload_(ss, tz),
     readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
-  });
+  };
+  putBig_(cache, 'po_main', out, 300);
+  return json_(out);
+}
+
+/* ---------- Cache Apps Script (maks. 100 KB per kunci → dipecah) ---------- */
+function putBig_(cache, key, obj, ttl) {
+  try {
+    const s = JSON.stringify(obj), size = 90000, parts = {};
+    const n = Math.ceil(s.length / size);
+    if (n > 60) return;                                   // terlalu besar: tidak di-cache
+    for (let i = 0; i < n; i++) parts[key + '_' + i] = s.slice(i * size, (i + 1) * size);
+    parts[key + '_n'] = String(n);
+    cache.putAll(parts, ttl);
+  } catch (e) { /* cache gagal: data tetap dibaca langsung */ }
+}
+function getBig_(cache, key) {
+  try {
+    const n = Number(cache.get(key + '_n'));
+    if (!n) return null;
+    const keys = []; for (let i = 0; i < n; i++) keys.push(key + '_' + i);
+    const got = cache.getAll(keys);
+    let s = '';
+    for (let i = 0; i < n; i++) { if (got[keys[i]] == null) return null; s += got[keys[i]]; }
+    return JSON.parse(s);
+  } catch (e) { return null; }
+}
+function clearMainCache_() {
+  try { CacheService.getScriptCache().remove('po_main_n'); } catch (e) { /* abaikan */ }
 }
 
 // [po, tanggal, supplier, kode, nama, jenis, qty, uom, harga, kurs, lineKe]
@@ -83,6 +119,7 @@ function doPost(e) {
 
     const action = body.action || 'upload';
     if (action === 'verify') return json_({ ok: true });
+    clearMainCache_();   // data akan berubah: website berikutnya membaca langsung dari Sheet
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const tz = ss.getSpreadsheetTimeZone();
@@ -118,6 +155,7 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err.message || err) });
   } finally {
+    clearMainCache_();   // sekali lagi setelah selesai menulis
     lock.releaseLock();
   }
 }

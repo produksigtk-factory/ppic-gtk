@@ -324,7 +324,7 @@
     state.lastUpload = data.lastUpload || null;
     state.readAt = data.readAt || '';
   }
-  async function loadData() {
+  async function loadData(fresh) {
     if (!CFG.APPS_SCRIPT_URL) { showSetup(); return; }
     $('dataInfo').textContent = 'Memuat data dari Google Sheet…';
     $('btnReload').disabled = true;
@@ -343,7 +343,7 @@
       if (!state.rows.length) $('rows').innerHTML = '<tr class="empty"><td colspan="10">Memuat data dari Google Sheet, biasanya 5–10 detik…</td></tr>';
     }
     try {
-      const res = await fetch(CFG.APPS_SCRIPT_URL, { method: 'GET' });
+      const res = await fetch(CFG.APPS_SCRIPT_URL + (fresh ? '?fresh=1' : ''), { method: 'GET' });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
       applyPoData(data);
@@ -916,7 +916,7 @@
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
   $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'csl' ? (window.CSL && window.CSL.reload())
     : state.route && state.route.actions === 'sup' ? loadSupplier(true)
-    : state.route && state.route.actions === 'mrp' ? loadMrp(true) : loadData()));
+    : state.route && state.route.actions === 'mrp' ? loadMrp('fresh') : loadData(true)));
 
   const toggleRow = (tr) => {
     const k = tr.dataset.key; state.openKey = state.openKey === k ? null : k; render();
@@ -2419,7 +2419,7 @@
     try {
       // Menu MRP memakai Apps Script sendiri di Google Sheet "MRP PPIC GTK" (config.js → MRP_SCRIPT_URL)
       if (!CFG.MRP_SCRIPT_URL) throw new Error('Apps Script MRP belum terpasang. Pasang Code_MRP.gs di Google Sheet MRP PPIC GTK (Extensions → Apps Script), buat Web app, lalu alamatnya dimasukkan ke website.');
-      const res = await fetch(CFG.MRP_SCRIPT_URL);
+      const res = await fetch(CFG.MRP_SCRIPT_URL + (force === 'fresh' ? '?fresh=1' : ''));
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
       if (!Array.isArray(data.boms)) throw new Error('Apps Script MRP belum versi terbaru. Tempel Code_MRP.gs terbaru, lalu Deploy → Manage deployments → Edit → New version → Deploy.');
