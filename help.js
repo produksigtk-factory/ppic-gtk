@@ -138,7 +138,7 @@
   function paintUsage() {
     const box = $('kpBody'); if (!box) return;
     $('kpLoading').hidden = !K.loading && !K.err;
-    $('kpLoading').textContent = K.err ? 'Kapasitas belum bisa dibaca: ' + K.err : 'Membaca ukuran Google Sheet…';
+    $('kpLoading').textContent = K.err ? 'Kapasitas belum bisa dibaca: ' + K.err : 'Membaca ukuran 4 Google Sheet… biasanya 10–30 detik';
     $('kpLoading').classList.toggle('is-err', !!K.err);
     const d = K.data;
     if (!d) { box.innerHTML = ''; return; }
