@@ -508,10 +508,10 @@
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru di Google Sheet MRP PPIC GTK lalu Deploy → Manage deployments → Edit → New version → Deploy.</div>
         <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Ketik kg langsung di sel; tersimpan otomatis ke Google Sheet MRP PPIC GTK. Enter / panah atas-bawah untuk pindah baris.</p><span class="pl-save" id="plSave"></span></div>
         <div class="toolbar mrp-toolbar">
-          <label class="tb-field"><span class="sr">Rentang bulan</span><select id="plHz" title="Rentang 3 bulan yang ditampilkan"></select></label>
+          <span class="pl-hz" id="plHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="plQ" placeholder="Cari kode atau nama SKU"></label>
-          <label class="tb-check"><input type="checkbox" id="plOnly"> Hanya yang ada rencana</label>
-          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="plUpload">Upload Excel</button><button class="btn btn-ghost btn-sm" id="plExport">Unduh Excel</button></div>
+          <label class="tb-check"><input type="checkbox" id="plOnly" checked> Hanya yang ada rencana</label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="plTpl" title="File Excel kosong dengan kolom week 3 bulan ini, untuk diisi / di-lookup dari MPS">Unduh format upload</button><button class="btn btn-ghost btn-sm" id="plUpload">Upload rencana</button><button class="btn btn-ghost btn-sm" id="plExport" title="Rencana yang tersimpan sekarang">Unduh rencana</button></div>
         </div>
         <div class="pl-kpis" id="plKpi"></div>
         <p class="mrp-count" id="plInfo"></p>
@@ -526,7 +526,7 @@
         <div class="mrp-loading" data-mrp-loading>Menghitung kebutuhan material…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
         <div class="toolbar mrp-toolbar">
-          <label class="tb-field"><span class="sr">Rentang bulan</span><select id="kbHz"></select></label>
+          <span class="pl-hz" id="kbHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="kbQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="kbKat"><option value="">Semua kategori</option></select></label>
           <label class="tb-check"><input type="checkbox" id="kbMade"> Ekstrak/bulk (diproduksi sendiri)</label>
@@ -546,7 +546,7 @@
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
         <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik sebuah material untuk menambah incoming manual atau koreksi stok.</p></div>
         <div class="toolbar mrp-toolbar">
-          <label class="tb-field"><span class="sr">Rentang bulan</span><select id="pjHz"></select></label>
+          <span class="pl-hz" id="pjHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
@@ -594,7 +594,7 @@
         </div>
         <div class="update-card">
           <h2>Upload rencana produksi</h2>
-          <p class="lead">Sheet <em>PLAN WEEKLY</em> dari template (kolom KODE + "W1 NOVEMBER" …), atau file hasil <em>Unduh Excel</em> di Rencana Produksi. Bulan yang ada di file diganti seluruhnya; bulan lain tidak berubah.</p>
+          <p class="lead">Pakai <button class="btn-link" id="upTpl">format upload</button> (kolom KODE + week "W1 NOVEMBER 2026"), sheet <em>PLAN WEEKLY</em> dari template, atau file <em>Unduh rencana</em>. Bulan yang ada di file diganti seluruhnya; bulan lain tidak berubah. Kode yang tidak ada di DATABASE tetap disimpan tetapi diberi peringatan.</p>
           <p class="up-now" id="upPlanNow"></p>
           <label class="file-drop" for="planFile"><input type="file" id="planFile" accept=".xls,.xlsx,.xlsm"><span class="file-btn">Pilih file rencana</span><span class="file-name" id="planName">Belum ada file</span></label>
           <p class="check" id="planCheck"></p>

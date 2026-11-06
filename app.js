@@ -2780,7 +2780,7 @@
     P.weeks.forEach((w) => { if (!P.monthWeeks.has(w.bulan)) P.monthWeeks.set(w.bulan, []); P.monthWeeks.get(w.bulan).push(w); });
     P.log = d.log || [];
     P.mrpUrl = d.mrpUrl || CFG.MRP_SHEET_URL;
-    if (!P.hz) P.hz = (P.stockDate || todayStr()).slice(0, 7);
+    P.hz = todayStr().slice(0, 7);   // rentang otomatis: bulan berjalan + 2 bulan
   }
 
   // ---------- Week ----------
@@ -2799,15 +2799,12 @@
     for (let i = 0; i < 3; i++) (P.monthWeeks.get(addMonth(P.hz, i)) || []).forEach((w) => out.push(w));
     return out;
   }
-  function fillHz(sel) {
-    const base = (P.stockDate || todayStr()).slice(0, 7);
-    const months = new Set([...P.plan.values()].map((p) => p.bulan));
-    for (let i = -3; i <= 9; i++) months.add(addMonth(base, i));
-    months.add(P.hz);
-    const list = [...months].filter((m) => P.monthWeeks.has(m)).sort();
+  function fillHz(el) {
+    P.hz = todayStr().slice(0, 7);
     const short = (b) => `${monShort(b)} ${b.slice(0, 4)}`;
-    sel.innerHTML = list.map((m) => `<option value="${m}"${m === P.hz ? ' selected' : ''}>${short(m)} – ${short(addMonth(m, 2))}</option>`).join('');
+    el.textContent = `${short(P.hz)} – ${short(addMonth(P.hz, 2))}`;
   }
+
 
   // ---------- BOM yang dipakai ----------
   const bomById = (code, id) => (MRP.byProduct.get(code) || []).find((b) => b.id === id);
@@ -3092,7 +3089,6 @@
       .concat([{ num: nf.format(nWarn), lbl: 'sel bukan ukuran batch', tone: nWarn ? 'warn' : '', title: 'Kg yang tidak bisa disusun dari ukuran batch SKU (sel kuning). Hanya peringatan.' }]));
     $('plInfo').textContent = `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana`;
   }
-  $('plHz').addEventListener('change', () => { P.hz = $('plHz').value; renderRencana(); });
   $('plQ').addEventListener('input', renderRencana);
   $('plOnly').addEventListener('change', renderRencana);
   $('plTable').addEventListener('change', (e) => {
@@ -3165,6 +3161,30 @@
   }
   document.addEventListener('click', (e) => { if (e.target.id === 'plRetry') { paintPlanSave('saving'); flushPlan(); } });
   $('plUpload').addEventListener('click', () => { location.hash = '#/mrp/update'; setTimeout(() => $('planFile').focus(), 100); });
+  // Format upload kosong: baris 1 = judul week (kunci lookup), baris 2 = tanggal week
+  function downloadPlanTemplate() {
+    const weeks = hzWeeks();
+    const head = ['KODE', 'NAMA (opsional)'].concat(weeks.map((w) => `${w.week} ${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`));
+    const dates = ['Isi kode SKU mulai baris 3', 'Qty dalam kg'].concat(weeks.map((w) => `${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}`));
+    const ws = XLSX.utils.aoa_to_sheet([head, dates]);
+    ws['!cols'] = [{ wch: 14 }, { wch: 38 }].concat(weeks.map(() => ({ wch: 20 })));
+    ws['!freeze'] = { xSplit: 2, ySplit: 2 };
+    const info = XLSX.utils.aoa_to_sheet([
+      ['Format upload rencana produksi (MRP PPIC GTK)'], [''],
+      ['1. Isi kode SKU di kolom A mulai baris 3, qty kg di kolom week. Kolom NAMA boleh dikosongkan.'],
+      ['2. Baris 1 (mis. "W1 NOVEMBER 2026") adalah kunci kolom; jangan diubah. Baris 2 hanya keterangan tanggal.'],
+      ['3. Upload di website: MRP → Update Data MRP → Upload rencana produksi.'],
+      ['4. Bulan yang ada di file mengganti rencana bulan itu; kode yang tidak ada di DATABASE diberi peringatan.'], [''],
+      ['Rentang', `${monLabel(P.hz)} – ${monLabel(addMonth(P.hz, 2))}`], ['Dibuat', todayStr()],
+    ]);
+    info['!cols'] = [{ wch: 100 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'PLAN WEEKLY');
+    XLSX.utils.book_append_sheet(wb, info, 'PETUNJUK');
+    XLSX.writeFile(wb, `Format_Upload_Rencana_${monShort(P.hz)}${P.hz.slice(0, 4)}-${monShort(addMonth(P.hz, 2))}${addMonth(P.hz, 2).slice(0, 4)}.xlsx`);
+  }
+  $('plTpl').addEventListener('click', downloadPlanTemplate);
+  $('upTpl').addEventListener('click', downloadPlanTemplate);
   $('plExport').addEventListener('click', () => {
     const weeks = hzWeeks();
     const data = planRowsList().map((c) => {
@@ -3202,7 +3222,6 @@
     $('kbInfo').textContent = `${nf.format(rows.length)} ${made ? 'ekstrak/bulk' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai`;
   }
   const round4 = (v) => Math.round(v * 10000) / 10000;
-  $('kbHz').addEventListener('change', () => { P.hz = $('kbHz').value; renderKebutuhan(); });
   $('kbQ').addEventListener('input', renderKebutuhan);
   $('kbKat').addEventListener('change', renderKebutuhan);
   $('kbMade').addEventListener('change', renderKebutuhan);
@@ -3273,7 +3292,6 @@
     ].concat(P.stockDate ? [{ num: nf.format(nNoSt), lbl: 'tidak ada di file stok', tone: nNoSt ? 'warn' : '', title: 'Stok awalnya dianggap 0' }] : []));
     $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, jadwal PO, incoming manual, dan koreksi stok` + (state.rows && state.rows.length ? '' : ' · data PO belum dimuat, incoming PO belum dihitung');
   }
-  $('pjHz').addEventListener('change', () => { P.hz = $('pjHz').value; renderProyeksi(); });
   ['pjQ', 'pjMode', 'pjKat'].forEach((id) => $(id).addEventListener(id === 'pjQ' ? 'input' : 'change', renderProyeksi));
   $('pjRows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
   $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter') return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
@@ -3560,8 +3578,8 @@
           cols.forEach(({ i, w }) => {
             const kg = Number(r[i]);
             if (!(kg > 0)) return;
-            if (!MRP.byProduct.has(code)) { unknown.add(code); return; }
-            if (!P.skus.has(code)) notSku.add(code);
+            if (!MRP.byProduct.has(code)) unknown.add(code);
+            else if (!P.skus.has(code)) notSku.add(code);
             const sku = P.skus.get(code);
             if (sku && !batchOk(kg, sku.batch)) warn.push(`${code} ${w.week} ${monShort(w.bulan)}: ${fmtKg(kg)} kg`);
             cells.push({ bulan: w.bulan, week: w.week, code, kg });
@@ -3587,8 +3605,8 @@
       $('planCheck').className = 'check ok';
       $('planCheck').innerHTML = `Sheet <b>${esc(p.sheet)}</b> · bulan <b>${p.months.map(monLabel).join(', ')}</b> · <b>${nf.format(p.cells.length)}</b> sel berisi · total <b>${fmtKg(kg)} kg</b> dari ${nf.format(new Set(p.cells.map((c) => c.code)).size)} SKU.`
         + `<br>Rencana yang sekarang tersimpan untuk bulan tersebut (${nf.format(before.length)} sel, ${fmtKg(before.reduce((t, x) => t + x.kg, 0))} kg) akan <b>diganti</b>. Bulan lain tidak berubah.`
-        + (p.unknown.length ? `<br><span class="pl-bad">${p.unknown.length} kode tidak punya BOM, dilewati</span>: ${esc(p.unknown.join(', '))}` : '')
-        + (p.notSku.length ? `<br><span class="muted">${p.notSku.length} SKU belum ada di Parameter SKU (dihitung dengan BOM pertama): ${esc(p.notSku.join(', '))}</span>` : '')
+        + (p.unknown.length ? `<div class="warn-box up-warn"><b>${p.unknown.length} kode SKU tidak ada di DATABASE (tidak punya BOM):</b> ${esc(p.unknown.join(', '))}<br>Tetap ikut disimpan, tetapi kebutuhan materialnya tidak bisa dihitung sampai BOM-nya ada. Periksa apakah kodenya salah ketik.</div>` : '')
+        + (p.notSku.length ? `<br><span class="muted">${p.notSku.length} SKU belum ada di Parameter SKU (BOM dikunci ke versi pertama): ${esc(p.notSku.join(', '))}</span>` : '')
         + (p.warn.length ? `<br><span class="pl-warn-t">${p.warn.length} sel bukan ukuran batch</span>: ${esc(p.warn.slice(0, 8).join(' · '))}${p.warn.length > 8 ? '…' : ''}` : '')
         + (p.noWeek.length ? `<br><span class="pl-bad">Week tidak ada di PEMBAGIAN_WEEK</span>: ${esc(p.noWeek.join(', '))}` : '');
       $('planSend').disabled = !p.cells.length && !before.length;
@@ -3602,7 +3620,6 @@
       $('planResult').className = 'send-result ok';
       $('planResult').textContent = `Tersimpan ${savedAt(res)}: ${nf.format(res.saved)} sel untuk ${p.months.map(monLabel).join(', ')}.`;
       P.parsedPlan = null; $('planFile').value = ''; $('planName').textContent = 'Belum ada file';
-      P.hz = p.months[0];
       loadMrp(true);
     } catch (err) { $('planResult').className = 'send-result err'; $('planResult').textContent = 'Gagal: ' + err.message; $('planSend').disabled = false; }
   }));
