@@ -176,6 +176,13 @@
   }
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
   on('glQ', 'input', renderGlos);
+  // Tombol Glosarium di judul halaman: buka kelompok sesuai project yang sedang dibuka
+  on('lnkGlos', 'click', () => {
+    const c = ($('crumb') && $('crumb').textContent) || '';
+    const t = ($('pageTitle') && $('pageTitle').textContent) || '';
+    S.grp = /Analisa|Suggest|Seasonal/.test(t) ? 'Analisa Forecast' : /Purchase/.test(c) ? 'Purchase Order' : /MRP/.test(c) ? 'MRP' : /CSL/.test(c) ? 'CSL' : 'Semua';
+    if ($('glQ')) $('glQ').value = '';
+  });
   on('glTabs', 'click', (e) => { const b = e.target.closest('[data-g]'); if (!b) return; S.grp = b.dataset.g; renderGlos(); });
   on('kpReload', 'click', () => { K.data = null; loadUsage(); });
   window.HELP = { enter };

@@ -1167,3 +1167,5 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .kp-tabs { margin-top: 12px; }
 .kp-tabs summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 13px; }
 .kp-tabs .table-wrap { margin-top: 8px; }
+.btn-glos { white-space: nowrap; }
+.page-head .btn-glos + .top-actions { margin-left: -8px; }

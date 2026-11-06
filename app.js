@@ -194,6 +194,7 @@
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
     else if (state.routeKey.startsWith('info/')) { if (window.HELP) window.HELP.enter(state.routeKey); }
     else if (state.freshLoaded) renderDataInfo();
+    else $('dataInfo').textContent = 'Memuat data…';
     renderFresh();
     closeMenu();
     window.scrollTo(0, 0);
