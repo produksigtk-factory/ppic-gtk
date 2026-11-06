@@ -511,14 +511,14 @@
           <label class="tb-field"><span class="sr">Rentang bulan</span><select id="plHz" title="Rentang 3 bulan yang ditampilkan"></select></label>
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="plQ" placeholder="Cari kode atau nama SKU"></label>
           <label class="tb-check"><input type="checkbox" id="plOnly"> Hanya yang ada rencana</label>
-          <button class="btn btn-ghost btn-sm" id="plUpload">Upload Excel</button>
-          <button class="btn btn-sm" id="plExport">Unduh Excel</button>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="plUpload">Upload Excel</button><button class="btn btn-ghost btn-sm" id="plExport">Unduh Excel</button></div>
         </div>
+        <div class="pl-kpis" id="plKpi"></div>
         <p class="mrp-count" id="plInfo"></p>
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table" id="plTable"><thead id="plHead"></thead><tbody id="plRows"></tbody><tfoot id="plFoot"></tfoot></table>
         </div>
-        <p class="hint">Kg per SKU per week, sama seperti kolom <em>Minimum Kg Batch Size</em> di MPS. Sel kuning = kg tidak bisa disusun dari ukuran batch SKU (hanya peringatan). Versi BOM yang dipilih di tabel ini hanya untuk hitungan sementara; versi tetap diatur di Parameter SKU.</p>
+        <p class="hint">Kg per SKU per week (seperti <em>Minimum Kg Batch Size</em> di MPS). <span class="pl-legend pl-warn">kuning</span> = kg tidak bisa disusun dari ukuran batch SKU. Versi BOM yang dipilih di sini hanya untuk hitungan sementara; versi tetap diatur di Parameter SKU.</p>
       </section>
 
       <!-- ================= MRP: KEBUTUHAN MATERIAL ================= -->
@@ -529,9 +529,10 @@
           <label class="tb-field"><span class="sr">Rentang bulan</span><select id="kbHz"></select></label>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="kbQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="kbKat"><option value="">Semua kategori</option></select></label>
-          <label class="tb-check"><input type="checkbox" id="kbMade"> Tampilkan ekstrak/bulk (diproduksi sendiri)</label>
-          <button class="btn btn-sm" id="kbExport">Unduh Excel</button>
+          <label class="tb-check"><input type="checkbox" id="kbMade"> Ekstrak/bulk (diproduksi sendiri)</label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="kbExport">Unduh Excel</button></div>
         </div>
+        <div class="pl-kpis" id="kbKpi"></div>
         <p class="mrp-count" id="kbInfo"></p>
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table"><thead id="kbHead"></thead><tbody id="kbRows"></tbody></table>
@@ -549,14 +550,16 @@
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
-          <button class="btn btn-sm" id="pjExport">Unduh Excel</button>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="pjExport">Unduh Excel</button></div>
         </div>
+        <div class="warn-box pj-nostock" id="pjNoStock" hidden><div><b>Belum ada data stok RM/PM.</b> Upload export stok Odoo supaya saldo dan kekurangan dihitung dari stok sebenarnya.</div><a class="btn btn-sm" href="#/mrp/update">Upload stok</a></div>
+        <div class="pl-kpis" id="pjKpi"></div>
         <p class="pj-note" id="pjNote"></p>
         <p class="mrp-count" id="pjInfo"></p>
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table pj-table"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
         </div>
-        <p class="hint">Angka tebal = saldo akhir week (stok awal + incoming − kebutuhan, dibawa ke week berikutnya). <span class="pj-in">+hijau</span> = incoming PO/manual, <span class="pj-out">−abu</span> = kebutuhan. Jadwal PO yang sudah lewat tapi belum datang dimasukkan ke week pertama.</p>
+        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming PO/manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus. Jadwal PO yang sudah lewat tapi belum datang masuk ke week pertama.</p>
       </section>
 
       <!-- ================= MRP: PARAMETER SKU ================= -->
@@ -567,7 +570,7 @@
         <div class="toolbar mrp-toolbar">
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="skQ" placeholder="Cari kode atau nama"></label>
           <label class="tb-field"><span class="sr">Jenis</span><select id="skJenis"><option value="">Semua</option><option value="SKU">SKU</option><option value="Ekstrak">Ekstrak/bulk</option><option value="off">Tidak aktif</option></select></label>
-          <button class="btn btn-sm" id="skAdd">Tambah SKU</button>
+          <div class="tb-actions"><button class="btn btn-sm" id="skAdd">Tambah SKU</button></div>
         </div>
         <p class="mrp-count" id="skInfo"></p>
         <div class="table-wrap mrp-wrap">
@@ -579,10 +582,11 @@
       <section id="view-mrp-update" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="up-grid">
         <div class="update-card">
           <h2>Upload stok RM/PM</h2>
           <p class="lead">File export stok dari Odoo. Stok lama diganti seluruhnya dengan isi file. Kolom yang dicari: kode atau produk (mis. <em>Product</em>, <em>Internal Reference</em>) dan qty (mis. <em>On Hand</em>, <em>Quantity</em>); baris dengan kode sama dijumlahkan.</p>
-          <p class="check" id="upStockNow"></p>
+          <p class="up-now" id="upStockNow"></p>
           <label class="file-drop" for="stockFile"><input type="file" id="stockFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file stok</span><span class="file-name" id="stockName">Belum ada file</span></label>
           <label class="field up-date"><span>Tanggal stok *</span><input type="date" id="stockDate"></label>
           <p class="check" id="stockCheck"></p>
@@ -591,10 +595,11 @@
         <div class="update-card">
           <h2>Upload rencana produksi</h2>
           <p class="lead">Sheet <em>PLAN WEEKLY</em> dari template (kolom KODE + "W1 NOVEMBER" …), atau file hasil <em>Unduh Excel</em> di Rencana Produksi. Bulan yang ada di file diganti seluruhnya; bulan lain tidak berubah.</p>
-          <p class="check" id="upPlanNow"></p>
+          <p class="up-now" id="upPlanNow"></p>
           <label class="file-drop" for="planFile"><input type="file" id="planFile" accept=".xls,.xlsx,.xlsm"><span class="file-btn">Pilih file rencana</span><span class="file-name" id="planName">Belum ada file</span></label>
           <p class="check" id="planCheck"></p>
           <div class="send-row"><button class="btn" id="planSend" disabled>Simpan rencana ke Google Sheet</button><p class="send-result" id="planResult" aria-live="polite"></p></div>
+        </div>
         </div>
         <div class="update-card">
           <h2>Riwayat MRP</h2>
