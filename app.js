@@ -153,6 +153,7 @@
     'csl/sku':           { view: 'view-csl-sku',           crumb: 'CSL Personal Care',         title: 'Rekap per SKU',   actions: 'csl' },
     'csl/os':            { view: 'view-csl-os',            crumb: 'CSL Personal Care',         title: 'Sisa SO',         actions: 'csl' },
     'csl/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Personal Care',         title: 'Weekly Review',   actions: 'csl' },
+    'csl/amount':        { view: 'view-csl-amount',        crumb: 'CSL Personal Care',         title: 'Amount Check',    actions: 'csl' },
     'csl/analisa':       { view: 'view-csl-analisa',       crumb: 'CSL Personal Care',         title: 'Analisa Forecast', actions: 'csl' },
     'csl/suggest':       { view: 'view-csl-suggest',       crumb: 'CSL Personal Care',         title: 'Suggest Forecast', actions: 'csl' },
     'csl/musim':         { view: 'view-csl-musim',         crumb: 'CSL Personal Care',         title: 'Seasonal',        actions: 'csl' },

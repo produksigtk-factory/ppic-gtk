@@ -669,6 +669,56 @@
   }
 
   /* =====================================================================
+     AMOUNT CHECK (pivot per SO)
+     ===================================================================== */
+  function amountRows() {
+    const m = $('ckMonth').value, g = $('ckGrp').value, reg = $('ckReg').value, q = $('ckQ').value.trim().toLowerCase();
+    const by = new Map();
+    C.lines.forEach((L) => {
+      if (L.m !== m || (g !== 'ALL' && L.status !== g) || (reg && (L.region || '?') !== reg)) return;
+      let o = by.get(L.no);
+      if (!o) by.set(L.no, (o = { no: L.no, date: L.date, dist: L.dist, kode: L.distKode, kota: L.kota, region: L.region || '?', so: 0, do: 0, os: 0, sisa: 0, can: 0, n: 0 }));
+      o.so += L.amt; o.do += L.doQ * L.price; o.os += L.osQ * L.price; o.sisa += L.sisaQ * L.price; o.can += L.canQ * L.price; o.n++;
+    });
+    return [...by.values()].filter((o) => !q || o.no.toLowerCase().includes(q) || String(o.dist).toLowerCase().includes(q) || String(o.kota).toLowerCase().includes(q) || String(o.kode).toLowerCase().includes(q))
+      .sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true }));
+  }
+  function renderAmount() {
+    fillSel($('ckMonth'), monthOpts(C.A.soList), lastSoMonth());
+    fillSel($('ckGrp'), [['ALL', '(Semua status)']].concat(grpOpts(false)), 'ALL');
+    const regs = [...new Set(C.lines.map((L) => L.region || '?'))].sort();
+    fillSel($('ckReg'), [['', '(Semua region)']].concat(regs.map((r) => [r, r === 'ONLINE' ? 'Online' : r])), '');
+    const rows = amountRows();
+    const t = { so: sum(rows.map((r) => r.so)), do: sum(rows.map((r) => r.do)), os: sum(rows.map((r) => r.os)), sisa: sum(rows.map((r) => r.sisa)) };
+    const gap = t.so - t.do - t.os - t.sisa;
+    $('ckKpi').innerHTML = kpis([
+      { num: fBig(t.so), lbl: 'Amount SO', title: fRp(t.so) },
+      { num: fBig(t.do), lbl: 'Amount DO (bulan sama)', title: fRp(t.do) },
+      { num: fBig(t.os), lbl: 'Amount DO-OS', title: fRp(t.os) },
+      { num: fBig(t.sisa), lbl: 'Sisa SO', tone: t.sisa ? 'warn' : '', title: fRp(t.sisa) },
+      { num: fPct(ratio(t.do, t.so)), lbl: 'CSL', tone: cslTone(ratio(t.do, t.so)) },
+      { num: fBig(gap), lbl: 'SO − DO − OS − sisa', tone: Math.abs(gap) > 1 ? 'bad' : 'ok', title: 'Selisih ini = SO tanpa DO / DO Cancelled. 0 berarti semua SO sudah punya DO.' },
+    ]);
+    $('ckInfo').textContent = `${nf0.format(rows.length)} SO · ${monLabel($('ckMonth').value)}`;
+    const cell = (v) => `<td class="num" title="${fRp(v)}">${Math.abs(v) < 0.5 ? '–' : nf0.format(Math.round(v))}</td>`;
+    $('ckTable').innerHTML = '<thead><tr><th class="pl-sticky pl-c1">No SO</th><th>Tanggal</th><th>Kode</th><th>Distributor</th><th>Kota</th><th>Region</th><th class="num">Amount SO</th><th class="num">Amount DO</th><th class="num">Amount DO-OS</th><th class="num">Sisa</th><th class="num">Selisih</th></tr>'
+      + `<tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th></th><th></th><th></th><th></th><th></th>${[t.so, t.do, t.os, t.sisa, gap].map((v) => `<th class="num">${nf0.format(Math.round(v))}</th>`).join('')}</tr></thead>`
+      + `<tbody>${rows.map((r) => { const d = r.so - r.do - r.os - r.sisa; return `<tr class="row" data-so="${esc(r.no)}"><td class="pl-sticky pl-c1">${esc(r.no)}</td><td>${fDate(r.date)}</td><td>${esc(r.kode || '?')}</td><td class="csl-name" title="${esc(r.dist)}">${esc(r.dist)}</td><td>${esc(r.kota || '–')}</td><td>${esc(r.region)}</td>${cell(r.so)}${cell(r.do)}${cell(r.os)}${cell(r.sisa)}<td class="num${Math.abs(d) > 0.5 ? ' csl-neg' : ''}" title="${fRp(d)}">${Math.abs(d) < 0.5 ? '–' : nf0.format(Math.round(d))}</td></tr>`; }).join('') || '<tr><td colspan="11" class="csl-empty">Tidak ada SO.</td></tr>'}</tbody>`;
+  }
+  function openSo(no) {
+    const ls = C.lines.filter((L) => L.no === no);
+    if (!ls.length) return;
+    const h = ls[0];
+    UI.openDialog({
+      title: `${no} — ${h.dist}`, ok: 'Tutup', cancel: false, wide: true, onSubmit: async () => {},
+      body: `<p class="dlg-lead">${fDate(h.date)} · ${esc(h.ref)} · ${esc(h.kota || 'kota ?')} · ${esc(h.region || 'region ?')}</p>
+        <div class="table-wrap"><table class="po-table csl-table csl-small"><thead><tr><th>Kode</th><th>Nama produk</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Amount SO</th><th class="num">Terkirim</th><th class="num">Sisa</th><th>DO</th></tr></thead>
+        <tbody>${ls.map((L) => `<tr><td>${esc(L.kode)}</td><td class="csl-name" title="${esc(nameOf(L.kode))}">${esc(nameOf(L.kode))}</td><td class="num">${fQ(L.qty)}</td><td class="num">${nf0.format(L.price)}</td><td class="num">${nf0.format(Math.round(L.amt))}</td><td class="num">${fQ(L.doQ + L.osQ)}</td><td class="num">${fQ(L.sisaQ)}</td><td>${esc(L.dos.map((d) => `${d.no} ${fDate(d.date)} ${d.st} ${nf0.format(d.qty)}`).join('; ') || 'belum ada DO')}</td></tr>`).join('')}</tbody></table></div>`,
+    });
+    dlgTop();
+  }
+
+  /* =====================================================================
      ANALISA FORECAST (ANALISA)
      ===================================================================== */
   // 12 bulan sebelum bulan target; bulan yang dikeluarkan disimpan per status
@@ -1236,7 +1286,7 @@
   }
   const RENDER = {
     'csl/dashboard': renderDash, 'csl/region': renderRegion, 'csl/sku': renderSku, 'csl/os': renderOs, 'csl/weekly': renderWeekly,
-    'csl/analisa': renderAnalisa, 'csl/suggest': renderSuggest, 'csl/musim': renderMusim, 'csl/update': renderUpdate, 'csl/cek': renderCek,
+    'csl/amount': renderAmount, 'csl/analisa': renderAnalisa, 'csl/suggest': renderSuggest, 'csl/musim': renderMusim, 'csl/update': renderUpdate, 'csl/cek': renderCek,
   };
   function render(key) {
     renderInfo();
@@ -1302,10 +1352,10 @@
   /* ---------- Event ---------- */
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
   const rerender = () => render(C.route);
-  ['cdMonth', 'cdPeriod', 'cdOs', 'crPeriod', 'crView', 'csGrp', 'csEnd', 'csSpan', 'coGrp', 'coMode', 'cwMonth', 'cwMode', 'caGrp', 'caMonth', 'cgMode', 'cgCols', 'cgGrp', 'cgMonth', 'cgAll', 'cmGrp', 'cmYear']
+  ['cdMonth', 'cdPeriod', 'cdOs', 'crPeriod', 'crView', 'csGrp', 'csEnd', 'csSpan', 'coGrp', 'coMode', 'cwMonth', 'cwMode', 'caGrp', 'caMonth', 'cgMode', 'cgCols', 'cgGrp', 'cgMonth', 'cgAll', 'cmGrp', 'cmYear', 'ckMonth', 'ckGrp', 'ckReg']
     .forEach((id) => on(id, 'change', rerender));
   let qT;
-  ['csQ', 'coQ', 'cwQ', 'caQ', 'cgQ'].forEach((id) => on(id, 'input', () => { clearTimeout(qT); qT = setTimeout(rerender, 200); }));
+  ['csQ', 'coQ', 'cwQ', 'caQ', 'cgQ', 'ckQ'].forEach((id) => on(id, 'input', () => { clearTimeout(qT); qT = setTimeout(rerender, 200); }));
   on('cdChart', 'mousemove', chartHover);
   on('cdChart', 'mouseleave', () => { if ($('cdTip')) $('cdTip').hidden = true; if ($('cdCross')) $('cdCross').setAttribute('visibility', 'hidden'); });
   on('cdChart', 'click', (e) => { const r = e.target.closest('.cslc-hit'); if (!r || !C.chart) return; $('cdMonth').value = C.chart.months[+r.dataset.i]; renderDash(); });
@@ -1337,6 +1387,12 @@
       .concat(ls.map((L) => [L.no, L.date, L.dist, L.region, L.kode, nameOf(L.kode), L.qty, L.doQ + L.osQ, L.sisaQ, L.canQ, Math.round(L.sisaQ * L.price)]))]]);
   });
   on('cwExport', 'click', exportWeekly);
+  on('ckTable', 'click', (e) => { const tr = e.target.closest('tr[data-so]'); if (tr) openSo(tr.dataset.so); });
+  on('ckExport', 'click', () => {
+    const rows = amountRows();
+    toExcel(`Amount_Check_${$('ckMonth').value}`, [['Amount Check', [['NO SO', 'INPUT', 'KODE', 'DISTRIBUTOR', 'KOTA', 'REGION', 'AMOUNT_SO', 'AMOUNT_DO', 'AMOUNT_DO-OS', 'SISA']]
+      .concat(rows.map((r) => [r.no, r.date, r.kode, r.dist, r.kota, r.region, Math.round(r.so), Math.round(r.do), Math.round(r.os), Math.round(r.sisa)]))]]);
+  });
   on('caWin', 'click', (e) => {
     const b = e.target.closest('[data-m]'); if (!b || b.disabled) return;
     const g = $('caGrp').value, s = C.excl[g];

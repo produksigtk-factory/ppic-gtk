@@ -65,6 +65,7 @@
           <a class="menu-item sub" href="#/csl/sku" data-route="csl/sku">Rekap per SKU</a>
           <a class="menu-item sub" href="#/csl/os" data-route="csl/os">Sisa SO</a>
           <a class="menu-item sub" href="#/csl/weekly" data-route="csl/weekly">Weekly Review</a>
+          <a class="menu-item sub" href="#/csl/amount" data-route="csl/amount">Amount Check</a>
           <a class="menu-item sub" href="#/csl/analisa" data-route="csl/analisa">Analisa Forecast</a>
           <a class="menu-item sub" href="#/csl/suggest" data-route="csl/suggest">Suggest Forecast</a>
           <a class="menu-item sub" href="#/csl/musim" data-route="csl/musim">Seasonal</a>
@@ -911,6 +912,22 @@
         <div class="csl-week" id="cwBody"></div>
       </section>
 
+
+      <!-- ================= CSL: AMOUNT CHECK ================= -->
+      <section id="view-csl-amount" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Bulan SO</span><select id="ckMonth"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Status</span><select id="ckGrp"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Region</span><select id="ckReg"></select></label>
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="ckQ" placeholder="Cari no SO, distributor, atau kota"></label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="ckExport">Unduh Excel</button></div>
+        </div>
+        <div class="pl-kpis" id="ckKpi"></div>
+        <p class="mrp-count" id="ckInfo"></p>
+        <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="ckTable"></table></div>
+        <p class="hint">Pivot per nomor SO seperti sheet AMOUNT CHECK: Amount SO, Amount DO (terkirim di bulan SO), Amount DO-OS (terkirim bulan berikutnya), dan sisa. Klik baris untuk melihat rincian produk dan DO. Crosscheck dengan file Delivery Report menyusul saat file eksternalnya ada.</p>
+      </section>
       <!-- ================= CSL: ANALISA FORECAST ================= -->
       <section id="view-csl-analisa" class="view" hidden>
         <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
