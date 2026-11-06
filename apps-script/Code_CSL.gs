@@ -1,0 +1,334 @@
+/**
+ * Apps Script CSL PPIC GTK — dipasang di Google Sheet "CSL PPIC GTK"
+ * (Extensions → Apps Script → tempel file ini → Deploy → New deployment → Web app,
+ *  Execute as: Me, Who has access: Anyone).
+ *
+ * - doGet  ?action=meta   : parameter, master (DATABASE PPIC GTK), daftar bulan + versi, forecast, log
+ * - doGet  ?action=months&m=2026-09,2026-10 : baris SO & DO milik bulan SO tersebut (ringkas)
+ * - doPost {action:...}   : upsertSO, upsertDO, saveFct, saveNilai, saveParam
+ *
+ * SO_LINES dan DO_LINES selalu tersimpan urut per BULAN (bulan SO) supaya satu bulan
+ * bisa dibaca sebagai satu blok baris. Setiap bulan punya VERSI di tab MONTHS; website
+ * menyimpan salinan per bulan di browser dan hanya mengambil ulang bulan yang versinya berubah.
+ * Belum memakai PIN (sesuai permintaan) — semua yang punya alamat website bisa upload.
+ */
+const CSL_CONFIG = {
+  DATABASE_ID: '1Qp8FkQXPLtV89e9NBoIMY5oLY6_DXLzQEr3HemkHI6g',
+  MASTER_SHEET: 'MASTER_MATERIAL',
+  WEEK_SHEET: 'PEMBAGIAN_WEEK',
+  DIST_SHEET: 'DISTRIBUTOR',
+  KOTA_SHEET: 'KOTA_REF',
+  TZ: 'Asia/Jakarta',
+};
+const CSL_HEAD = {
+  SO_LINES: { head: ['BULAN', 'NO SO', 'TANGGAL SO', 'DISTRIBUTOR', 'ORDER REF', 'KODE', 'NAMA PRODUK', 'QTY SO', 'HARGA/PCS', 'DIUPLOAD'], text: [1, 2, 3, 4, 5, 6, 7, 10] },
+  DO_LINES: { head: ['BULAN SO', 'NO DO', 'TANGGAL DO', 'NO SO', 'KODE', 'BATCH', 'QTY DO', 'STATUS', 'DIUPLOAD'], text: [1, 2, 3, 4, 5, 6, 8, 9] },
+  FORECAST: { head: ['BULAN', 'KODE', 'REGION', 'QTY FCT (PCS)', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 5, 6] },
+  FCT_NILAI: { head: ['BULAN', 'REGION', 'NILAI FCT (RP)', 'SUMBER', 'DIUBAH'], text: [1, 2, 4, 5] },
+  MONTHS: { head: ['BULAN', 'VERSI', 'BARIS SO', 'BARIS DO', 'DIUBAH'], text: [1, 2, 5] },
+  PARAMETER: { head: ['PARAMETER', 'NILAI', 'KETERANGAN'], text: [1] },
+  LOG_CSL: { head: ['WAKTU', 'AKSI', 'REF', 'JUMLAH BARIS', 'KETERANGAN'], text: [1, 2, 3, 5] },
+};
+
+/* ======================= BACA ======================= */
+function doGet(e) {
+  try {
+    const p = (e && e.parameter) || {};
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (p.action === 'months') return json_(readMonths_(ss, s_(p.m).split(',').map(s_).filter(Boolean)));
+    return json_(readMeta_(ss));
+  } catch (err) {
+    return json_({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+function readMeta_(ss) {
+  const tz = CSL_CONFIG.TZ;
+  const db = SpreadsheetApp.openById(CSL_CONFIG.DATABASE_ID);
+  const master = rows_(db.getSheetByName(CSL_CONFIG.MASTER_SHEET), 4).map(r => [s_(r[0]), s_(r[1]), s_(r[3])]);
+  const dist = rows_(db.getSheetByName(CSL_CONFIG.DIST_SHEET), 3).map(r => [s_(r[0]), s_(r[1]), s_(r[2])]);
+  const kota = rows_(db.getSheetByName(CSL_CONFIG.KOTA_SHEET), 2).map(r => [s_(r[0]), s_(r[1])]);
+  const weeks = [];
+  rows_(db.getSheetByName(CSL_CONFIG.WEEK_SHEET), 4).forEach(r => {
+    const d = d_(r[0], tz, 'yyyy-MM-dd'), w = s_(r[2]), b = d_(r[3], tz, 'yyyy-MM') || d.slice(0, 7);
+    if (!d || !w) return;
+    const last = weeks[weeks.length - 1];
+    if (last && last[0] === b && last[1] === w) last[3] = d; else weeks.push([b, w, d, d]);
+  });
+  const params = rows_(sheet_(ss, 'PARAMETER'), 3).map(r => [s_(r[0]), r[1], s_(r[2])]);
+  const months = rows_(sheet_(ss, 'MONTHS'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4])]);
+  const fct = rows_(sheet_(ss, 'FORECAST'), 4).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3])]);
+  const nilai = rows_(sheet_(ss, 'FCT_NILAI'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4])]);
+  // Nama produk seperti di SO (untuk kode yang belum ada di MASTER_MATERIAL)
+  const names = {};
+  const so = sheet_(ss, 'SO_LINES'), nSo = so.getLastRow() - 1;
+  if (nSo > 0) so.getRange(2, 6, nSo, 2).getValues().forEach(r => { const k = s_(r[0]); if (k && !names[k]) names[k] = s_(r[1]); });
+  const logSh = sheet_(ss, 'LOG_CSL'), nLog = logSh.getLastRow() - 1;
+  const log = nLog > 0 ? logSh.getRange(Math.max(2, nLog - 78), 1, Math.min(nLog, 80), 5).getValues().reverse()
+    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4])]) : [];
+  return {
+    ok: true, version: 1, params, master, dist, kota, weeks, months, fct, nilai, names, log,
+    sheetUrl: ss.getUrl(), dbUrl: db.getUrl(), readAt: now_(),
+  };
+}
+
+// Satu atau beberapa bulan SO: {so:{h:{noSO:[tgl,distributor,ref]}, l:[[noSO,kode,qty,harga]]}, do:{h:{noDO:[tgl,status]}, l:[[noDO,noSO,kode,batch,qty]]}}
+function readMonths_(ss, list) {
+  const want = new Set(list);
+  const out = {};
+  list.forEach(m => { out[m] = { so: { h: {}, l: [] }, do: { h: {}, l: [] } }; });
+  const ver = {};
+  rows_(sheet_(ss, 'MONTHS'), 2).forEach(r => { ver[s_(r[0])] = s_(r[1]); });
+  blocks_(sheet_(ss, 'SO_LINES'), 9, want).forEach(r => {
+    const m = out[s_(r[0])]; if (!m) return;
+    const no = s_(r[1]);
+    if (!m.so.h[no]) m.so.h[no] = [s_(r[2]), s_(r[3]), s_(r[4])];
+    m.so.l.push([no, s_(r[5]), n_(r[7]), n_(r[8])]);
+  });
+  blocks_(sheet_(ss, 'DO_LINES'), 8, want).forEach(r => {
+    const m = out[s_(r[0])]; if (!m) return;
+    const no = s_(r[1]);
+    if (!m.do.h[no]) m.do.h[no] = [s_(r[2]), s_(r[7])];
+    m.do.l.push([no, s_(r[3]), s_(r[4]), s_(r[5]), n_(r[6])]);
+  });
+  list.forEach(m => { out[m].ver = ver[m] || ''; });
+  return { ok: true, months: out };
+}
+
+// Baca hanya blok baris bulan yang diminta (kolom A sudah urut)
+function blocks_(sh, ncol, want) {
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return [];
+  const col = sh.getRange(2, 1, n, 1).getValues();
+  const ranges = [];
+  let start = -1, cur = '';
+  for (let i = 0; i <= n; i++) {
+    const b = i < n ? s_(col[i][0]) : '\u0000';
+    if (b !== cur) {
+      if (start >= 0 && want.has(cur)) ranges.push([start, i - start]);
+      start = i; cur = b;
+    }
+  }
+  let out = [];
+  ranges.forEach(([s, len]) => { out = out.concat(sh.getRange(2 + s, 1, len, ncol).getValues()); });
+  return out;
+}
+
+/* ======================= TULIS ======================= */
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  try {
+    const b = JSON.parse(e.postData.contents || '{}');
+    lock.waitLock(60000);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const now = now_();
+    let res;
+    switch (b.action) {
+      case 'verify': res = { ok: true }; break;
+      case 'upsertSO': res = upsertSO_(ss, b, now); break;
+      case 'upsertDO': res = upsertDO_(ss, b, now); break;
+      case 'saveFct': res = saveFct_(ss, b, now); break;
+      case 'saveNilai': res = saveNilai_(ss, b, now); break;
+      case 'saveParam': res = saveParam_(ss, b, now); break;
+      default: throw new Error('Aksi tidak dikenal: ' + b.action);
+    }
+    res.time = now;
+    return json_(res);
+  } catch (err) {
+    return json_({ ok: false, error: String(err && err.message || err) });
+  } finally {
+    try { lock.releaseLock(); } catch (x) {}
+  }
+}
+
+// rows: [[noSO, tanggal yyyy-MM-dd, distributor, orderRef, kode, nama, qty, harga]]
+// Semua baris lama dengan NO SO yang ada di kiriman diganti.
+function upsertSO_(ss, b, now) {
+  const sh = sheet_(ss, 'SO_LINES');
+  const rows = (b.rows || []).map(r => {
+    const t = s_(r[1]).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) throw new Error('Tanggal SO tidak valid: ' + s_(r[0]) + ' ' + s_(r[1]));
+    return [t.slice(0, 7), s_(r[0]), t, s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), num_(r[6]), num_(r[7]), now];
+  }).filter(r => r[1] && r[5]);
+  const nos = new Set(rows.map(r => r[1]));
+  const old = readAll_(sh, 10);
+  const touched = new Set(rows.map(r => r[0]));
+  const oldMonthOf = {};
+  const keep = old.filter(r => {
+    if (!nos.has(s_(r[1]))) return true;
+    touched.add(s_(r[0])); oldMonthOf[s_(r[1])] = s_(r[0]);
+    return false;
+  });
+  const all = keep.concat(rows);
+  all.sort((a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]) || cmp_(a[5], c[5]));
+  writeFrom_(sh, old, all, 10);
+  // SO yang pindah bulan: ikutkan DO-nya
+  const moved = {};
+  rows.forEach(r => { const o = oldMonthOf[r[1]]; if (o && o !== r[0]) moved[r[1]] = r[0]; });
+  if (Object.keys(moved).length) {
+    const dsh = sheet_(ss, 'DO_LINES'), dOld = readAll_(dsh, 9);
+    const dNew = dOld.map(r => { const m = moved[s_(r[3])]; if (m) { touched.add(s_(r[0])); touched.add(m); const x = r.slice(); x[0] = m; return x; } return r; });
+    dNew.sort(doCmp_);
+    writeFrom_(dsh, dOld, dNew, 9);
+  }
+  const months = bumpMonths_(ss, touched, now);
+  log_(ss, now, 'Upload SO', b.file || '', rows.length, `${nos.size} SO · bulan ${[...touched].sort().join(', ')}${b.part ? ' · ' + b.part : ''}`);
+  return { ok: true, saved: rows.length, so: nos.size, touched: [...touched], months };
+}
+
+// rows: [[noDO, tanggal yyyy-MM-dd[ HH:mm], noSO, kode, batch, qty, status]]
+// Semua baris lama dengan NO DO yang ada di kiriman diganti. DO yang SO-nya belum ada tidak disimpan.
+function upsertDO_(ss, b, now) {
+  const soSh = sheet_(ss, 'SO_LINES'), nSo = soSh.getLastRow() - 1;
+  const soMonth = {};
+  if (nSo > 0) soSh.getRange(2, 1, nSo, 2).getValues().forEach(r => { soMonth[s_(r[1])] = s_(r[0]); });
+  const orphans = {};
+  let orphanRows = 0;
+  const rows = [];
+  (b.rows || []).forEach(r => {
+    const noDO = s_(r[0]), noSO = s_(r[2]);
+    if (!noDO || !s_(r[3])) return;
+    const m = soMonth[noSO];
+    if (!m) { orphans[noSO || '(kosong)'] = (orphans[noSO || '(kosong)'] || 0) + 1; orphanRows++; return; }
+    rows.push([m, noDO, s_(r[1]), noSO, s_(r[3]), s_(r[4]), num_(r[5]), s_(r[6]), now]);
+  });
+  const nos = new Set(rows.map(r => r[1]));
+  const sh = sheet_(ss, 'DO_LINES');
+  const old = readAll_(sh, 9);
+  const touched = new Set(rows.map(r => r[0]));
+  const keep = old.filter(r => { if (!nos.has(s_(r[1]))) return true; touched.add(s_(r[0])); return false; });
+  const all = keep.concat(rows);
+  all.sort(doCmp_);
+  writeFrom_(sh, old, all, 9);
+  const months = bumpMonths_(ss, touched, now);
+  const orph = Object.keys(orphans);
+  log_(ss, now, 'Upload DO', b.file || '', rows.length,
+    `${nos.size} DO · bulan SO ${[...touched].sort().join(', ') || '-'}${orph.length ? ` · ${orphanRows} baris tanpa SO (${orph.slice(0, 5).join(', ')}${orph.length > 5 ? '…' : ''})` : ''}${b.part ? ' · ' + b.part : ''}`);
+  return { ok: true, saved: rows.length, dos: nos.size, orphans: orph.map(k => [k, orphans[k]]), orphanRows, touched: [...touched], months };
+}
+
+// Forecast pcs: bulan yang dikirim diganti seluruhnya. rows: [[bulan, kode, region, qty]]
+function saveFct_(ss, b, now) {
+  const months = new Set((b.months || []).map(s_));
+  if (!months.size) throw new Error('Tidak ada bulan forecast.');
+  const sh = sheet_(ss, 'FORECAST');
+  const old = readAll_(sh, 6);
+  const add = (b.rows || []).map(r => [s_(r[0]), s_(r[1]), s_(r[2]).toUpperCase(), num_(r[3]), s_(b.file) || 'Upload', now])
+    .filter(r => months.has(r[0]) && r[1] && r[2] && r[3] !== '' && r[3] !== 0);
+  const all = old.filter(r => !months.has(s_(r[0]))).concat(add);
+  all.sort((a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]) || cmp_(a[2], c[2]));
+  writeFrom_(sh, old, all, 6);
+  log_(ss, now, 'Upload forecast', b.file || '', add.length, 'bulan ' + [...months].sort().join(', '));
+  return { ok: true, saved: add.length, fct: all.map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3])]) };
+}
+
+// Forecast Rupiah per region (manual). rows: [[bulan, region, nilai]] — nilai kosong = hapus
+function saveNilai_(ss, b, now) {
+  const sh = sheet_(ss, 'FCT_NILAI');
+  const old = readAll_(sh, 5);
+  const map = new Map(old.map(r => [s_(r[0]) + '|' + s_(r[1]), r]));
+  let n = 0;
+  (b.rows || []).forEach(r => {
+    const k = s_(r[0]) + '|' + s_(r[1]).toUpperCase();
+    const v = num_(r[2]);
+    if (v === '') map.delete(k);
+    else map.set(k, [s_(r[0]), s_(r[1]).toUpperCase(), v, s_(b.source) || 'Manual', now]);
+    n++;
+  });
+  const all = [...map.values()].sort((a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]));
+  writeFrom_(sh, old, all, 5);
+  log_(ss, now, 'Forecast Rupiah', s_(b.source) || 'Manual', n, [...new Set((b.rows || []).map(r => s_(r[0])))].sort().join(', '));
+  return { ok: true, nilai: all.map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4])]) };
+}
+
+function saveParam_(ss, b, now) {
+  const sh = sheet_(ss, 'PARAMETER');
+  const key = s_(b.key);
+  if (!key) throw new Error('Parameter kosong.');
+  const old = readAll_(sh, 3);
+  const i = old.findIndex(r => s_(r[0]) === key);
+  if (i >= 0) sh.getRange(i + 2, 2).setValue(b.value);
+  else sh.getRange(old.length + 2, 1, 1, 3).setValues([[key, b.value, s_(b.note)]]);
+  log_(ss, now, 'Parameter', key, 1, String(b.value));
+  return { ok: true, params: readAll_(sh, 3).map(r => [s_(r[0]), r[1], s_(r[2])]) };
+}
+
+/* ======================= BANTU ======================= */
+function bumpMonths_(ss, touched, now) {
+  const sh = sheet_(ss, 'MONTHS');
+  const count = (name) => {
+    const s = sheet_(ss, name), n = s.getLastRow() - 1, c = {};
+    if (n > 0) s.getRange(2, 1, n, 1).getValues().forEach(r => { const m = s_(r[0]); c[m] = (c[m] || 0) + 1; });
+    return c;
+  };
+  const cSo = count('SO_LINES'), cDo = count('DO_LINES');
+  const old = readAll_(sh, 5);
+  const map = new Map(old.map(r => [s_(r[0]), r]));
+  const ver = String(Date.now());
+  touched.forEach(m => { if (m) map.set(m, [m, ver, cSo[m] || 0, cDo[m] || 0, now]); });
+  [...map.keys()].forEach(m => { if (!cSo[m] && !cDo[m]) map.delete(m); });
+  const all = [...map.values()].sort((a, c) => cmp_(a[0], c[0]));
+  writeFrom_(sh, old, all, 5);
+  return all.map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4])]);
+}
+function doCmp_(a, c) { return cmp_(a[0], c[0]) || cmp_(a[3], c[3]) || cmp_(a[1], c[1]) || cmp_(a[4], c[4]); }
+function cmp_(a, c) { a = s_(a); c = s_(c); return a < c ? -1 : a > c ? 1 : 0; }
+
+// Tulis hanya mulai baris pertama yang berbeda (biasanya upload hanya mengubah bulan terakhir)
+function writeFrom_(sh, oldRows, newRows, ncol) {
+  const key = (r) => r.slice(0, ncol).map(s_).join('\u0001');
+  let i = 0;
+  const lim = Math.min(oldRows.length, newRows.length);
+  while (i < lim && key(oldRows[i]) === key(newRows[i])) i++;
+  const need = newRows.length + 1;
+  if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows() + 1000);
+  if (newRows.length > i) {
+    const CH = 20000;
+    for (let s = i; s < newRows.length; s += CH) {
+      const part = newRows.slice(s, s + CH).map(r => r.slice(0, ncol).map(v => (v === null || v === undefined ? '' : v)));
+      sh.getRange(2 + s, 1, part.length, ncol).setValues(part);
+    }
+  }
+  if (oldRows.length > newRows.length) sh.getRange(2 + newRows.length, 1, oldRows.length - newRows.length, ncol).clearContent();
+}
+function readAll_(sh, ncol) {
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return [];
+  return sh.getRange(2, 1, n, ncol).getValues().filter(r => s_(r[0]) !== '');
+}
+function sheet_(ss, name) {
+  let sh = ss.getSheetByName(name);
+  const def = CSL_HEAD[name];
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (def) {
+      sh.getRange(1, 1, 1, def.head.length).setValues([def.head]).setFontWeight('bold');
+      sh.setFrozenRows(1);
+    }
+  }
+  if (def && sh.getMaxRows() > 1 && !String(sh.getRange(2, def.text[0]).getNumberFormat()).startsWith('@')) {
+    def.text.forEach(c => sh.getRange(2, c, sh.getMaxRows() - 1, 1).setNumberFormat('@'));
+  }
+  return sh;
+}
+function log_(ss, now, aksi, ref, n, ket) {
+  const sh = sheet_(ss, 'LOG_CSL');
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 5).setValues([[now, aksi, ref, n, ket]]);
+}
+function rows_(sh, cols) {
+  if (!sh) return [];
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, cols).getValues().filter(r => s_(r[0]) !== '');
+}
+function now_() { return Utilities.formatDate(new Date(), CSL_CONFIG.TZ, 'yyyy-MM-dd HH:mm:ss'); }
+function s_(v) { return String(v === null || v === undefined ? '' : v).trim(); }
+function n_(v) { if (v === '' || v === null || v === undefined) return ''; const x = Number(v); return isNaN(x) ? '' : x; }
+function num_(v) { if (v === '' || v === null || v === undefined) return ''; const x = Number(String(v).replace(/,/g, '')); return isNaN(x) ? '' : x; }
+function d_(v, tz, f) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, tz, f);
+  return s_(v);
+}
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}

@@ -55,6 +55,23 @@
           <a class="menu-item sub" href="#/mrp/cek" data-route="mrp/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="mrpBadge" hidden></span></a>
         </div>
       </div>
+      <div class="menu-group is-open" data-group="csl">
+        <button class="menu-group-head" aria-expanded="true">
+          <span>CSL Personal Care</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <div class="submenu">
+          <a class="menu-item sub" href="#/csl/dashboard" data-route="csl/dashboard">Dashboard CSL</a>
+          <a class="menu-item sub" href="#/csl/region" data-route="csl/region">Review Region</a>
+          <a class="menu-item sub" href="#/csl/sku" data-route="csl/sku">Rekap per SKU</a>
+          <a class="menu-item sub" href="#/csl/os" data-route="csl/os">Sisa SO</a>
+          <a class="menu-item sub" href="#/csl/weekly" data-route="csl/weekly">Weekly Review</a>
+          <a class="menu-item sub" href="#/csl/analisa" data-route="csl/analisa">Analisa Forecast</a>
+          <a class="menu-item sub" href="#/csl/suggest" data-route="csl/suggest">Suggest Forecast</a>
+          <a class="menu-item sub" href="#/csl/musim" data-route="csl/musim">Seasonal</a>
+          <a class="menu-item sub" href="#/csl/update" data-route="csl/update">Update Data CSL</a>
+          <a class="menu-item sub" href="#/csl/cek" data-route="csl/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="cslBadge" hidden></span></a>
+        </div>
+      </div>
     </nav>
 
     <p class="menu-foot">Menu pekerjaan lain akan ditambahkan di sini.</p>
@@ -110,6 +127,18 @@
               <div><dt>Produk ber-BOM</dt><dd id="hMrpProd">–</dd></div>
               <div><dt>Versi BOM</dt><dd id="hMrpBom">–</dd></div>
 
+            </dl>
+          </a>
+          <a class="module" href="#/csl/dashboard">
+            <div class="module-head">
+              <h2>CSL Personal Care</h2>
+              <span class="module-link">Buka Dashboard CSL</span>
+            </div>
+            <p class="module-desc">Customer Service Level: SO distributor vs DO terkirim per bulan, per region, dan per SKU, dari export Odoo, beserta analisa forecast.</p>
+            <dl class="module-stats">
+              <div><dt id="hCslLbl">CSL bulan ini</dt><dd id="hCsl">–</dd></div>
+              <div><dt>CSL + OS</dt><dd id="hCslOs">–</dd></div>
+              <div class="late"><dt>Sisa SO (Rp)</dt><dd id="hCslSisa">–</dd></div>
             </dl>
           </a>
           <a class="module" href="#/po/supplier">
@@ -806,6 +835,178 @@
           </table>
         </div>
       </section>
+
+      <!-- ================= CSL: DASHBOARD ================= -->
+      <section id="view-csl-dashboard" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Bulan KPI</span><select id="cdMonth"></select></label>
+          <label class="tb-field"><span class="sr">Periode</span><select id="cdPeriod"></select></label>
+          <div class="chg-types csl-grp" id="cdGrp" role="tablist" aria-label="Kelompok"></div>
+          <label class="tb-check"><input type="checkbox" id="cdOs"> Grafik CSL + OS</label>
+        </div>
+        <div class="pl-kpis" id="cdKpi"></div>
+        <article class="csl-card">
+          <header class="csl-card-head"><h2>Customer Service Level per bulan</h2><p class="card-sub" id="cdChartSub"></p></header>
+          <div class="csl-chart" id="cdChart"></div>
+        </article>
+        <article class="csl-card">
+          <header class="csl-card-head"><h2 id="cdTblTitle">Rincian (Rp juta)</h2><p class="card-sub">CSL = DO terkirim di bulan yang sama dengan SO ÷ SO. CSL + OS = semua DO terkirim di bulan itu (termasuk sisa SO bulan sebelumnya) ÷ SO, sama seperti Excel — bisa lebih dari 100%.</p></header>
+          <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="cdTable"></table></div>
+        </article>
+      </section>
+
+      <!-- ================= CSL: REVIEW REGION ================= -->
+      <section id="view-csl-region" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field"><span class="sr">Periode</span><select id="crPeriod"></select></label>
+          <label class="tb-field tb-wide"><span class="sr">Tampilan</span><select id="crView"><option value="sum">Ringkasan: Offline, Online, Total</option><option value="reg">Per region R1–R4</option></select></label>
+          <div class="tb-actions"><button class="btn btn-sm" id="crNilai">Isi forecast Rupiah</button><button class="btn btn-ghost btn-sm" id="crExport">Unduh Excel</button></div>
+        </div>
+        <p class="mrp-count">Rp juta. FCT = forecast Rupiah per region (diisi manual — klik baris bulan untuk mengubah). DO = semua DO terkirim di bulan itu (DO + OS), seperti REVIEW ALL di Excel. GAP = FCT − SO.</p>
+        <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="crTable"></table></div>
+      </section>
+
+      <!-- ================= CSL: REKAP PER SKU ================= -->
+      <section id="view-csl-sku" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Status</span><select id="csGrp"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Sampai bulan</span><select id="csEnd"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Jumlah bulan</span><select id="csSpan"><option value="3">3 bulan</option><option value="6" selected>6 bulan</option><option value="12">12 bulan</option></select></label>
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="csQ" placeholder="Cari kode atau nama produk"></label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="csExport">Unduh Excel</button></div>
+        </div>
+        <p class="mrp-count" id="csInfo"></p>
+        <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="csTable"></table></div>
+        <p class="hint">Pcs. FCT dari forecast; SO menurut bulan SO; DO = terkirim di bulan yang sama; DO-OS = SO bulan itu yang terkirim di bulan berikutnya.</p>
+      </section>
+
+      <!-- ================= CSL: SISA SO ================= -->
+      <section id="view-csl-os" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Status</span><select id="coGrp"></select></label>
+          <label class="tb-field tb-wide"><span class="sr">Tampilan</span><select id="coMode"><option value="sku">Per SKU per bulan SO</option><option value="so">Rincian per SO</option></select></label>
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="coQ" placeholder="Cari kode, produk, SO, atau distributor"></label>
+          <label class="tb-check" title="Excel lama menghitung DO Cancelled sebagai sisa"><input type="checkbox" id="coCancel"> DO Cancelled dihitung sisa</label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="coExport">Unduh Excel</button></div>
+        </div>
+        <div class="pl-kpis" id="coKpi"></div>
+        <p class="mrp-count" id="coInfo"></p>
+        <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="coTable"></table></div>
+        <p class="hint">Sisa SO = qty di DO yang belum Delivered (Ready to Deliver, Waiting Availability, …). DO Cancelled ditampilkan terpisah kecuali dicentang.</p>
+      </section>
+
+      <!-- ================= CSL: WEEKLY REVIEW ================= -->
+      <section id="view-csl-weekly" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Bulan</span><select id="cwMonth"></select></label>
+          <label class="tb-field tb-wide"><span class="sr">Tampilan</span><select id="cwMode"><option value="day">SO per hari &amp; week (Rp)</option><option value="skuw">Kebutuhan FG per week (pcs)</option><option value="skud">Kebutuhan FG per hari (pcs)</option></select></label>
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="cwQ" placeholder="Cari kode atau nama produk"></label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="cwExport">Unduh Excel</button></div>
+        </div>
+        <div class="csl-week" id="cwBody"></div>
+      </section>
+
+      <!-- ================= CSL: ANALISA FORECAST ================= -->
+      <section id="view-csl-analisa" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Status</span><select id="caGrp"></select></label>
+          <label class="tb-field tb-narrow" title="Analisa memakai 12 bulan sebelum bulan ini"><span class="sr">Bulan target</span><select id="caMonth"></select></label>
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="caQ" placeholder="Cari kode atau nama produk"></label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="caExport">Unduh Excel</button></div>
+        </div>
+        <div class="csl-win"><span class="csl-win-lbl">Bulan dipakai:</span><div class="chg-types" id="caWin"></div></div>
+        <div class="pl-kpis" id="caKpi"></div>
+        <article class="csl-card">
+          <header class="csl-card-head"><h2>Total per bulan</h2><p class="card-sub">Forecast vs SO (pcs) semua SKU dalam status ini.</p></header>
+          <div class="table-wrap"><table class="po-table csl-table csl-small" id="caGlobal"></table></div>
+        </article>
+        <p class="mrp-count" id="caInfo"></p>
+        <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="caTable"></table></div>
+        <p class="hint">Klik baris untuk melihat FCT vs SO per bulan. Tanpa-nol = bulan dengan SO 0 tidak dihitung. Tipe demand: ADI ≤ batas & CV² ≤ batas = Smooth; ADI > batas = Intermittent; CV² > batas = Erratic; keduanya = Lumpy (batas di PARAMETER).</p>
+      </section>
+
+      <!-- ================= CSL: SUGGEST FORECAST ================= -->
+      <section id="view-csl-suggest" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-wide"><span class="sr">Tampilan</span><select id="cgMode"><option value="sug">Suggest per status</option><option value="res">Resume GTK + BIMS</option></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Status</span><select id="cgGrp"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Kolom</span><select id="cgCols"><option value="short">Kolom ringkas</option><option value="full">Semua kolom (seperti Excel)</option></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Bulan FCT</span><select id="cgMonth"></select></label>
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="cgQ" placeholder="Cari kode atau nama produk"></label>
+          <label class="tb-check"><input type="checkbox" id="cgAll"> Semua SKU</label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="cgExport">Unduh Excel</button></div>
+        </div>
+        <p class="mrp-count" id="cgInfo"></p>
+        <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="cgTable"></table></div>
+        <p class="hint" id="cgHint">Statistik dari menu Analisa Forecast (12 bulan sebelum bulan FCT, sesuai centang bulan di sana). Final suggest = rata-rata 5 aturan + buffer (safety stock). Arahkan kursor ke judul kolom untuk melihat rumusnya.</p>
+      </section>
+
+      <!-- ================= CSL: SEASONAL ================= -->
+      <section id="view-csl-musim" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <label class="tb-field tb-narrow"><span class="sr">Status</span><select id="cmGrp"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Tahun</span><select id="cmYear"></select></label>
+        </div>
+        <p class="mrp-count">TOP 10 SKU menurut qty SO (pcs) pada bulan-bulan tiap musim. Bulan musim diatur di tab PARAMETER (MUSIM:…) — klik judul musim untuk mengubah.</p>
+        <div class="csl-seasons" id="cmBody"></div>
+      </section>
+
+      <!-- ================= CSL: UPDATE DATA ================= -->
+      <section id="view-csl-update" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="up-grid">
+          <div class="update-card">
+            <h2>Upload SO</h2>
+            <p class="lead">Export Odoo <em>sale.order</em> apa adanya. SO yang ada di file diganti seluruh barisnya; SO lain tetap. Upload SO dulu, baru DO.</p>
+            <label class="file-drop" for="cuSoFile"><input type="file" id="cuSoFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file SO</span><span class="file-name" id="cuSoName">Belum ada file</span></label>
+            <div class="check" id="cuSoCheck"></div>
+            <div class="send-row"><button class="btn" id="cuSoSend" disabled>Simpan SO ke Google Sheet</button><p class="send-result" id="cuSoResult" aria-live="polite"></p></div>
+          </div>
+          <div class="update-card">
+            <h2>Upload DO</h2>
+            <p class="lead">Export Odoo <em>stock.picking.out</em> apa adanya. DO yang ada di file diganti (status ikut terbarui). DO yang SO-nya belum pernah di-upload tidak disimpan dan dilaporkan.</p>
+            <label class="file-drop" for="cuDoFile"><input type="file" id="cuDoFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file DO</span><span class="file-name" id="cuDoName">Belum ada file</span></label>
+            <div class="check" id="cuDoCheck"></div>
+            <div class="send-row"><button class="btn" id="cuDoSend" disabled>Simpan DO ke Google Sheet</button><p class="send-result" id="cuDoResult" aria-live="polite"></p></div>
+          </div>
+          <div class="update-card">
+            <h2>Upload forecast (pcs)</h2>
+            <p class="lead">Kolom BULAN, KODE, R1, R2, R3, R4, ONLINE (pcs). Bulan yang ada di file diganti seluruhnya. Forecast Rupiah per region diisi manual di menu <a href="#/csl/region">Review Region</a>.</p>
+            <div class="csl-tpl"><label class="field"><span>Format untuk bulan</span><select id="cuTplMonth"></select></label><button class="btn btn-ghost btn-sm" id="cuTpl">Unduh format</button></div>
+            <label class="file-drop" for="cuFcFile"><input type="file" id="cuFcFile" accept=".xls,.xlsx,.xlsm"><span class="file-btn">Pilih file forecast</span><span class="file-name" id="cuFcName">Belum ada file</span></label>
+            <div class="check" id="cuFcCheck"></div>
+            <div class="send-row"><button class="btn" id="cuFcSend" disabled>Simpan forecast ke Google Sheet</button><p class="send-result" id="cuFcResult" aria-live="polite"></p></div>
+          </div>
+          <div class="update-card">
+            <h2>Pengaturan</h2>
+            <div class="csl-params" id="cuParams"></div>
+            <p class="hint">Data SO-DO disimpan di browser per bulan; yang diambil ulang hanya bulan yang berubah. <button class="btn-link" id="cuReset">Unduh ulang semua data</button></p>
+          </div>
+        </div>
+        <div class="update-card">
+          <h2>Riwayat CSL</h2>
+          <div class="table-wrap"><table class="po-table"><thead><tr><th>Waktu</th><th>Aksi</th><th>File / ref</th><th class="num">Baris</th><th>Keterangan</th></tr></thead><tbody id="cuLog"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- ================= CSL: PEMERIKSAAN DATA ================= -->
+      <section id="view-csl-cek" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <p class="lead">Data SO-DO yang perlu dirapikan supaya CSL, region, dan kota terhitung benar.</p>
+        <div class="chg-types" id="ckTabs" role="tablist" aria-label="Jenis pemeriksaan"></div>
+        <article class="att-card">
+          <header class="att-head"><h2 id="ckTitle"></h2><p class="card-sub" id="ckDesc"></p></header>
+          <div class="table-wrap att-wrap"><table class="po-table att-table"><thead id="ckHead"></thead><tbody id="ckRows"></tbody></table></div>
+        </article>
+      </section>
     </main>
   </div>
 </div>
@@ -827,5 +1028,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
+<script src="csl.js"></script>
 </body>
 </html>

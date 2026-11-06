@@ -148,6 +148,16 @@
     'mrp/sku':           { view: 'view-mrp-sku',           crumb: 'MRP',                       title: 'Parameter SKU', actions: 'mrp' },
     'mrp/update':        { view: 'view-mrp-update',        crumb: 'MRP',                       title: 'Update Data MRP', actions: 'mrp' },
     'po/supplier':       { view: 'view-po-supplier',       crumb: 'Purchase Order',            title: 'Supplier & MoQ',  actions: 'sup' },
+    'csl/dashboard':     { view: 'view-csl-dashboard',     crumb: 'CSL Personal Care',         title: 'Dashboard CSL',   actions: 'csl' },
+    'csl/region':        { view: 'view-csl-region',        crumb: 'CSL Personal Care',         title: 'Review Region',   actions: 'csl' },
+    'csl/sku':           { view: 'view-csl-sku',           crumb: 'CSL Personal Care',         title: 'Rekap per SKU',   actions: 'csl' },
+    'csl/os':            { view: 'view-csl-os',            crumb: 'CSL Personal Care',         title: 'Sisa SO',         actions: 'csl' },
+    'csl/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Personal Care',         title: 'Weekly Review',   actions: 'csl' },
+    'csl/analisa':       { view: 'view-csl-analisa',       crumb: 'CSL Personal Care',         title: 'Analisa Forecast', actions: 'csl' },
+    'csl/suggest':       { view: 'view-csl-suggest',       crumb: 'CSL Personal Care',         title: 'Suggest Forecast', actions: 'csl' },
+    'csl/musim':         { view: 'view-csl-musim',         crumb: 'CSL Personal Care',         title: 'Seasonal',        actions: 'csl' },
+    'csl/update':        { view: 'view-csl-update',        crumb: 'CSL Personal Care',         title: 'Update Data CSL', actions: 'csl' },
+    'csl/cek':           { view: 'view-csl-cek',           crumb: 'CSL Personal Care',         title: 'Pemeriksaan Data CSL', actions: 'csl' },
   };
   function route() {
     let key = location.hash.replace(/^#\/?/, '') || 'beranda';
@@ -165,19 +175,20 @@
     state.routeKey = ROUTES[key] ? key : 'beranda';
     const planView = PLAN_KEYS.has(state.routeKey);
     $('poActions').hidden = !r.actions;
-    $('btnEditMode').hidden = r.actions === 'sup' || (r.actions === 'mrp' && !planView);
+    $('btnEditMode').hidden = r.actions === 'sup' || r.actions === 'csl' || (r.actions === 'mrp' && !planView);
     paintEditBtn();
-    const sheet = r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : planView ? (P.mrpUrl || CFG.MRP_SHEET_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
+    const sheet = r.actions === 'csl' ? ((window.CSL && window.CSL.sheetUrl()) || CFG.CSL_SHEET_URL) : r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : planView ? (P.mrpUrl || CFG.MRP_SHEET_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
     $('lnkSheet').hidden = !sheet;
     if (sheet) $('lnkSheet').href = sheet;
-    $('lnkSheet').title = r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
+    $('lnkSheet').title = r.actions === 'csl' ? 'Buka Google Sheet CSL PPIC GTK (SO, DO, forecast) di tab baru' : r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
       : planView ? 'Buka Google Sheet MRP PPIC GTK (rencana, SKU, stok) di tab baru'
       : r.actions === 'mrp' ? 'Buka Google Sheet DATABASE PPIC (MASTER_MATERIAL, BOM_LIST, BOM_DETAIL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
-    $('btnReload').title = r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
+    $('btnReload').title = r.actions === 'csl' ? 'Ambil data SO-DO dan forecast yang berubah dari Google Sheet CSL PPIC GTK' : r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
       : r.actions === 'mrp' ? 'Ambil ulang BOM, rencana, dan stok dari Google Sheet' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
     if (r.actions === 'mrp') { mrpEnter(key); renderDataInfo(); }
+    else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
     else if (state.freshLoaded) renderDataInfo();
     renderFresh();
     closeMenu();
@@ -200,7 +211,7 @@
     const box = $('fresh');
     if (!box) return;
     const r = state.route;
-    const show = state.freshLoaded && r && ((r.actions && r.actions !== 'mrp') || r.view === 'view-beranda');
+    const show = state.freshLoaded && r && ((r.actions && r.actions !== 'mrp' && r.actions !== 'csl') || r.view === 'view-beranda');
     box.hidden = !show;
     if (!show) return;
     const ut = uploadTimes();
@@ -351,6 +362,7 @@
     return { det: up.det ? up.time : '', del: up.del ? up.time : '' };
   }
   function renderDataInfo() {
+    if (state.route && state.route.actions === 'csl') return;   // diisi csl.js
     if (state.route && state.route.actions === 'mrp') {
       if (MRP.loaded) $('dataInfo').textContent = PLAN_KEYS.has(state.routeKey) && P.ready
         ? `Rencana, SKU, dan stok dibaca dari MRP PPIC GTK ${whenText(MRP.readAt)}${P.stockDate ? ` · stok per ${fmtDate(P.stockDate)}` : ' · belum ada data stok'}`
@@ -846,7 +858,8 @@
   ['fFrom', 'fTo'].forEach((id) => $(id).addEventListener('change', dateChanged));
   $('fDateType').addEventListener('change', () => { if ($('fFrom').value || $('fTo').value) dateChanged(); });
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
-  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'sup' ? loadSupplier(true)
+  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'csl' ? (window.CSL && window.CSL.reload())
+    : state.route && state.route.actions === 'sup' ? loadSupplier(true)
     : state.route && state.route.actions === 'mrp' ? loadMrp(true) : loadData()));
 
   const toggleRow = (tr) => {
@@ -3698,6 +3711,8 @@
     try { const J = computeProj(); el.textContent = nf.format(J.rows.filter((r) => r.firstShort >= 0).length); } catch (e) { el.textContent = '–'; }
   }
 
+  // Dipakai modul lain (csl.js)
+  window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld };
   route();
   loadData();
   loadSupplier(false);
