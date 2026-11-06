@@ -355,6 +355,7 @@
     renderLog();
     renderAttention();
     renderDataInfo();
+    tasksRefresh();
     if (MRP.loaded) { refreshMrpHome(); if (PLAN_KEYS.has(state.routeKey)) renderPlanView(state.routeKey); }
   }
 
@@ -3717,13 +3718,79 @@
 
   // Kartu MRP di Beranda: jumlah material yang akan kurang
   function refreshMrpHome() {
+    if (window.TASKS) setTimeout(() => window.TASKS.refresh(), 0);
     const el = $('hMrpShort'); if (!el) return;
     if (!MRP.loaded || !P.ready) { el.textContent = '–'; return; }
     try { const J = computeProj(); el.textContent = nf.format(J.rows.filter((r) => r.firstShort >= 0).length); } catch (e) { el.textContent = '–'; }
   }
 
+  /* ---------- Tugas di Beranda: anomali PO & MRP (dirender oleh tasks.js) ---------- */
+  function poTasks() {
+    if (!state.freshLoaded) return null;
+    const T = [];
+    const rows = state.rows.filter((r) => RMPM_SET.has(r.jenis));
+    const uniq = (list) => { const m = new Map(); list.forEach((r) => { const k = r.po + '|' + r.code; if (!m.has(k)) m.set(k, r); }); return [...m.values()]; };
+    const ut = uploadTimes();
+    [['PO-DET', ut.det], ['PO-DEL', ut.del]].forEach(([f, t]) => {
+      const n = t ? workdaysSince(String(t).slice(0, 10)) : Infinity;
+      if (n >= FRESH_WARN) T.push({ id: 'po-basi-' + f, proj: 'PO', level: n >= FRESH_LATE ? 'urgent' : 'check',
+        title: `Upload export ${f} dari Odoo`, count: n === Infinity ? 0 : n, unit: n === Infinity ? '' : 'hari kerja',
+        desc: t ? `Terakhir di-upload ${String(t).slice(0, 16)}. Angka PO di website bisa sudah tidak sesuai Odoo.` : 'Belum pernah di-upload lewat website.',
+        link: '#/po/update', linkLabel: 'Update Data PO', keys: [f + String(t).slice(0, 10)], items: [] });
+    });
+    const short = uniq(rows.filter((r) => r.shortage > 0)).sort((a, b) => (b.lateDays || 0) - (a.lateDays || 0));
+    const noFollow = short.filter((r) => !r.follow || r.follow.status === 'Belum dihubungi');
+    if (noFollow.length) T.push({ id: 'po-shortage', proj: 'PO', level: 'urgent', title: 'Hubungi supplier: material terlambat / kurang kirim', count: noFollow.length, unit: 'baris PO',
+      desc: 'Shortage RM/PM yang belum ada tindak lanjut. Catat hasilnya di Monitoring PO (klik baris → Tindak lanjut).',
+      link: '#/po/dashboard', linkLabel: 'Dashboard PO', keys: noFollow.map((r) => r.po + '|' + r.code + '|' + r.shortage),
+      items: noFollow.map((r) => `${r.po} · ${r.name} · kurang ${fmtNum(r.shortage)} ${r.uom}${r.lateDays ? ` · ${r.lateDays} hari` : ''} · ${r.supplier}`) });
+    const esk = short.filter((r) => r.follow && r.follow.status === 'Eskalasi');
+    if (esk.length) T.push({ id: 'po-eskalasi', proj: 'PO', level: 'urgent', title: 'Tindak lanjut berstatus Eskalasi', count: esk.length, unit: 'baris PO',
+      desc: 'Shortage yang sudah dieskalasi dan masih belum datang.', link: '#/po/dashboard', linkLabel: 'Dashboard PO', keys: esk.map((r) => r.po + '|' + r.code),
+      items: esk.map((r) => `${r.po} · ${r.name} · ${r.supplier}${r.follow.note ? ' · ' + r.follow.note : ''}`) });
+    const noSched = uniq(rows.filter((r) => r.status === 'none'));
+    if (noSched.length) T.push({ id: 'po-nosched', proj: 'PO', level: 'check', title: 'PO belum punya jadwal kedatangan', count: noSched.length, unit: 'baris PO',
+      desc: 'Baris PO RM/PM yang belum dijadwalkan di Odoo, sehingga tidak masuk kalender dan incoming MRP.', link: '#/po/monitoring', linkLabel: 'Monitoring PO',
+      keys: noSched.map((r) => r.po + '|' + r.code), items: noSched.map((r) => `${r.po} · ${fmtDate(r.date)} · ${r.name} · ${r.supplier}`) });
+    try {
+      const a = attentionData();
+      const keys = a.orphans.map((x) => 'o' + x.po + x.code).concat(a.mism.filter((x) => jenisOk(x.r, RMPM)).map((x) => 'm' + x.r.po + x.r.code), a.takeout.filter((x) => jenisOk(x.r, RMPM)).map((x) => 't' + x.r.po + x.r.code), a.cancelled.map((x) => 'c' + x.c.po + x.c.code));
+      if (keys.length) T.push({ id: 'po-perhatian', proj: 'PO', level: 'check', title: 'Data PO tidak konsisten (Perhatian Khusus)', count: keys.length, unit: 'temuan',
+        desc: `Jadwal tanpa baris PO ${a.orphans.length}, total jadwal ≠ qty order ${a.mism.filter((x) => jenisOk(x.r, RMPM)).length}, take out masih berjadwal ${a.takeout.filter((x) => jenisOk(x.r, RMPM)).length}, cancel di website tapi aktif di Odoo ${a.cancelled.length}.`,
+        link: '#/po/perhatian', linkLabel: 'Perhatian Khusus', keys, items: [] });
+    } catch (e) { /* abaikan */ }
+    const today = todayStr(), plus7 = ymd(new Date(Date.now() + 7 * 86400000));
+    const week = [];
+    uniq(rows.filter((r) => !isClosed(r))).forEach((r) => r.sched.forEach((x) => { if (x.status !== 'Done' && x.date >= today && x.date <= plus7) week.push({ r, x }); }));
+    week.sort((a, b) => a.x.date.localeCompare(b.x.date));
+    if (week.length) T.push({ id: 'po-week', proj: 'PO', level: 'info', title: 'Kedatangan 7 hari ke depan', count: week.length, unit: 'jadwal',
+      desc: 'Siapkan penerimaan di gudang dan pantau supaya tidak terlambat.', link: '#/po/kalender', linkLabel: 'Kalender Kedatangan', noHandle: true, keys: [],
+      items: week.map(({ r, x }) => `${fmtDate(x.date)} · ${r.name} · ${fmtNum(Math.max(0, (Number(x.qty) || 0) - (Number(x.rec) || 0)))} ${r.uom} · ${r.supplier}`) });
+    return T;
+  }
+  function mrpTasks() {
+    if (!MRP.loaded || !P.ready) return null;
+    const T = [];
+    const planned = [...P.plan.values()].some((p) => p.kg > 0);
+    if (!planned) return T;                     // MRP belum dipakai (hold): tidak ada tugas
+    if (!P.stockDate) T.push({ id: 'mrp-stok', proj: 'MRP', level: 'check', title: 'Upload stok RM/PM dari Odoo', count: 0, unit: '', desc: 'Rencana produksi sudah ada tetapi stok belum pernah di-upload; kekurangan dihitung dari stok 0.', link: '#/mrp/update', linkLabel: 'Update Data MRP', keys: ['nostock'], items: [] });
+    try {
+      const J = computeProj();
+      const sh = J.rows.filter((r) => r.firstShort >= 0).sort((a, b) => a.firstShort - b.firstShort);
+      if (sh.length) T.push({ id: 'mrp-short', proj: 'MRP', level: 'urgent', title: 'Material akan kurang untuk rencana produksi', count: sh.length, unit: 'material',
+        desc: 'Saldo proyeksi minus di salah satu week. Cek PO yang perlu dibuat atau dipercepat.', link: '#/mrp/proyeksi', linkLabel: 'Proyeksi Stok', keys: sh.map((r) => r.code + '|' + r.firstShort),
+        items: sh.map((r) => `${r.code} · ${r.name} · kurang ${fmtQ(r.short)} ${r.uom} · mulai ${wLabel(J.weeks[r.firstShort])}`) });
+      const ck = planChecks();
+      const bad = ['planNoBom', 'lockGone', 'skuBad', 'uomPo'].flatMap((k) => (ck[k] ? ck[k].rows.map((x, i) => k + i) : []));
+      if (bad.length) T.push({ id: 'mrp-cek', proj: 'MRP', level: 'check', title: 'Data MRP perlu dirapikan', count: bad.length, unit: 'temuan', desc: 'Rencana tanpa BOM, BOM terkunci hilang, BOM default tidak valid, atau UoM PO beda master.', link: '#/mrp/cek', linkLabel: 'Pemeriksaan Data MRP', keys: bad, items: [] });
+    } catch (e) { /* abaikan */ }
+    return T;
+  }
+  window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { po: poTasks, mrp: mrpTasks });
+  const tasksRefresh = () => { if (window.TASKS) window.TASKS.refresh(); };
+
   // Dipakai modul lain (csl.js)
-  window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld };
+  window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld, workdaysSince };
   route();
   loadData();
   loadSupplier(false);

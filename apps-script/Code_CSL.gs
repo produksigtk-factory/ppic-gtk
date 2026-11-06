@@ -32,6 +32,7 @@ const CSL_HEAD = {
   FCT_NILAI: { head: ['BULAN', 'REGION', 'NILAI FCT (RP)', 'SUMBER', 'DIUBAH'], text: [1, 2, 4, 5] },
   MONTHS: { head: ['BULAN', 'VERSI', 'BARIS SO', 'BARIS DO', 'DIUBAH'], text: [1, 2, 5] },
   PARAMETER: { head: ['PARAMETER', 'NILAI', 'KETERANGAN'], text: [1] },
+  TUGAS: { head: ['ID', 'SIGNATURE', 'CATATAN', 'DITANDAI', 'JUDUL'], text: [1, 2, 3, 4, 5] },
   LOG_CSL: { head: ['WAKTU', 'AKSI', 'REF', 'JUMLAH BARIS', 'KETERANGAN'], text: [1, 2, 3, 5] },
 };
 
@@ -42,6 +43,7 @@ function doGet(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (p.action === 'months') return json_(readMonths_(ss, s_(p.m).split(',').map(s_).filter(Boolean)));
     if (p.action === 'usage') return json_(usage_(ss));
+    if (p.action === 'tasks') return json_({ ok: true, tasks: readTasks_(ss) });
     return json_(readMeta_(ss));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
@@ -154,6 +156,7 @@ function doPost(e) {
       case 'saveFct': res = saveFct_(ss, b, now); break;
       case 'saveNilai': res = saveNilai_(ss, b, now); break;
       case 'saveParam': res = saveParam_(ss, b, now); break;
+      case 'saveTask': res = saveTask_(ss, b, now); break;
       default: throw new Error('Aksi tidak dikenal: ' + b.action);
     }
     res.time = now;
@@ -275,6 +278,23 @@ function saveParam_(ss, b, now) {
   else sh.getRange(old.length + 2, 1, 1, 3).setValues([[key, b.value, s_(b.note)]]);
   log_(ss, now, 'Parameter', key, 1, String(b.value));
   return { ok: true, params: readAll_(sh, 3).map(r => [s_(r[0]), r[1], s_(r[2])]) };
+}
+
+// Tugas Beranda yang ditandai "sudah ditangani". Muncul lagi bila SIGNATURE (isi anomali) berubah.
+function readTasks_(ss) {
+  return rows_(sheet_(ss, 'TUGAS'), 5).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4])]);
+}
+function saveTask_(ss, b, now) {
+  const id = s_(b.id);
+  if (!id) throw new Error('ID tugas kosong.');
+  const sh = sheet_(ss, 'TUGAS');
+  const old = readAll_(sh, 5);
+  let all = old.filter(r => s_(r[0]) !== id);
+  if (!b.clear) all.push([id, s_(b.sig), s_(b.note), now, s_(b.title)]);
+  all.sort((a, c) => cmp_(a[0], c[0]));
+  writeFrom_(sh, old, all, 5);
+  log_(ss, now, b.clear ? 'Tugas dibuka lagi' : 'Tugas ditangani', id, 1, s_(b.note));
+  return { ok: true, tasks: readTasks_(ss) };
 }
 
 /* ======================= BANTU ======================= */

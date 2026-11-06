@@ -180,6 +180,7 @@
     } finally {
       C.loading = false; paintLoading();
       renderHome();
+      if (window.TASKS) window.TASKS.refresh();
       if (C.route) render(C.route);
     }
   }
@@ -1348,6 +1349,74 @@
     });
     rows.forEach((r) => tb.appendChild(r));
   });
+
+  /* =====================================================================
+     TUGAS DI BERANDA (anomali CSL) — dirender oleh tasks.js
+     ===================================================================== */
+  function cslTasks() {
+    if (!C.loaded || !C.A) return null;
+    const T = [];
+    const t = todayStr(), hari = pNum('SISA_HARI', 2);
+    const age = (d) => Math.floor((new Date(t + 'T00:00:00') - new Date(d + 'T00:00:00')) / 86400000);
+    const wd = UI.workdaysSince || (() => 0);
+    [['Upload SO', 'SO'], ['Upload DO', 'DO']].forEach(([a, f]) => {
+      const ts = (C.log.find((r) => r[1] === a) || [])[0];
+      const n = ts ? wd(String(ts).slice(0, 10)) : Infinity;
+      if (n >= 2) T.push({ id: 'csl-basi-' + f, proj: 'CSL', level: n >= 3 ? 'urgent' : 'check', title: `Upload export ${f} dari Odoo`, count: n === Infinity ? 0 : n, unit: n === Infinity ? '' : 'hari kerja',
+        desc: ts ? `Terakhir di-upload ${String(ts).slice(0, 16)}. CSL dan sisa SO bisa sudah tidak sesuai Odoo.` : 'Belum ada upload lewat website.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [f + String(ts).slice(0, 10)], items: [] });
+    });
+    // SO yang masih ada sisa lebih dari N hari
+    // > 60 hari dipisah: kemungkinan sisa lama yang sudah batal di Odoo tetapi DO-nya belum di-cancel
+    const STALE = 60;
+    const stale = C.lines.filter((L) => L.sisaQ > 0 && age(L.date) > STALE);
+    if (stale.length) {
+      const nos = [...new Set(stale.map((L) => L.no))];
+      T.push({ id: 'csl-sisa-lama', proj: 'CSL', level: 'check', title: `Sisa SO lebih dari ${STALE} hari`, count: nos.length, unit: 'SO',
+        desc: `Total ${fRp(sum(stale.map((L) => L.sisaQ * L.price)))}. Pastikan di Odoo: masih akan dikirim, atau DO-nya perlu di-cancel supaya tidak terus terhitung sisa.`, link: '#/csl/os', linkLabel: 'Sisa SO',
+        keys: stale.map((L) => L.no + '|' + L.kode + '|' + L.sisaQ), items: stale.sort((a, b) => a.date.localeCompare(b.date)).map((L) => `${L.no} · ${fDate(L.date)} · ${L.dist} · ${L.kode} sisa ${fQ(L.sisaQ)}`) });
+    }
+    const old = C.lines.filter((L) => L.sisaQ > 0 && age(L.date) > hari && age(L.date) <= STALE);
+    if (old.length) {
+      const by = new Map();
+      old.forEach((L) => { const o = by.get(L.no) || { no: L.no, date: L.date, dist: L.dist, rp: 0, n: 0 }; o.rp += L.sisaQ * L.price; o.n++; by.set(L.no, o); });
+      const so = [...by.values()].sort((a, b) => a.date.localeCompare(b.date));
+      T.push({ id: 'csl-sisa', proj: 'CSL', level: 'urgent', title: `Kirim sisa SO yang lewat ${hari} hari`, count: so.length, unit: 'SO',
+        desc: `Total sisa ${fRp(sum(so.map((x) => x.rp)))}. Sisa yang terkirim di bulan berikutnya menurunkan CSL bulan SO.`, link: '#/csl/os', linkLabel: 'Sisa SO',
+        keys: old.map((L) => L.no + '|' + L.kode + '|' + L.sisaQ), items: so.map((x) => `${x.no} · ${fDate(x.date)} (${age(x.date)} hari) · ${x.dist} · ${fBig(x.rp)} · ${x.n} produk`) });
+    }
+    const noDo = C.lines.filter((L) => !L.dos.length && age(L.date) > hari);
+    if (noDo.length) T.push({ id: 'csl-nodo', proj: 'CSL', level: 'check', title: 'SO belum punya DO', count: new Set(noDo.map((L) => L.no)).size, unit: 'SO',
+      desc: `Baris SO lebih dari ${hari} hari tanpa DO sama sekali — belum dihitung terkirim maupun sisa. Cek di Odoo atau upload DO terbaru.`, link: '#/csl/cek', linkLabel: 'Pemeriksaan Data',
+      keys: noDo.map((L) => L.no + '|' + L.kode), items: noDo.map((L) => `${L.no} · ${fDate(L.date)} · ${L.dist} · ${L.kode}`) });
+    const ck = checks();
+    const pick = (ids) => ck.filter((x) => ids.includes(x.id) && x.rows.length);
+    const master = pick(['dist', 'code', 'ref']);
+    if (master.length) T.push({ id: 'csl-master', proj: 'Database', level: 'check', title: 'Lengkapi master DATABASE PPIC GTK untuk CSL', count: sum(master.map((x) => x.rows.length)), unit: 'temuan',
+      desc: master.map((x) => `${x.label} ${x.rows.length}`).join(' · ') + '. Region/kota/nama tidak terbaca sampai ditambahkan.', link: '#/csl/cek', linkLabel: 'Pemeriksaan Data',
+      keys: master.flatMap((x) => x.rows.map((r) => x.id + r[0])), items: master.flatMap((x) => x.rows.slice(0, 20).map((r) => `${x.label}: ${String(r[0]).replace(/<[^>]+>/g, '')}`)) });
+    const odd = pick(['over', 'nodate', 'orphan']);
+    if (odd.length) T.push({ id: 'csl-odd', proj: 'CSL', level: 'check', title: 'Data SO/DO tidak wajar', count: sum(odd.map((x) => x.rows.length)), unit: 'temuan',
+      desc: odd.map((x) => `${x.label} ${x.rows.length}`).join(' · ') + '.', link: '#/csl/cek', linkLabel: 'Pemeriksaan Data', keys: odd.flatMap((x) => x.rows.map((r) => x.id + r.join('|'))), items: [] });
+    // CSL bulan lalu di bawah target
+    const prev = addMonth(t.slice(0, 7), -1), tgt = pNum('TARGET_CSL', 1);
+    const pc = csl(prev, 'ALL');
+    if (pc.so && pc.csl < tgt - 0.02) {
+      const regs = REGS.concat(['ONLINE']).map((g) => [g, csl(prev, g)]).filter(([, r]) => r.so).sort((a, b) => a[1].csl - b[1].csl);
+      T.push({ id: 'csl-low-' + prev, proj: 'CSL', level: 'check', title: `Evaluasi CSL ${monLabel(prev)}: ${fPct(pc.csl)}`, count: 0, unit: '',
+        desc: `Di bawah target ${fPct(tgt)}. Cari penyebab per region dan SKU yang tidak terkirim di bulannya.`, link: '#/csl/dashboard', linkLabel: 'Dashboard CSL', keys: [prev + Math.round(pc.csl * 1000)],
+        items: regs.map(([g, r]) => `${g === 'ONLINE' ? 'Online' : g}: ${fPct(r.csl)} · SO ${fBig(r.so)} · DO ${fBig(r.do)}`) });
+    }
+    // Forecast bulan depan
+    const day = +t.slice(8, 10), cur = t.slice(0, 7), next = addMonth(cur, 1);
+    const has = (m) => C.fctRows.some((r) => r[0] === m);
+    if (!has(cur)) T.push({ id: 'csl-fct-' + cur, proj: 'CSL', level: 'urgent', title: `Upload forecast ${monLabel(cur)}`, count: 0, unit: '', desc: 'Forecast bulan berjalan belum ada; FC vs SO dan suggest tidak bisa dihitung.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [cur], items: [] });
+    else if (day >= 20 && !has(next)) T.push({ id: 'csl-fct-' + next, proj: 'CSL', level: 'check', title: `Siapkan forecast ${monLabel(next)}`, count: 0, unit: '', desc: 'Forecast bulan depan belum di-upload. Pakai Suggest Forecast sebagai bahan.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [next], items: [] });
+    const nilaiM = day >= 20 ? next : cur;
+    if (!REGS.concat(['ONLINE']).some((g) => C.nilai.has(nilaiM + '|' + g))) T.push({ id: 'csl-rp-' + nilaiM, proj: 'CSL', level: 'info', title: `Isi forecast Rupiah ${monLabel(nilaiM)}`, count: 0, unit: '', desc: 'FCT Rupiah per region untuk Review Region belum diisi.', link: '#/csl/region', linkLabel: 'Review Region', keys: [nilaiM], items: [] });
+    if (!['YA', 'TIDAK'].includes(String(P('JAM_ODOO_UTC', '')).toUpperCase())) T.push({ id: 'csl-jam', proj: 'CSL', level: 'info', title: 'Pastikan zona jam export DO Odoo', count: 0, unit: '', desc: 'Bandingkan jam satu DO di layar Odoo dengan export, lalu pilih UTC atau WIB di Pengaturan supaya DO akhir bulan masuk bulan yang benar.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: ['jam'], items: [] });
+    return T;
+  }
+  window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { csl: cslTasks });
 
   /* ---------- Event ---------- */
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };

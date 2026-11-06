@@ -21,7 +21,7 @@
     <p class="app-name">Monitoring Pekerjaan PPIC</p>
 
     <nav class="menu" aria-label="Menu utama">
-      <a class="menu-item" href="#/beranda" data-route="beranda">Beranda</a>
+      <a class="menu-item" href="#/beranda" data-route="beranda">Beranda<span class="menu-badge" id="homeBadge" hidden></span></a>
 
       <div class="menu-group" data-group="po">
         <button class="menu-group-head" aria-expanded="false">
@@ -114,7 +114,13 @@
     <main>
       <!-- ================= BERANDA ================= -->
       <section id="view-beranda" class="view">
-        <p class="lead">Ringkasan pekerjaan yang sedang dipantau. Pilih menu di samping untuk melihat rinciannya.</p>
+        <div class="tk-head">
+          <div class="tk-sums" id="taskSum"></div>
+          <div class="chg-types tk-proj-filter" id="taskProj" role="tablist" aria-label="Filter project"></div>
+        </div>
+        <p class="mrp-loading" id="taskPending" hidden></p>
+        <div class="tk-list" id="taskBody"></div>
+        <h2 class="tk-modh">Ringkasan project</h2>
         <div class="modules">
           <a class="module" href="#/po/dashboard">
             <div class="module-head">
@@ -1079,5 +1085,6 @@
 <script src="app.js"></script>
 <script src="csl.js"></script>
 <script src="help.js"></script>
+<script src="tasks.js"></script>
 </body>
 </html>
