@@ -287,36 +287,77 @@
   }
 
 
+  /* ---------- Simpanan data di browser (IndexedDB) ---------- */
+  // Data PO terakhir disimpan di browser supaya halaman langsung terisi saat dibuka;
+  // data terbaru tetap diambil dari Google Sheet dan menggantikannya (hitungan tidak berubah).
+  const KV = {
+    db: null,
+    open() {
+      if (this.db !== null) return Promise.resolve(this.db);
+      return new Promise((res) => {
+        try {
+          const r = indexedDB.open('ppic-cache', 1);
+          r.onupgradeneeded = () => r.result.createObjectStore('kv');
+          r.onsuccess = () => { this.db = r.result; res(this.db); };
+          r.onerror = () => { this.db = false; res(false); };
+        } catch (e) { this.db = false; res(false); }
+      });
+    },
+    async get(k) {
+      const db = await this.open(); if (!db) return null;
+      return new Promise((res) => { try { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch (e) { res(null); } });
+    },
+    async set(k, v) { const db = await this.open(); if (!db) return; try { db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch (e) { /* abaikan */ } },
+  };
+
   /* ---------- Ambil data ---------- */
+  function applyPoData(data) {
+    state.raw = { lines: data.lines, schedules: data.schedules };
+    setManual(data.manual);
+    state.editLog = data.editLog || [];
+    setFollow(data.followups);
+    setCancel(data.cancels);
+    state.noCancelScript = !Array.isArray(data.cancels);
+    state.changes = data.changes || [];
+    state.noFollowScript = !Array.isArray(data.followups);
+    if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
+    state.lastUpload = data.lastUpload || null;
+    state.readAt = data.readAt || '';
+  }
   async function loadData() {
     if (!CFG.APPS_SCRIPT_URL) { showSetup(); return; }
     $('dataInfo').textContent = 'Memuat data dari Google Sheet…';
     $('btnReload').disabled = true;
-    if (!state.rows.length) $('rows').innerHTML = '<tr class="empty"><td colspan="10">Memuat data dari Google Sheet, biasanya 5–10 detik…</td></tr>';
     state.loadErr = '';
+    // Tampilkan dulu simpanan terakhir (bila ada) selama data terbaru diambil
+    if (!state.rows.length) {
+      const cached = await KV.get('po');
+      if (cached && cached.ok && !state.freshLoaded) {
+        try {
+          applyPoData(cached);
+          state.fromCache = true;
+          refreshAll();
+          $('dataInfo').textContent = `Menampilkan data tersimpan (dibaca ${whenText(cached.readAt)}) · sedang mengambil data terbaru…`;
+        } catch (e) { state.rows = []; }
+      }
+      if (!state.rows.length) $('rows').innerHTML = '<tr class="empty"><td colspan="10">Memuat data dari Google Sheet, biasanya 5–10 detik…</td></tr>';
+    }
     try {
       const res = await fetch(CFG.APPS_SCRIPT_URL, { method: 'GET' });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
-      state.raw = { lines: data.lines, schedules: data.schedules };
-      setManual(data.manual);
-      state.editLog = data.editLog || [];
-      setFollow(data.followups);
-      setCancel(data.cancels);
-      state.noCancelScript = !Array.isArray(data.cancels);
-      state.changes = data.changes || [];
-      state.noFollowScript = !Array.isArray(data.followups);
-      if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
-      state.lastUpload = data.lastUpload || null;
+      applyPoData(data);
+      state.fromCache = false;
       state.freshLoaded = true;
       renderFresh();
-      state.readAt = data.readAt || '';
       refreshAll();
+      if (state.parsedDet || state.parsedDel) renderConflicts();   // pilihan PO yang pernah diedit dihitung ulang dari data terbaru
+      KV.set('po', data);
     } catch (err) {
       state.loadErr = err.message;
       tasksRefresh();
-      $('dataInfo').textContent = 'Gagal memuat data. Periksa koneksi lalu tekan "Muat ulang data".';
-      $('rows').innerHTML = `<tr class="empty"><td colspan="10">Data tidak bisa dimuat: ${esc(err.message)}</td></tr>`;
+      $('dataInfo').textContent = state.fromCache ? `Data terbaru gagal dimuat (${err.message}). Yang tampil adalah data tersimpan — tekan "Muat ulang data".` : 'Gagal memuat data. Periksa koneksi lalu tekan "Muat ulang data".';
+      if (!state.rows.length) $('rows').innerHTML = `<tr class="empty"><td colspan="10">Data tidak bisa dimuat: ${esc(err.message)}</td></tr>`;
     } finally {
       $('btnReload').disabled = false;
     }
@@ -1759,6 +1800,7 @@
   $('btnEditMode').addEventListener('click', () => {
     if (state.route && state.route.actions === 'mrp') { if (P.edit) setMrpEdit(false); else askMrpPin(); return; }
     if (state.edit.on) return setEditMode(false);
+    if (!state.freshLoaded) { toast('Tunggu sampai data terbaru selesai dimuat, baru mode edit bisa dipakai.'); return; }
     if (state.oldScript) {
       openDialog({
         title: 'Apps Script perlu diperbarui', ok: 'Mengerti', onSubmit: async () => {},
@@ -2300,6 +2342,7 @@
   $('btnSend').addEventListener('click', async () => {
     const out = $('sendResult');
     if (!CFG.APPS_SCRIPT_URL) { out.className = 'send-result err'; out.textContent = 'Website belum terhubung ke Google Sheet.'; return; }
+    if (!state.freshLoaded) { out.className = 'send-result err'; out.textContent = 'Tunggu sampai data PO terbaru selesai dimuat (lihat penanda di Beranda), lalu kirim lagi.'; return; }
     const pin = $('pin').value.trim();
     if (!pin) { out.className = 'send-result err'; out.textContent = 'Masukkan PIN upload terlebih dahulu.'; $('pin').focus(); return; }
     // PO yang dipilih "Pertahankan edit": bagian yang diedit tidak ikut dikirim

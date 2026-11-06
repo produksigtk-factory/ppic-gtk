@@ -93,10 +93,13 @@
   }
   async function api(action, payload) {
     if (!CFG.CSL_SCRIPT_URL) throw new Error('Apps Script CSL belum terpasang (config.js CSL_SCRIPT_URL).');
-    const res = await fetch(CFG.CSL_SCRIPT_URL, {
-      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ action }, payload)),
-    });
+    let res;
+    try {
+      res = await fetch(CFG.CSL_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ action }, payload)),
+      });
+    } catch (e) { throw new Error('koneksi internet terputus atau Google tidak merespons'); }
     const d = await res.json();
     if (!d.ok) {
       if (/Aksi tidak dikenal/.test(d.error || '')) throw new Error('Apps Script CSL belum versi terbaru. Tempel Code_CSL.gs terbaru lalu Deploy → Manage deployments → Edit → New version.');
@@ -145,7 +148,7 @@
     C.loading = true; C.err = ''; C.progress = 'Membaca daftar data CSL…'; paintLoading();
     try {
       if (!CFG.CSL_SCRIPT_URL) throw new Error('Apps Script CSL belum terpasang. Tempel apps-script/Code_CSL.gs di Google Sheet CSL PPIC GTK, deploy sebagai Web app, lalu isi CSL_SCRIPT_URL di config.js.');
-      const meta = await getJSON(CFG.CSL_SCRIPT_URL + '?action=meta');
+      const meta = await getJSON(CFG.CSL_SCRIPT_URL + '?action=meta' + (opt.fresh ? '&fresh=1' : ''));
       applyMeta(meta);
       if (opt.reset) { await IDB.clear(); C.cache.clear(); }
       if (!C.cache.size) (await IDB.all()).forEach((o) => C.cache.set(o.m, o));
@@ -1513,10 +1516,10 @@
     } catch (err) { toast(err.message); }
     el.disabled = false;
   });
-  on('cuReset', 'click', () => { C.loaded = false; load({ reset: true }); });
+  on('cuReset', 'click', () => { C.loaded = false; load({ reset: true, fresh: true }); });
 
   window.CSL = {
-    enter, reload: () => load(), sheetUrl: () => C.sheetUrl || CFG.CSL_SHEET_URL || '',
+    enter, reload: () => load({ fresh: true }), sheetUrl: () => C.sheetUrl || CFG.CSL_SHEET_URL || '',
     _state: C, _sug: sugRow, _stats: statsOf,
   };
   // Halaman CSL dibuka langsung lewat alamat; selain itu muat di belakang untuk angka Beranda

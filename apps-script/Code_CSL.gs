@@ -32,6 +32,7 @@ const CSL_HEAD = {
   FCT_NILAI: { head: ['BULAN', 'REGION', 'NILAI FCT (RP)', 'SUMBER', 'DIUBAH'], text: [1, 2, 4, 5] },
   MONTHS: { head: ['BULAN', 'VERSI', 'BARIS SO', 'BARIS DO', 'DIUBAH'], text: [1, 2, 5] },
   PARAMETER: { head: ['PARAMETER', 'NILAI', 'KETERANGAN'], text: [1] },
+  PRODUK_SO: { head: ['KODE', 'NAMA DI SO'], text: [1, 2] },
   TUGAS: { head: ['ID', 'SIGNATURE', 'CATATAN', 'DITANDAI', 'JUDUL'], text: [1, 2, 3, 4, 5] },
   LOG_CSL: { head: ['WAKTU', 'AKSI', 'REF', 'JUMLAH BARIS', 'KETERANGAN'], text: [1, 2, 3, 5] },
 };
@@ -44,13 +45,41 @@ function doGet(e) {
     if (p.action === 'months') return json_(readMonths_(ss, s_(p.m).split(',').map(s_).filter(Boolean)));
     if (p.action === 'usage') return json_(usage_(ss));
     if (p.action === 'tasks') return json_({ ok: true, tasks: readTasks_(ss) });
-    return json_(readMeta_(ss));
+    return json_(readMeta_(ss, p.fresh === '1'));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
   }
 }
 
-function readMeta_(ss) {
+function readMeta_(ss, fresh) {
+  const t0 = Date.now(), ms = {};
+  // Master dari DATABASE PPIC GTK jarang berubah: disimpan di cache Apps Script 10 menit.
+  // "Muat ulang data" di website mengirim fresh=1 sehingga selalu dibaca langsung.
+  const D = dbMaster_(fresh);
+  ms.database = Date.now() - t0;
+  const params = rows_(sheet_(ss, 'PARAMETER'), 3).map(r => [s_(r[0]), r[1], s_(r[2])]);
+  const months = rows_(sheet_(ss, 'MONTHS'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4])]);
+  const fct = rows_(sheet_(ss, 'FORECAST'), 4).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3])]);
+  const nilai = rows_(sheet_(ss, 'FCT_NILAI'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4])]);
+  ms.csl = Date.now() - t0 - ms.database;
+  // Nama produk seperti di SO (untuk kode yang belum ada di MASTER_MATERIAL) — dari tab PRODUK_SO yang kecil
+  const names = {};
+  produk_(ss).forEach(r => { names[r[0]] = r[1]; });
+  const logSh = sheet_(ss, 'LOG_CSL'), nLog = logSh.getLastRow() - 1;
+  const log = nLog > 0 ? logSh.getRange(Math.max(2, nLog - 78), 1, Math.min(nLog, 80), 5).getValues().reverse()
+    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4])]) : [];
+  ms.total = Date.now() - t0;
+  return {
+    ok: true, version: 2, params, master: D.master, dist: D.dist, kota: D.kota, weeks: D.weeks, months, fct, nilai, names, log,
+    sheetUrl: ss.getUrl(), dbUrl: D.dbUrl, readAt: now_(), ms, cached: D.cached,
+  };
+}
+function dbMaster_(fresh) {
+  const cache = CacheService.getScriptCache();
+  if (!fresh) {
+    const hit = getBig_(cache, 'dbmaster');
+    if (hit) { hit.cached = true; return hit; }
+  }
   const tz = CSL_CONFIG.TZ;
   const db = SpreadsheetApp.openById(CSL_CONFIG.DATABASE_ID);
   const master = rows_(db.getSheetByName(CSL_CONFIG.MASTER_SHEET), 4).map(r => [s_(r[0]), s_(r[1]), s_(r[3])]);
@@ -63,21 +92,54 @@ function readMeta_(ss) {
     const last = weeks[weeks.length - 1];
     if (last && last[0] === b && last[1] === w) last[3] = d; else weeks.push([b, w, d, d]);
   });
-  const params = rows_(sheet_(ss, 'PARAMETER'), 3).map(r => [s_(r[0]), r[1], s_(r[2])]);
-  const months = rows_(sheet_(ss, 'MONTHS'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4])]);
-  const fct = rows_(sheet_(ss, 'FORECAST'), 4).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3])]);
-  const nilai = rows_(sheet_(ss, 'FCT_NILAI'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4])]);
-  // Nama produk seperti di SO (untuk kode yang belum ada di MASTER_MATERIAL)
-  const names = {};
-  const so = sheet_(ss, 'SO_LINES'), nSo = so.getLastRow() - 1;
-  if (nSo > 0) so.getRange(2, 6, nSo, 2).getValues().forEach(r => { const k = s_(r[0]); if (k && !names[k]) names[k] = s_(r[1]); });
-  const logSh = sheet_(ss, 'LOG_CSL'), nLog = logSh.getLastRow() - 1;
-  const log = nLog > 0 ? logSh.getRange(Math.max(2, nLog - 78), 1, Math.min(nLog, 80), 5).getValues().reverse()
-    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4])]) : [];
-  return {
-    ok: true, version: 1, params, master, dist, kota, weeks, months, fct, nilai, names, log,
-    sheetUrl: ss.getUrl(), dbUrl: db.getUrl(), readAt: now_(),
-  };
+  const out = { master, dist, kota, weeks, dbUrl: db.getUrl() };
+  putBig_(cache, 'dbmaster', out, 600);
+  out.cached = false;
+  return out;
+}
+// CacheService maksimal 100 KB per kunci: data dipecah beberapa kunci
+function putBig_(cache, key, obj, ttl) {
+  try {
+    const s = JSON.stringify(obj), size = 90000, parts = {};
+    const n = Math.ceil(s.length / size);
+    for (let i = 0; i < n; i++) parts[key + '_' + i] = s.slice(i * size, (i + 1) * size);
+    parts[key + '_n'] = String(n);
+    cache.putAll(parts, ttl);
+  } catch (e) { /* cache gagal: abaikan, data tetap dibaca langsung */ }
+}
+function getBig_(cache, key) {
+  try {
+    const n = Number(cache.get(key + '_n'));
+    if (!n) return null;
+    const keys = []; for (let i = 0; i < n; i++) keys.push(key + '_' + i);
+    const got = cache.getAll(keys);
+    let s = '';
+    for (let i = 0; i < n; i++) { if (got[keys[i]] == null) return null; s += got[keys[i]]; }
+    return JSON.parse(s);
+  } catch (e) { return null; }
+}
+// Daftar kode → nama produk dari SO (tab PRODUK_SO). Dibuat sekali dari SO_LINES bila masih kosong.
+function produk_(ss) {
+  const sh = sheet_(ss, 'PRODUK_SO');
+  let rows = rows_(sh, 2).map(r => [s_(r[0]), s_(r[1])]);
+  if (!rows.length) {
+    const so = sheet_(ss, 'SO_LINES'), n = so.getLastRow() - 1;
+    if (n > 0) {
+      const m = new Map();
+      so.getRange(2, 6, n, 2).getValues().forEach(r => { const k = s_(r[0]); if (k && !m.has(k)) m.set(k, s_(r[1])); });
+      rows = [...m.entries()].sort((a, c) => cmp_(a[0], c[0]));
+      if (rows.length) sh.getRange(2, 1, rows.length, 2).setValues(rows);
+    }
+  }
+  return rows;
+}
+function addProduk_(ss, pairs) {
+  const sh = sheet_(ss, 'PRODUK_SO');
+  const old = readAll_(sh, 2);
+  const have = new Set(old.map(r => s_(r[0])));
+  const add = [];
+  pairs.forEach(([k, n]) => { if (k && !have.has(k)) { have.add(k); add.push([k, n]); } });
+  if (add.length) sh.getRange(old.length + 2, 1, add.length, 2).setValues(add);
 }
 
 // Satu atau beberapa bulan SO: {so:{h:{noSO:[tgl,distributor,ref]}, l:[[noSO,kode,qty,harga]]}, do:{h:{noDO:[tgl,status]}, l:[[noDO,noSO,kode,batch,qty]]}}
@@ -199,6 +261,8 @@ function upsertSO_(ss, b, now) {
     writeFrom_(dsh, dOld, dNew, 9);
   }
   const months = bumpMonths_(ss, touched, now);
+  produk_(ss);
+  addProduk_(ss, rows.map(r => [r[5], r[6]]));
   log_(ss, now, 'Upload SO', b.file || '', rows.length, `${nos.size} SO · bulan ${[...touched].sort().join(', ')}${b.part ? ' · ' + b.part : ''}`);
   return { ok: true, saved: rows.length, so: nos.size, touched: [...touched], months };
 }

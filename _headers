@@ -1,0 +1,20 @@
+# Cloudflare Pages: CSS/JS diberi nomor versi di index.html (node tools/stamp.js),
+# jadi aman disimpan lama di browser; versi baru otomatis terambil karena alamatnya berubah.
+/app.js
+  Cache-Control: public, max-age=31536000, immutable
+/csl.js
+  Cache-Control: public, max-age=31536000, immutable
+/help.js
+  Cache-Control: public, max-age=31536000, immutable
+/tasks.js
+  Cache-Control: public, max-age=31536000, immutable
+/config.js
+  Cache-Control: public, max-age=31536000, immutable
+/style.css
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*
+  Cache-Control: public, max-age=604800
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
