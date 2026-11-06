@@ -167,6 +167,12 @@
     if (key === 'material/supplier') key = 'po/supplier';   // alamat lama
     const r = ROUTES[key] || ROUTES.beranda;
     document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== r.view; });
+    // Menu: semua grup tertutup saat website dibuka; grup halaman yang sedang dibuka ikut terbuka
+    const activeGroup = document.querySelector(`.menu-item[data-route="${ROUTES[key] ? key : 'beranda'}"]`)?.closest('.menu-group');
+    if (activeGroup && !activeGroup.classList.contains('is-open')) {
+      activeGroup.classList.add('is-open');
+      activeGroup.querySelector('.menu-group-head').setAttribute('aria-expanded', 'true');
+    }
     document.querySelectorAll('.menu-item').forEach((a) => {
       const on = a.dataset.route === (ROUTES[key] ? key : 'beranda');
       a.classList.toggle('is-active', on);
