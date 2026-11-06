@@ -25,11 +25,22 @@
   }
   async function loadHandled() {
     if (!CFG.CSL_SCRIPT_URL) { S.handledErr = 'Apps Script CSL belum dipasang'; S.handledLoaded = true; refresh(); return; }
-    try {
-      const d = await (await fetch(CFG.CSL_SCRIPT_URL + '?action=tasks')).json();
-      if (d.ok && d.tasks) { S.handled = new Map(d.tasks.map((r) => [r[0], { sig: r[1], note: r[2], time: r[3], title: r[4] }])); S.handledLoaded = true; }
-      else S.handledErr = 'Apps Script CSL belum versi terbaru';
-    } catch (e) { S.handledErr = 'tidak terbaca'; }
+    // Permintaan kecil ini kadang menggantung di Google: batasi 20 detik lalu coba lagi (maks. 3 kali)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const ctl = window.AbortController ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : 0;
+      try {
+        const d = await (await fetch(CFG.CSL_SCRIPT_URL + '?action=tasks&try=' + attempt, ctl ? { signal: ctl.signal } : {})).json();
+        clearTimeout(timer);
+        if (d.ok && d.tasks) { S.handled = new Map(d.tasks.map((r) => [r[0], { sig: r[1], note: r[2], time: r[3], title: r[4] }])); S.handledErr = ''; }
+        else S.handledErr = 'Apps Script CSL belum versi terbaru';
+        break;
+      } catch (e) {
+        clearTimeout(timer);
+        S.handledErr = 'tidak terbaca';
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
     S.handledLoaded = true;
     refresh();
   }
