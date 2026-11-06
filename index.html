@@ -73,6 +73,16 @@
           <a class="menu-item sub" href="#/csl/cek" data-route="csl/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="cslBadge" hidden></span></a>
         </div>
       </div>
+
+      <div class="menu-group is-open" data-group="info">
+        <button class="menu-group-head" aria-expanded="true">
+          <span>Bantuan &amp; Sistem</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <div class="submenu">
+          <a class="menu-item sub" href="#/info/glosarium" data-route="info/glosarium">Glosarium</a>
+          <a class="menu-item sub" href="#/info/kapasitas" data-route="info/kapasitas">Kapasitas Google Sheet</a>
+        </div>
+      </div>
     </nav>
 
     <p class="menu-foot">Menu pekerjaan lain akan ditambahkan di sini.</p>
@@ -1024,6 +1034,27 @@
           <div class="table-wrap att-wrap"><table class="po-table att-table"><thead id="ckHead"></thead><tbody id="ckRows"></tbody></table></div>
         </article>
       </section>
+
+      <!-- ================= BANTUAN: GLOSARIUM ================= -->
+      <section id="view-info-glosarium" class="view" hidden>
+        <div class="toolbar">
+          <label class="tb-search"><span class="sr">Cari istilah</span><input type="search" id="glQ" placeholder="Cari istilah, mis. MAPE, DO-OS, shortage"></label>
+        </div>
+        <div class="chg-types" id="glTabs" role="tablist" aria-label="Kelompok istilah"></div>
+        <p class="mrp-count" id="glInfo"></p>
+        <div id="glList"></div>
+      </section>
+
+      <!-- ================= BANTUAN: KAPASITAS GOOGLE SHEET ================= -->
+      <section id="view-info-kapasitas" class="view" hidden>
+        <div class="toolbar">
+          <p class="mrp-count kp-info" id="kpInfo">Batas Google: 10.000.000 sel per file Google Sheet.</p>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="kpReload">Baca ulang</button></div>
+        </div>
+        <div class="mrp-loading" id="kpLoading" hidden>Membaca ukuran Google Sheet…</div>
+        <p class="lead kp-lead">Yang dihitung Google untuk batas adalah <b>baris × kolom yang tersedia</b> di setiap tab, termasuk baris dan kolom kosong. Batang tebal = sel tersedia, garis gelap di dalamnya = sel yang benar-benar terisi. Hijau &lt; 50%, kuning 50–80%, merah &gt; 80%.</p>
+        <div class="kp-grid" id="kpBody"></div>
+      </section>
     </main>
   </div>
 </div>
@@ -1046,5 +1077,6 @@
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script src="csl.js"></script>
+<script src="help.js"></script>
 </body>
 </html>

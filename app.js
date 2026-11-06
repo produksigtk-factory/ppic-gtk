@@ -153,6 +153,8 @@
     'csl/sku':           { view: 'view-csl-sku',           crumb: 'CSL Personal Care',         title: 'Rekap per SKU',   actions: 'csl' },
     'csl/os':            { view: 'view-csl-os',            crumb: 'CSL Personal Care',         title: 'Sisa SO',         actions: 'csl' },
     'csl/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Personal Care',         title: 'Weekly Review',   actions: 'csl' },
+    'info/glosarium':    { view: 'view-info-glosarium',    crumb: 'Bantuan & Sistem',          title: 'Glosarium',       actions: '' },
+    'info/kapasitas':    { view: 'view-info-kapasitas',    crumb: 'Bantuan & Sistem',          title: 'Kapasitas Google Sheet', actions: '' },
     'csl/amount':        { view: 'view-csl-amount',        crumb: 'CSL Personal Care',         title: 'Amount Check',    actions: 'csl' },
     'csl/analisa':       { view: 'view-csl-analisa',       crumb: 'CSL Personal Care',         title: 'Analisa Forecast', actions: 'csl' },
     'csl/suggest':       { view: 'view-csl-suggest',       crumb: 'CSL Personal Care',         title: 'Suggest Forecast', actions: 'csl' },
@@ -190,6 +192,7 @@
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
     if (r.actions === 'mrp') { mrpEnter(key); renderDataInfo(); }
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
+    else if (state.routeKey.startsWith('info/')) { if (window.HELP) window.HELP.enter(state.routeKey); }
     else if (state.freshLoaded) renderDataInfo();
     renderFresh();
     closeMenu();
@@ -363,7 +366,7 @@
     return { det: up.det ? up.time : '', del: up.del ? up.time : '' };
   }
   function renderDataInfo() {
-    if (state.route && state.route.actions === 'csl') return;   // diisi csl.js
+    if (state.route && (state.route.actions === 'csl' || state.routeKey.startsWith('info/'))) return;   // diisi csl.js / help.js
     if (state.route && state.route.actions === 'mrp') {
       if (MRP.loaded) $('dataInfo').textContent = PLAN_KEYS.has(state.routeKey) && P.ready
         ? `Rencana, SKU, dan stok dibaca dari MRP PPIC GTK ${whenText(MRP.readAt)}${P.stockDate ? ` · stok per ${fmtDate(P.stockDate)}` : ' · belum ada data stok'}`

@@ -19,6 +19,11 @@ const CSL_CONFIG = {
   DIST_SHEET: 'DISTRIBUTOR',
   KOTA_SHEET: 'KOTA_REF',
   TZ: 'Asia/Jakarta',
+  // Untuk halaman Kapasitas Google Sheet (hanya membaca ukuran tab, tidak membaca isi)
+  OTHER: [
+    ['MONITORING PO', '1Dw7HmExGNYYDkbNgYTPA7zwEr6ueUMhdtjdlR7tCBdU'],
+    ['MRP PPIC GTK', '1nx0gqSM8UzVKYMvqyzHmCvafZIcEKZLCswGJ7o3rQ9c'],
+  ],
 };
 const CSL_HEAD = {
   SO_LINES: { head: ['BULAN', 'NO SO', 'TANGGAL SO', 'DISTRIBUTOR', 'ORDER REF', 'KODE', 'NAMA PRODUK', 'QTY SO', 'HARGA/PCS', 'DIUPLOAD'], text: [1, 2, 3, 4, 5, 6, 7, 10] },
@@ -36,6 +41,7 @@ function doGet(e) {
     const p = (e && e.parameter) || {};
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (p.action === 'months') return json_(readMonths_(ss, s_(p.m).split(',').map(s_).filter(Boolean)));
+    if (p.action === 'usage') return json_(usage_(ss));
     return json_(readMeta_(ss));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
@@ -112,6 +118,24 @@ function blocks_(sh, ncol, want) {
   let out = [];
   ranges.forEach(([s, len]) => { out = out.concat(sh.getRange(2 + s, 1, len, ncol).getValues()); });
   return out;
+}
+
+// Ukuran tiap Google Sheet: batas Google = 10.000.000 sel per file (dihitung dari baris × kolom yang tersedia, termasuk yang kosong)
+function usage_(ss) {
+  const list = [['CSL PPIC GTK', ss], ['DATABASE PPIC GTK', CSL_CONFIG.DATABASE_ID]].concat(CSL_CONFIG.OTHER);
+  const files = list.map(([name, x]) => {
+    try {
+      const f = typeof x === 'string' ? SpreadsheetApp.openById(x) : x;
+      return {
+        name, url: f.getUrl(), ok: true,
+        tabs: f.getSheets().map(sh => [sh.getName(), sh.getMaxRows(), sh.getMaxColumns(), sh.getLastRow(), sh.getLastColumn()]),
+      };
+    } catch (err) {
+      return { name, ok: false, error: String(err && err.message || err), tabs: [] };
+    }
+  });
+  const months = rows_(sheet_(ss, 'MONTHS'), 4).map(r => [s_(r[0]), n_(r[2]), n_(r[3])]);
+  return { ok: true, files, months, limit: 10000000, readAt: now_() };
 }
 
 /* ======================= TULIS ======================= */

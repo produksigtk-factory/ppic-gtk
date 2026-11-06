@@ -1137,3 +1137,33 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .sk-legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; }
 .sk-legend i.sk-so { background: #cfe5d8; } .sk-legend i.sk-do { background: #106a3a; } .sk-legend i.sk-fct { background: #b07d16; height: 3px; }
 .sk-h { font-size: 14px; margin: 14px 0 6px; }
+
+/* ================= Bantuan & Sistem ================= */
+.gl-sec { margin: 14px 0 0; }
+.gl-h { font-size: 15px; color: var(--brand); margin: 10px 0 6px; }
+.gl-dl { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.gl-item { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 6px 18px; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+.gl-item:last-child { border-bottom: 0; }
+.gl-item dt { font-weight: 700; }
+.gl-alias { display: block; font-weight: 500; font-size: 12px; color: var(--muted); }
+.gl-item dd { margin: 0; max-width: 90ch; }
+.gl-link { margin-left: 6px; font-size: 12.5px; color: var(--brand); font-weight: 600; white-space: nowrap; }
+@media (max-width: 700px) { .gl-item { grid-template-columns: minmax(0, 1fr); } }
+.kp-info { margin: 0; }
+.kp-lead { margin: 12px 0 0; max-width: 100ch; color: var(--muted); }
+.kp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+@media (max-width: 700px) { .kp-grid { grid-template-columns: minmax(0, 1fr); } }
+.kp-card { margin: 14px 0 0; }
+.kp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.kp-head h2 { font-size: 16px; }
+.kp-head h2 a { color: var(--ink); text-decoration: none; }
+.kp-head h2 a:hover { color: var(--brand); text-decoration: underline; }
+.kp-pct { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kp-pct.is-ok { color: var(--done); } .kp-pct.is-warn { color: #8a6100; } .kp-pct.is-bad { color: var(--late); }
+.kp-bar { position: relative; height: 14px; margin: 10px 0 4px; border-radius: 999px; background: #eef1f4; overflow: hidden; }
+.kp-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; }
+.kp-fill.is-ok { background: #bfe0cc; } .kp-fill.is-warn { background: #f1dc9c; } .kp-fill.is-bad { background: #f1c4c0; }
+.kp-used { position: absolute; left: 0; top: 5px; height: 4px; border-radius: 999px; background: var(--brand-dark); }
+.kp-tabs { margin-top: 12px; }
+.kp-tabs summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 13px; }
+.kp-tabs .table-wrap { margin-top: 8px; }
