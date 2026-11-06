@@ -1417,6 +1417,7 @@
     return T;
   }
   window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { csl: cslTasks });
+  window.PPIC_STATUS = Object.assign(window.PPIC_STATUS || {}, { csl: () => (C.loaded ? 'ready' : C.err ? C.err.replace(/^Data CSL belum bisa dimuat: /, '') : 'loading') });
 
   /* ---------- Event ---------- */
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
@@ -1521,5 +1522,5 @@
   // Halaman CSL dibuka langsung lewat alamat; selain itu muat di belakang untuk angka Beranda
   const k0 = location.hash.replace(/^#\/?/, '');
   if (k0.startsWith('csl/')) enter(k0);
-  else if (CFG.CSL_SCRIPT_URL) setTimeout(() => { if (!C.loaded && !C.loading) load(); }, 3000);
+  else if (CFG.CSL_SCRIPT_URL) setTimeout(() => { if (!C.loaded && !C.loading) load(); }, 600);
 })();

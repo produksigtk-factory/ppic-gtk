@@ -1211,3 +1211,30 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .tk-donebox summary { cursor: pointer; font-weight: 600; color: var(--done); margin-bottom: 8px; }
 .tk-modh { font-size: 15px; margin: 26px 0 10px; color: var(--muted); }
 @media (max-width: 700px) { .tk-card { flex-direction: column; } .tk-act { flex-direction: row; flex-wrap: wrap; } }
+
+/* Penanda website siap dipakai */
+.ready-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); }
+.ready-bar.is-loading { border-color: #c9d8ce; background: #f4f8f5; }
+.ready-bar.is-ready { border-color: #bfe0cc; background: var(--done-soft); }
+.ready-bar.is-warn { border-color: #ecd58f; background: #fff8de; }
+.ready-ic { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; position: relative; }
+.is-loading .ready-ic { border: 3px solid #cfe5d8; border-top-color: var(--brand); animation: rdspin .9s linear infinite; }
+.is-ready .ready-ic { background: var(--done); }
+.is-ready .ready-ic::after { content: ""; position: absolute; left: 7px; top: 3px; width: 6px; height: 11px; border: solid #fff; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.is-warn .ready-ic { background: var(--wait); }
+.is-warn .ready-ic::after { content: "!"; position: absolute; inset: 0; color: #fff; font-weight: 800; text-align: center; line-height: 22px; }
+@keyframes rdspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .is-loading .ready-ic { animation-duration: 3s; } }
+.ready-txt { display: flex; flex-direction: column; min-width: 0; flex: 1 1 300px; }
+.ready-txt b { font-size: 14.5px; }
+.is-ready .ready-txt b { color: var(--done); }
+.ready-txt span { font-size: 12.5px; color: var(--muted); }
+.ready-src { display: flex; gap: 6px; flex-wrap: wrap; }
+.ready-chip { font-size: 12px; font-weight: 600; padding: 3px 10px 3px 22px; border-radius: 999px; position: relative; background: var(--surface); border: 1px solid var(--line); }
+.ready-chip::before { content: ""; position: absolute; left: 8px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; }
+.ready-chip.is-ok::before { background: var(--done); }
+.ready-chip.is-load::before { background: #9aa6b2; animation: rdpulse 1s ease-in-out infinite alternate; }
+.ready-chip.is-err::before { background: var(--late); }
+.ready-chip.is-err { color: var(--late); }
+@keyframes rdpulse { from { opacity: .3; } to { opacity: 1; } }
+.tk-sums.is-wait { opacity: .5; }

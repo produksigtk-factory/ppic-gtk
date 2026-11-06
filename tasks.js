@@ -13,7 +13,8 @@
   const LEVELS = [['urgent', 'Mendesak', 'Kerjakan hari ini'], ['check', 'Perlu dicek', 'Rapikan data / pastikan'], ['info', 'Info', 'Untuk diketahui']];
   const PROJ = ['PO', 'CSL', 'MRP', 'Database'];
   const SOURCES = [['po', 'Purchase Order'], ['csl', 'CSL'], ['mrp', 'MRP']];
-  const S = { proj: '', handled: new Map(), handledLoaded: false, open: new Set(), last: [] };
+  const S = { proj: '', handled: new Map(), handledLoaded: false, handledErr: '', open: new Set(), last: [], t0: Date.now(), readyAt: 0, timer: null };
+  const READY_SRC = [['po', 'Purchase Order'], ['csl', 'CSL'], ['mrp', 'MRP'], ['tugas', 'Status tugas']];
 
   // Tanda isi anomali: berubah bila daftar item berubah → tugas yang sudah ditangani muncul lagi
   function sig(keys) {
@@ -23,11 +24,13 @@
     return (h >>> 0).toString(36) + '.' + (keys || []).length;
   }
   async function loadHandled() {
-    if (!CFG.CSL_SCRIPT_URL) return;
+    if (!CFG.CSL_SCRIPT_URL) { S.handledErr = 'Apps Script CSL belum dipasang'; S.handledLoaded = true; refresh(); return; }
     try {
       const d = await (await fetch(CFG.CSL_SCRIPT_URL + '?action=tasks')).json();
       if (d.ok && d.tasks) { S.handled = new Map(d.tasks.map((r) => [r[0], { sig: r[1], note: r[2], time: r[3], title: r[4] }])); S.handledLoaded = true; }
-    } catch (e) { /* belum versi terbaru: fitur tandai tidak tersedia */ }
+      else S.handledErr = 'Apps Script CSL belum versi terbaru';
+    } catch (e) { S.handledErr = 'tidak terbaca'; }
+    S.handledLoaded = true;
     refresh();
   }
   async function save(payload) {
@@ -48,7 +51,36 @@
     });
     return { all, pending };
   }
+  // Penanda kesiapan: tiap sumber data memuat → siap / gagal; semua selesai = website siap dipakai
+  function paintReady() {
+    const el = $('readyBar'); if (!el) return;
+    const ST = window.PPIC_STATUS || {};
+    const list = READY_SRC.map(([k, label]) => {
+      let st = k === 'tugas' ? (S.handledLoaded ? (S.handledErr ? S.handledErr : 'ready') : 'loading') : (ST[k] ? ST[k]() : 'loading');
+      if (k !== 'tugas' && !CFG[{ po: 'APPS_SCRIPT_URL', csl: 'CSL_SCRIPT_URL', mrp: 'MRP_SCRIPT_URL' }[k]]) st = 'belum dipasang';
+      return { k, label, st };
+    });
+    const loading = list.filter((x) => x.st === 'loading').length;
+    const errs = list.filter((x) => x.st !== 'loading' && x.st !== 'ready');
+    if (!loading && !S.readyAt) S.readyAt = Date.now();
+    const secs = Math.round(((S.readyAt || Date.now()) - S.t0) / 1000);
+    const state = loading ? 'loading' : errs.length ? 'warn' : 'ready';
+    const title = loading ? `Menyiapkan data… ${list.length - loading} dari ${list.length} selesai (${secs} detik)`
+      : errs.length ? `Website bisa dipakai, tetapi ${errs.map((x) => x.label).join(', ')} belum termuat`
+      : `Website siap dipakai — semua data termuat dalam ${secs} detik`;
+    const sub = loading ? 'Tunggu sampai semua tanda menjadi centang hijau; daftar tugas di bawah masih bisa bertambah.'
+      : errs.length ? errs.map((x) => `${x.label}: ${x.st}`).join(' · ') + '. Tekan Muat ulang data di halaman terkait atau muat ulang browser.'
+      : 'Daftar tugas di bawah sudah lengkap.';
+    el.className = `ready-bar is-${state}`;
+    el.innerHTML = `<span class="ready-ic" aria-hidden="true"></span><div class="ready-txt"><b>${esc(title)}</b><span>${esc(sub)}</span></div>
+      <div class="ready-src">${list.map((x) => `<span class="ready-chip is-${x.st === 'ready' ? 'ok' : x.st === 'loading' ? 'load' : 'err'}" title="${esc(x.st === 'ready' ? 'Siap' : x.st === 'loading' ? 'Memuat…' : x.st)}">${esc(x.label)}</span>`).join('')}</div>`;
+    if (loading && !S.timer) S.timer = setInterval(paintReady, 1000);
+    if (!loading && S.timer) { clearInterval(S.timer); S.timer = null; }
+    const badge = $('readyDot');
+    if (badge) { badge.hidden = !loading; }
+  }
   function refresh() {
+    paintReady();
     const box = $('taskBody'); if (!box) return;
     const { all, pending } = collect();
     S.last = all;
@@ -65,6 +97,7 @@
       if (p && !n && !all.some((t) => t.proj === p)) return '';
       return `<button class="chg-type${S.proj === p ? ' is-on' : ''}" data-p="${p}">${p || 'Semua project'} <b>${n}</b></button>`;
     }).join('');
+    $('taskSum').classList.toggle('is-wait', !!pending.length);
     $('taskPending').hidden = !pending.length;
     $('taskPending').textContent = pending.length ? `Masih memuat data ${pending.join(', ')}… daftar tugas akan bertambah.` : '';
     const card = (t, handled) => {

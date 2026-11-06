@@ -293,6 +293,7 @@
     $('dataInfo').textContent = 'Memuat data dari Google Sheet…';
     $('btnReload').disabled = true;
     if (!state.rows.length) $('rows').innerHTML = '<tr class="empty"><td colspan="10">Memuat data dari Google Sheet, biasanya 5–10 detik…</td></tr>';
+    state.loadErr = '';
     try {
       const res = await fetch(CFG.APPS_SCRIPT_URL, { method: 'GET' });
       const data = await res.json();
@@ -312,6 +313,8 @@
       state.readAt = data.readAt || '';
       refreshAll();
     } catch (err) {
+      state.loadErr = err.message;
+      tasksRefresh();
       $('dataInfo').textContent = 'Gagal memuat data. Periksa koneksi lalu tekan "Muat ulang data".';
       $('rows').innerHTML = `<tr class="empty"><td colspan="10">Data tidak bisa dimuat: ${esc(err.message)}</td></tr>`;
     } finally {
@@ -2378,6 +2381,8 @@
       if (!data.ok) throw new Error(data.error || 'Respon tidak valid');
       if (!Array.isArray(data.boms)) throw new Error('Apps Script MRP belum versi terbaru. Tempel Code_MRP.gs terbaru, lalu Deploy → Manage deployments → Edit → New version → Deploy.');
       setMrp(data);
+      MRP.err = '';
+      if (window.TASKS) setTimeout(() => window.TASKS.refresh(), 0);
       document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = true; });
       if (state.route && state.route.actions === 'mrp') {
         renderDataInfo();
@@ -2385,6 +2390,8 @@
         renderMrp(location.hash.replace(/^#\/?/, ''));
       }
     } catch (err) {
+      MRP.err = err.message;
+      if (window.TASKS) window.TASKS.refresh();
       document.querySelectorAll('[data-mrp-loading]').forEach((x) => { x.hidden = false; x.textContent = 'Data MRP tidak bisa dimuat: ' + err.message; });
     } finally {
       MRP.loading = false;
@@ -3787,6 +3794,11 @@
     return T;
   }
   window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { po: poTasks, mrp: mrpTasks });
+  // Status pemuatan untuk penanda "website siap dipakai" di Beranda: 'loading' | 'ready' | pesan galat
+  window.PPIC_STATUS = Object.assign(window.PPIC_STATUS || {}, {
+    po: () => (state.freshLoaded ? 'ready' : state.loadErr ? state.loadErr : 'loading'),
+    mrp: () => (MRP.loaded ? 'ready' : MRP.err ? MRP.err : 'loading'),
+  });
   const tasksRefresh = () => { if (window.TASKS) window.TASKS.refresh(); };
 
   // Dipakai modul lain (csl.js)
@@ -3794,5 +3806,5 @@
   route();
   loadData();
   loadSupplier(false);
-  setTimeout(() => loadMrp(false), 1500);   // angka MRP di Beranda; halaman MRP langsung siap saat dibuka
+  setTimeout(() => loadMrp(false), 300);   // angka MRP di Beranda; halaman MRP langsung siap saat dibuka
 })();
