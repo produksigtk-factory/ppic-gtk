@@ -388,12 +388,12 @@
     $('cdChart').innerHTML = lineChart(months, ['ALL', 'OFFLINE', 'ONLINE'].map((g) => ({
       name: GRP_LABEL[g], cls: 's-' + g.toLowerCase(),
       vals: months.map((x) => { const r = csl(x, g); return useOs ? r.cslOs : r.csl; }),
-    })), tgt);
+    })), tgt, m);
     const g = D.grp;
     const rows = months.map((x) => csl(x, g));
     $('cdTblTitle').textContent = `${GRP_LABEL[g]} — Rp juta`;
-    const head = `<thead><tr><th class="pl-sticky pl-c1">Keterangan</th>${months.map((x) => `<th class="num">${monShort(x)}</th>`).join('')}</tr></thead>`;
-    const tr = (lbl, f, cls = '') => `<tr class="${cls}"><td class="pl-sticky pl-c1">${lbl}</td>${rows.map(f).join('')}</tr>`;
+    const head = `<thead><tr><th class="pl-sticky pl-c1">Keterangan</th>${months.map((x) => `<th class="num csl-mcol${x === m ? ' is-sel' : ''}" data-m="${x}" title="Klik untuk memilih ${monLabel(x)}">${monShort(x)}</th>`).join('')}</tr></thead>`;
+    const tr = (lbl, f, cls = '') => `<tr class="${cls}"><td class="pl-sticky pl-c1">${lbl}</td>${rows.map((r, i) => f(r).replace('<td class="', `<td class="${months[i] === m ? 'is-sel ' : ''}`)).join('')}</tr>`;
     $('cdTable').innerHTML = head + '<tbody>'
       + tr('SO', (r) => `<td class="num" title="${fRp(r.so)}">${fJt(r.so)}</td>`)
       + tr('DO (bulan sama)', (r) => `<td class="num" title="${fRp(r.do)}">${fJt(r.do)}</td>`)
@@ -404,24 +404,46 @@
       + tr('% CSL + OS', (r) => pctCell(r.cslOs), 'csl-strong')
       + '</tbody>';
   }
-  function lineChart(months, series, target) {
+  function lineChart(months, series, target, sel) {
     const W = 920, H = 280, L = 46, R = 26, T = 14, B = 34;
     const all = series.flatMap((s) => s.vals.filter(isNum)).concat([target]);
     const lo = Math.max(0, Math.floor(Math.min(...all, 0.8) * 10) / 10), hi = Math.ceil(Math.max(...all, 1.05) * 10) / 10;
     const x = (i) => L + (months.length <= 1 ? (W - L - R) / 2 : (i * (W - L - R)) / (months.length - 1));
     const y = (v) => T + (H - T - B) * (1 - (v - lo) / (hi - lo || 1));
+    const step = months.length > 1 ? (W - L - R) / (months.length - 1) : W - L - R;
     let g = '';
+    const si = months.indexOf(sel);
+    if (si >= 0) g += `<rect class="cslc-sel" x="${x(si) - step / 2}" y="${T}" width="${step}" height="${H - T - B}"/>`;
     for (let v = lo; v <= hi + 1e-9; v += 0.1) g += `<line class="cslc-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="cslc-ax" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
-    months.forEach((m, i) => { if (months.length <= 14 || i % 2 === 0) g += `<text class="cslc-ax" x="${x(i)}" y="${H - 12}" text-anchor="middle">${monShort(m)}</text>`; });
+    months.forEach((m, i) => { if (months.length <= 14 || i % 2 === 0) g += `<text class="cslc-ax${i === si ? ' is-sel' : ''}" x="${x(i)}" y="${H - 12}" text-anchor="middle">${monShort(m)}</text>`; });
     g += `<line class="cslc-target" x1="${L}" x2="${W - R}" y1="${y(target)}" y2="${y(target)}"/>`;
+    g += `<line class="cslc-cross" id="cdCross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>`;
     series.forEach((s) => {
       let d = '', pen = false;
       s.vals.forEach((v, i) => { if (isNum(v)) { d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true; } else pen = false; });
       g += `<path class="cslc-line ${s.cls}" d="${d}"/>`;
-      s.vals.forEach((v, i) => { if (isNum(v)) g += `<circle class="cslc-dot ${s.cls}" cx="${x(i)}" cy="${y(v)}" r="4"><title>${esc(s.name)} · ${monLabel(months[i])}: ${fPct(v)}</title></circle>`; });
+      s.vals.forEach((v, i) => { if (isNum(v)) g += `<circle class="cslc-dot ${s.cls}" cx="${x(i)}" cy="${y(v)}" r="${i === si ? 5.5 : 4}"/>`; });
     });
+    // Area sentuh per bulan (lebih lebar dari titik) untuk tooltip dan klik
+    months.forEach((m, i) => { g += `<rect class="cslc-hit" data-i="${i}" x="${x(i) - step / 2}" y="${T}" width="${step}" height="${H - T}"/>`; });
+    C.chart = { months, series, x, W };
     const legend = series.map((s) => `<span class="cslc-leg"><i class="${s.cls}"></i>${esc(s.name)}</span>`).join('');
-    return `<div class="cslc-legend">${legend}</div><svg class="cslc" viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafik CSL per bulan">${g}</svg>`;
+    return `<div class="cslc-legend">${legend}<span class="cslc-help">Arahkan kursor untuk melihat angka · klik bulan untuk menampilkannya di atas</span></div><div class="cslc-box"><svg class="cslc" viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafik CSL per bulan">${g}</svg><div class="cslc-tip" id="cdTip" hidden></div></div>`;
+  }
+  function chartHover(e) {
+    const r = e.target.closest('.cslc-hit');
+    const tip = $('cdTip'), cross = $('cdCross');
+    if (!r || !C.chart) { if (tip) tip.hidden = true; if (cross) cross.setAttribute('visibility', 'hidden'); return; }
+    const i = +r.dataset.i, ch = C.chart, m = ch.months[i];
+    cross.setAttribute('x1', ch.x(i)); cross.setAttribute('x2', ch.x(i)); cross.setAttribute('visibility', 'visible');
+    const g = ['ALL', 'OFFLINE', 'ONLINE'];
+    tip.innerHTML = `<b>${monLabel(m)}</b>` + ch.series.map((s, k) => { const c = csl(m, g[k]); return `<div class="cslc-tip-row"><i class="${s.cls}"></i><span>${esc(s.name)}</span><b>${fPct(s.vals[i])}</b></div><div class="cslc-tip-sub">SO ${fBig(c.so)} · DO ${fBig($('cdOs').checked ? c.dos : c.do)}</div>`; }).join('') + '<div class="cslc-tip-foot">Klik untuk memilih bulan ini</div>';
+    tip.hidden = false;
+    const box = tip.parentElement.getBoundingClientRect(), svg = tip.parentElement.querySelector('svg').getBoundingClientRect();
+    const px = (ch.x(i) / ch.W) * svg.width;
+    tip.style.left = Math.min(Math.max(px + 14, 0), box.width - tip.offsetWidth - 4) + 'px';
+    if (px + 14 + tip.offsetWidth > box.width) tip.style.left = Math.max(0, px - tip.offsetWidth - 14) + 'px';
+    tip.style.top = '8px';
   }
 
   /* =====================================================================
@@ -501,9 +523,52 @@
     const head = `<thead><tr><th class="pl-sticky pl-c1" rowspan="2">Kode</th><th class="pl-sticky pl-c2" rowspan="2">Nama produk</th>${months.map((m) => `<th colspan="4" class="m-start">${monLabel(m)}</th>`).join('')}</tr>`
       + `<tr>${months.map(() => '<th class="num m-start">FCT</th><th class="num">SO</th><th class="num">DO</th><th class="num">DO-OS</th>').join('')}</tr>`
       + `<tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th class="pl-sticky pl-c2"></th>${tot.map((x) => c4(x, true).replace(/<td/g, '<th').replace(/<\/td>/g, '</th>')).join('')}</tr></thead>`;
-    const body = rows.slice(0, 400).map((r) => `<tr><td class="pl-sticky pl-c1">${esc(r.k)}</td><td class="pl-sticky pl-c2" title="${esc(r.n)}">${esc(r.n)}</td>${r.v.map((x) => c4(x, true)).join('')}</tr>`).join('');
+    const body = rows.slice(0, 400).map((r) => `<tr class="row" data-k="${esc(r.k)}" data-g="${g}"><td class="pl-sticky pl-c1">${esc(r.k)}</td><td class="pl-sticky pl-c2" title="${esc(r.n)}">${esc(r.n)}</td>${r.v.map((x) => c4(x, true)).join('')}</tr>`).join('');
     $('csTable').innerHTML = head + `<tbody>${body || `<tr><td colspan="${2 + months.length * 4}" class="csl-empty">Tidak ada data.</td></tr>`}</tbody>`;
   }
+
+  // Rincian satu SKU: 12 bulan FCT vs SO vs terkirim, plus distributor dan SO yang masih sisa
+  function openSku(kode, g) {
+    g = g || 'ALL';
+    const end = lastSoMonth();
+    const months = Array.from({ length: 12 }, (_, i) => addMonth(end, i - 11));
+    const v = months.map((m) => ({ m, fct: fctOf(m, kode, g), so: skuV(m, kode, g, 'so'), dlv: skuV(m, kode, g, 'do') + skuV(m, kode, g, 'os'), sisa: skuV(m, kode, g, 'sisa') }));
+    const mx = Math.max(1, ...v.map((x) => Math.max(x.fct, x.so)));
+    const W = 680, H = 200, L = 8, B = 24, bw = (W - L * 2) / months.length;
+    const y = (q) => (H - B) * (1 - q / mx) + 6;
+    let svg = '';
+    v.forEach((x, i) => {
+      const cx = L + i * bw;
+      svg += `<rect class="sk-so" x="${cx + bw * 0.18}" y="${y(x.so)}" width="${bw * 0.64}" height="${H - B + 6 - y(x.so)}"><title>${monLabel(x.m)} · SO ${fQ(x.so)} pcs</title></rect>`;
+      svg += `<rect class="sk-do" x="${cx + bw * 0.3}" y="${y(x.dlv)}" width="${bw * 0.4}" height="${H - B + 6 - y(x.dlv)}"><title>${monLabel(x.m)} · terkirim ${fQ(x.dlv)} pcs</title></rect>`;
+      if (x.fct) svg += `<line class="sk-fct" x1="${cx + bw * 0.08}" x2="${cx + bw * 0.92}" y1="${y(x.fct)}" y2="${y(x.fct)}"><title>${monLabel(x.m)} · FCT ${fQ(x.fct)} pcs</title></line>`;
+      svg += `<text class="cslc-ax" x="${cx + bw / 2}" y="${H - 4}" text-anchor="middle">${monShort(x.m)}</text>`;
+    });
+    const from = addMonth(end, -2);
+    const dist = new Map();
+    C.lines.forEach((L) => { if (L.kode !== kode || L.m < from || (g !== 'ALL' && L.status !== g && L.region !== g)) return; const o = dist.get(L.dist) || { so: 0, dl: 0, sisa: 0, region: L.region }; o.so += L.qty; o.dl += L.doQ + L.osQ; o.sisa += L.sisaQ; dist.set(L.dist, o); });
+    const dl = [...dist.entries()].sort((a, b) => b[1].so - a[1].so).slice(0, 10);
+    const open = C.lines.filter((L) => L.kode === kode && L.sisaQ > 0 && (g === 'ALL' || L.status === g || L.region === g));
+    const tot = (f) => sum(v.map((x) => x[f]));
+    UI.openDialog({
+      title: `${kode} — ${nameOf(kode) || 'produk'}`, ok: 'Tutup', cancel: false, wide: true, onSubmit: async () => {},
+      body: `<p class="dlg-lead">${GRP_LABEL[g] || g} · 12 bulan s/d ${monLabel(end)} (pcs)</p>
+        <div class="sk-kpis">${kpis([
+          { num: fQ(tot('so')), lbl: 'SO 12 bulan' }, { num: fQ(tot('fct')), lbl: 'FCT 12 bulan' },
+          { num: fPct(ratio(tot('dlv'), tot('so'))), lbl: 'Terkirim ÷ SO', tone: cslTone(ratio(tot('dlv'), tot('so'))) },
+          { num: fQ(sum(open.map((L) => L.sisaQ))), lbl: 'Sisa SO sekarang', tone: open.length ? 'warn' : '' }])}</div>
+        <div class="sk-legend"><span><i class="sk-so"></i>SO</span><span><i class="sk-do"></i>Terkirim</span><span><i class="sk-fct"></i>Forecast</span></div>
+        <svg class="sk-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="FCT, SO, dan terkirim per bulan">${svg}</svg>
+        <h3 class="sk-h">Distributor 3 bulan terakhir</h3>
+        <div class="table-wrap"><table class="po-table csl-table csl-small"><thead><tr><th>Distributor</th><th>Region</th><th class="num">SO</th><th class="num">Terkirim</th><th class="num">Sisa</th></tr></thead>
+        <tbody>${dl.map(([d, o]) => `<tr><td>${esc(d)}</td><td>${esc(o.region || '?')}</td><td class="num">${fQ(o.so)}</td><td class="num">${fQ(o.dl)}</td><td class="num">${fQ(o.sisa)}</td></tr>`).join('') || '<tr><td colspan="5" class="csl-empty">Tidak ada SO.</td></tr>'}</tbody></table></div>
+        ${open.length ? `<h3 class="sk-h">SO yang masih ada sisa</h3><div class="table-wrap"><table class="po-table csl-table csl-small"><thead><tr><th>No SO</th><th>Tanggal</th><th>Distributor</th><th class="num">Qty</th><th class="num">Sisa</th><th>DO</th></tr></thead>
+        <tbody>${open.slice(0, 30).map((L) => `<tr><td>${esc(L.no)}</td><td>${fDate(L.date)}</td><td>${esc(L.dist)}</td><td class="num">${fQ(L.qty)}</td><td class="num"><b>${fQ(L.sisaQ)}</b></td><td>${esc(L.dos.filter((d) => normSt(d.st) !== 'DELIVERED').map((d) => `${d.no} (${d.st})`).join(', '))}</td></tr>`).join('')}</tbody></table></div>` : ''}`,
+    });
+    dlgTop();
+  }
+
+  const dlgTop = () => requestAnimationFrame(() => { const d = $('dlg'); if (d) { d.scrollTop = 0; if (document.activeElement && d.contains(document.activeElement)) document.activeElement.blur(); } });
 
   /* =====================================================================
      SISA SO (OS-SO)
@@ -537,14 +602,14 @@
       $('coInfo').textContent = `${nf0.format(rows.length)} SKU dengan sisa SO · pcs per bulan SO`;
       $('coTable').innerHTML = `<thead><tr><th class="pl-sticky pl-c1">Kode</th><th class="pl-sticky pl-c2">Nama produk</th><th class="num">Total</th>${months.map((m) => `<th class="num">${monShort(m)}</th>`).join('')}</tr>`
         + `<tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th class="pl-sticky pl-c2"></th><th class="num">${fQ(sum(rows.map((x) => x.t)))}</th>${months.map((m) => `<th class="num">${fQ(sum(rows.map((x) => x.r[m] || 0)))}</th>`).join('')}</tr></thead>`
-        + `<tbody>${rows.map((x) => `<tr><td class="pl-sticky pl-c1">${esc(x.k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(x.k))}">${esc(nameOf(x.k))}</td><td class="num"><b>${fQ(x.t)}</b></td>${months.map((m) => `<td class="num">${fQ(x.r[m])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="3" class="csl-empty">Tidak ada sisa SO.</td></tr>'}</tbody>`;
+        + `<tbody>${rows.map((x) => `<tr class="row" data-k="${esc(x.k)}" data-g="${g}"><td class="pl-sticky pl-c1">${esc(x.k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(x.k))}">${esc(nameOf(x.k))}</td><td class="num"><b>${fQ(x.t)}</b></td>${months.map((m) => `<td class="num">${fQ(x.r[m])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="3" class="csl-empty">Tidak ada sisa SO.</td></tr>'}</tbody>`;
     } else {
       const rows = ls.slice().sort((a, b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
       $('coInfo').textContent = `${nf0.format(rows.length)} baris SO × produk`;
       const t = todayStr();
       const age = (d) => Math.round((new Date(t) - new Date(d)) / 86400000);
       $('coTable').innerHTML = '<thead><tr><th>No SO</th><th>Tanggal SO</th><th class="num">Umur (hari)</th><th>Distributor</th><th>Region</th><th>Kode</th><th>Nama produk</th><th class="num">Qty SO</th><th class="num">Terkirim</th><th class="num">Sisa</th><th class="num">Cancelled</th><th class="num">Sisa (Rp)</th><th>DO belum terkirim</th></tr></thead>'
-        + `<tbody>${rows.slice(0, 1500).map((L) => `<tr><td>${esc(L.no)}</td><td>${fDate(L.date)}</td><td class="num">${age(L.date)}</td><td>${esc(L.dist)}</td><td>${esc(L.region || '?')}</td><td>${esc(L.kode)}</td><td class="csl-name" title="${esc(nameOf(L.kode))}">${esc(nameOf(L.kode))}</td><td class="num">${fQ(L.qty)}</td><td class="num">${fQ(L.doQ + L.osQ)}</td><td class="num"><b>${fQ(L.sisaQ)}</b></td><td class="num">${fQ(L.canQ)}</td><td class="num">${fJt(L.sisaQ * L.price)} jt</td><td>${esc(L.dos.filter((d) => normSt(d.st) !== 'DELIVERED').map((d) => `${d.no} (${d.st})`).join(', '))}</td></tr>`).join('') || '<tr><td colspan="13" class="csl-empty">Tidak ada sisa SO.</td></tr>'}</tbody>`;
+        + `<tbody>${rows.slice(0, 1500).map((L) => `<tr class="row" data-k="${esc(L.kode)}" data-g="${g}"><td>${esc(L.no)}</td><td>${fDate(L.date)}</td><td class="num">${age(L.date)}</td><td>${esc(L.dist)}</td><td>${esc(L.region || '?')}</td><td>${esc(L.kode)}</td><td class="csl-name" title="${esc(nameOf(L.kode))}">${esc(nameOf(L.kode))}</td><td class="num">${fQ(L.qty)}</td><td class="num">${fQ(L.doQ + L.osQ)}</td><td class="num"><b>${fQ(L.sisaQ)}</b></td><td class="num">${fQ(L.canQ)}</td><td class="num">${fJt(L.sisaQ * L.price)} jt</td><td>${esc(L.dos.filter((d) => normSt(d.st) !== 'DELIVERED').map((d) => `${d.no} (${d.st})`).join(', '))}</td></tr>`).join('') || '<tr><td colspan="13" class="csl-empty">Tidak ada sisa SO.</td></tr>'}</tbody>`;
     }
   }
 
@@ -586,10 +651,10 @@
     if (mode === 'skuw') {
       const v = (k, w) => gv(C.A.skuWeek, m + '|' + w + '|' + k, 'ALL', 'q');
       $('cwBody').innerHTML = `<p class="mrp-count">${nf0.format(codes.length)} SKU · qty SO (pcs) per week, ${monLabel(m)}</p><div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table"><thead><tr><th class="pl-sticky pl-c1">Kode</th><th class="pl-sticky pl-c2">Nama produk</th>${weeks.map((w) => `<th class="num">${esc(w)}</th>`).join('')}<th class="num">Total</th></tr></thead>
-        <tbody>${codes.map((k) => { const vs = weeks.map((w) => v(k, w)); return `<tr><td class="pl-sticky pl-c1">${esc(k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(k))}">${esc(nameOf(k))}</td>${vs.map((x) => `<td class="num">${fQ(x)}</td>`).join('')}<td class="num"><b>${fQ(sum(vs))}</b></td></tr>`; }).join('')}</tbody></table></div>`;
+        <tbody>${codes.map((k) => { const vs = weeks.map((w) => v(k, w)); return `<tr class="row" data-k="${esc(k)}" data-g="ALL"><td class="pl-sticky pl-c1">${esc(k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(k))}">${esc(nameOf(k))}</td>${vs.map((x) => `<td class="num">${fQ(x)}</td>`).join('')}<td class="num"><b>${fQ(sum(vs))}</b></td></tr>`; }).join('')}</tbody></table></div>`;
     } else {
       $('cwBody').innerHTML = `<p class="mrp-count">${nf0.format(codes.length)} SKU · qty SO (pcs) per hari, ${monLabel(m)}</p><div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table csl-days"><thead><tr><th class="pl-sticky pl-c1" rowspan="2">Kode</th><th class="pl-sticky pl-c2" rowspan="2">Nama produk</th>${days.map((d) => `<th class="num">${HARI[new Date(d + 'T00:00:00').getDay()]}</th>`).join('')}</tr><tr>${days.map((d) => `<th class="num" title="${esc(wk.get(d))}">${+d.slice(8)}</th>`).join('')}</tr></thead>
-        <tbody>${codes.map((k) => `<tr><td class="pl-sticky pl-c1">${esc(k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(k))}">${esc(nameOf(k))}</td>${days.map((d) => `<td class="num">${fQ(gv(C.A.skuDay, d + '|' + k, 'ALL', 'q'))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+        <tbody>${codes.map((k) => `<tr class="row" data-k="${esc(k)}" data-g="ALL"><td class="pl-sticky pl-c1">${esc(k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(k))}">${esc(nameOf(k))}</td>${days.map((d) => `<td class="num">${fQ(gv(C.A.skuDay, d + '|' + k, 'ALL', 'q'))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
     }
   }
   function exportWeekly() {
@@ -689,6 +754,7 @@
         ${s.W.map((m, i) => `<tr><td>${monLabel(m)}</td><td class="num">${fQ(s.fc[i])}</td><td class="num">${fQ(s.so[i])}</td><td class="num${s.err[i] < 0 ? ' csl-neg' : ''}">${fQ(s.err[i])}</td><td class="num">${fQ(Math.abs(s.err[i]))}</td><td class="num">${s.pct[i] === null ? 'Zero Demand' : fPct(s.pct[i])}</td></tr>`).join('')}
         </tbody></table></div>`,
     });
+    dlgTop();
   }
 
   /* =====================================================================
@@ -767,7 +833,7 @@
       const sub = '<th class="num m-start">FCT</th><th class="num">SO</th><th class="num">FC vs SO</th><th class="num">DO</th><th class="num">DO vs SO</th>';
       $('cgTable').innerHTML = `<thead><tr><th class="pl-sticky pl-c1" rowspan="2">Kode</th><th class="pl-sticky pl-c2" rowspan="2">Nama produk</th><th colspan="5" class="m-start">Gondowangi (offline)</th><th colspan="5" class="m-start">Buana (online)</th><th colspan="5" class="m-start">Gondowangi + Buana</th></tr><tr>${sub}${sub}${sub}</tr>`
         + `<tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th class="pl-sticky pl-c2"></th>${(blk(tOff) + blk(tOn) + blk(tAll)).replace(/<td/g, '<th').replace(/<\/td>/g, '</th>')}</tr></thead>`
-        + `<tbody>${codes.map((k) => `<tr><td class="pl-sticky pl-c1">${esc(k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(k))}">${esc(nameOf(k))}</td>${blk(off.get(k))}${blk(on.get(k))}${blk(both(k))}</tr>`).join('')}</tbody>`;
+        + `<tbody>${codes.map((k) => `<tr class="row" data-k="${esc(k)}" data-g="ALL"><td class="pl-sticky pl-c1">${esc(k)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(k))}">${esc(nameOf(k))}</td>${blk(off.get(k))}${blk(on.get(k))}${blk(both(k))}</tr>`).join('')}</tbody>`;
       C.sugLast = { mode, m, codes, off, on };
       return;
     }
@@ -791,7 +857,7 @@
     const totKeys = new Set(['c', 'h', 'n', 'sOs', 'xOs', 'ac', 'fin', 'gapAct', 'fNext']);
     const tot = COLS.map((c, i) => `<th class="num${i === 0 || c[4] ? ' m-start' : ''}">${totKeys.has(c[0]) ? fQ(sum(rows.map((r) => nz(r[c[0]])))) : ''}</th>`).join('');
     $('cgTable').innerHTML = `<thead><tr>${h1}</tr><tr>${h2}</tr><tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th class="pl-sticky pl-c2"></th>${tot}</tr></thead>`
-      + `<tbody>${rows.map((r) => `<tr><td class="pl-sticky pl-c1">${esc(r.kode)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(r.kode))}">${esc(nameOf(r.kode))}</td>${COLS.map((c, i) => cell(r, c, i)).join('')}</tr>`).join('')}</tbody>`;
+      + `<tbody>${rows.map((r) => `<tr class="row" data-k="${esc(r.kode)}" data-g="${g}"><td class="pl-sticky pl-c1">${esc(r.kode)}</td><td class="pl-sticky pl-c2" title="${esc(nameOf(r.kode))}">${esc(nameOf(r.kode))}</td>${COLS.map((c, i) => cell(r, c, i)).join('')}</tr>`).join('')}</tbody>`;
   }
   function exportSuggest() {
     const s = C.sugLast; if (!s) return;
@@ -824,7 +890,7 @@
       const top = [...C.A.codes].map((k) => ({ k, q: sum(ms.map((m) => skuV(m, k, g, 'so'))) })).filter((x) => x.q > 0).sort((a, b) => b.q - a.q).slice(0, 10);
       const tot = sum(top.map((x) => x.q));
       return `<article class="csl-card csl-season"><header class="csl-card-head"><h2><button class="btn-link" data-season="${esc(s.key)}" title="Ubah bulan musim">${esc(s.name)}</button></h2><p class="card-sub">${s.months.map((x) => MON3[x - 1]).join(', ') || 'belum ada bulan'} ${y}</p></header>
-        <ol class="csl-top">${top.map((x) => `<li><span class="csl-top-k">${esc(x.k)}</span><span class="csl-top-n" title="${esc(nameOf(x.k))}">${esc(nameOf(x.k))}</span><span class="csl-top-q">${fQ(x.q)}</span><span class="csl-bar" style="--w:${tot ? Math.round((x.q / top[0].q) * 100) : 0}%"></span></li>`).join('') || '<li class="csl-empty">Belum ada SO.</li>'}</ol></article>`;
+        <ol class="csl-top">${top.map((x) => `<li class="row" data-k="${esc(x.k)}" data-g="${g}" title="Klik untuk rincian"><span class="csl-top-k">${esc(x.k)}</span><span class="csl-top-n" title="${esc(nameOf(x.k))}">${esc(nameOf(x.k))}</span><span class="csl-top-q">${fQ(x.q)}</span><span class="csl-bar" style="--w:${tot ? Math.round((x.q / top[0].q) * 100) : 0}%"></span></li>`).join('') || '<li class="csl-empty">Belum ada SO.</li>'}</ol></article>`;
     }).join('') || '<p class="csl-empty">Belum ada musim di PARAMETER.</p>';
   }
   function editSeason(key) {
@@ -1188,6 +1254,51 @@
     render(key);
   }
 
+  /* ---------- Urutkan kolom tabel CSL (klik judul kolom) ---------- */
+  function headerGrid(thead) {
+    const grid = [];
+    [...thead.rows].forEach((tr, r) => {
+      grid[r] = grid[r] || [];
+      let c = 0;
+      [...tr.cells].forEach((th) => {
+        while (grid[r][c]) c++;
+        const rs = th.rowSpan || 1, cs = th.colSpan || 1;
+        for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) { grid[r + i] = grid[r + i] || []; grid[r + i][c + j] = th; }
+        c += cs;
+      });
+    });
+    return grid;
+  }
+  const cellVal = (td) => {
+    if (!td) return null;
+    const t = td.textContent.trim();
+    if (!t || t === '–') return null;
+    const n = t.replace(/[^\d,.-]/g, '');
+    if (/^-?[\d.]+(,\d+)?$/.test(n) && /\d/.test(n)) return Number(n.replace(/\./g, '').replace(',', '.'));
+    return t.toLowerCase();
+  };
+  document.addEventListener('click', (e) => {
+    const th = e.target.closest('.csl-table thead th');
+    if (!th || th.colSpan > 1 || th.closest('tr.csl-tot') || th.classList.contains('csl-mcol')) return;
+    const table = th.closest('table'), tb = table.tBodies[0];
+    if (!tb || tb.rows.length < 2) return;
+    const grid = headerGrid(table.tHead);
+    let col = -1;
+    grid.forEach((row) => row.forEach((x, i) => { if (x === th && col < 0) col = i; }));
+    if (col < 0) return;
+    const dir = th.dataset.sort === 'desc' ? 'asc' : 'desc';
+    table.querySelectorAll('thead th[data-sort]').forEach((x) => { delete x.dataset.sort; });
+    th.dataset.sort = dir;
+    const rows = [...tb.rows];
+    rows.sort((a, b) => {
+      const x = cellVal(a.cells[col]), y = cellVal(b.cells[col]);
+      if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'id', { numeric: true });
+      return dir === 'asc' ? c : -c;
+    });
+    rows.forEach((r) => tb.appendChild(r));
+  });
+
   /* ---------- Event ---------- */
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
   const rerender = () => render(C.route);
@@ -1195,6 +1306,14 @@
     .forEach((id) => on(id, 'change', rerender));
   let qT;
   ['csQ', 'coQ', 'cwQ', 'caQ', 'cgQ'].forEach((id) => on(id, 'input', () => { clearTimeout(qT); qT = setTimeout(rerender, 200); }));
+  on('cdChart', 'mousemove', chartHover);
+  on('cdChart', 'mouseleave', () => { if ($('cdTip')) $('cdTip').hidden = true; if ($('cdCross')) $('cdCross').setAttribute('visibility', 'hidden'); });
+  on('cdChart', 'click', (e) => { const r = e.target.closest('.cslc-hit'); if (!r || !C.chart) return; $('cdMonth').value = C.chart.months[+r.dataset.i]; renderDash(); });
+  on('cdTable', 'click', (e) => { const th = e.target.closest('[data-m]'); if (!th) return; $('cdMonth').value = th.dataset.m; renderDash(); });
+  ['csTable', 'coTable', 'cgTable', 'cwBody', 'cmBody'].forEach((id) => on(id, 'click', (e) => {
+    if (e.target.closest('[data-season], thead')) return;
+    const tr = e.target.closest('[data-k]'); if (tr) openSku(tr.dataset.k, tr.dataset.g);
+  }));
   on('cdGrp', 'click', (e) => { const b = e.target.closest('[data-g]'); if (!b) return; D.grp = b.dataset.g; renderDash(); });
   on('crTable', 'click', (e) => { const tr = e.target.closest('tr[data-m]'); if (tr) openNilai(tr.dataset.m); });
   on('crNilai', 'click', () => openNilai(curMonth()));

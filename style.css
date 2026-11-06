@@ -1098,3 +1098,42 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 @media (max-width: 700px) { .tb-field.tb-wide { flex: 1 1 100%; min-width: 0; } .csl-table .pl-c1 { min-width: 96px; } .csl-table .pl-c2 { left: 96px; max-width: 150px; } .csl-card { padding: 14px 12px; } }
 .csl-chart { overflow-x: auto; }
 .cslc { min-width: 640px; }
+/* CSL — interaksi */
+.cslc-box { position: relative; }
+.cslc-help { margin-left: auto; color: var(--muted); font-size: 12px; }
+.cslc-hit { fill: transparent; cursor: pointer; }
+.cslc-sel { fill: #eef5f0; }
+.cslc-ax.is-sel { fill: var(--brand-dark); font-weight: 700; }
+.cslc-cross { stroke: #9aa6b2; stroke-width: 1; pointer-events: none; }
+.cslc-dot, .cslc-line { pointer-events: none; }
+.cslc-tip { position: absolute; z-index: 5; min-width: 220px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 6px 18px rgba(27, 43, 63, .12); font-size: 12.5px; pointer-events: none; }
+.cslc-tip > b { display: block; margin-bottom: 4px; }
+.cslc-tip-row { display: grid; grid-template-columns: 12px 1fr auto; gap: 6px; align-items: center; margin-top: 4px; }
+.cslc-tip-row i { width: 10px; height: 3px; border-radius: 2px; }
+.cslc-tip-row i.s-all { background: #106a3a; } .cslc-tip-row i.s-offline { background: #2f6db5; } .cslc-tip-row i.s-online { background: #b07d16; }
+.cslc-tip-sub { padding-left: 18px; color: var(--muted); font-size: 11.5px; }
+.cslc-tip-foot { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+.csl-table th.csl-mcol { cursor: pointer; }
+.csl-table th.csl-mcol:hover { color: var(--brand); }
+.csl-table th.is-sel, .csl-table td.is-sel { background: #eef5f0; }
+.csl-table th.is-sel { color: var(--brand-dark); }
+.csl-table thead th:not([colspan]) { cursor: pointer; user-select: none; }
+.csl-table thead tr.csl-tot th { cursor: default; }
+.csl-table thead th[data-sort]::after { content: " ▼"; font-size: 9px; color: var(--brand); }
+.csl-table thead th[data-sort="asc"]::after { content: " ▲"; }
+.csl-table tr.row { cursor: pointer; }
+.csl-table tr.row:hover td { background: #f6faf7; }
+.csl-top li.row { cursor: pointer; }
+.csl-top li.row:hover { background: #f6faf7; }
+/* Rincian SKU */
+.sk-kpis .pk { min-width: 120px; }
+.sk-kpis { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.sk-chart { width: 100%; height: auto; display: block; margin: 4px 0 8px; }
+.sk-so { fill: #cfe5d8; }
+.sk-do { fill: #106a3a; }
+.sk-fct { stroke: #b07d16; stroke-width: 3; }
+.sk-legend { display: flex; gap: 14px; font-size: 12.5px; }
+.sk-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sk-legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; }
+.sk-legend i.sk-so { background: #cfe5d8; } .sk-legend i.sk-do { background: #106a3a; } .sk-legend i.sk-fct { background: #b07d16; height: 3px; }
+.sk-h { font-size: 14px; margin: 14px 0 6px; }
