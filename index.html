@@ -566,7 +566,7 @@
       <section id="view-mrp-sku" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat parameter SKU…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
-        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik baris untuk mengubah BOM aktif, ukuran batch, atau status aktif.</p></div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik baris untuk mengubah BOM default, ukuran batch, atau status aktif.</p></div>
         <div class="toolbar mrp-toolbar">
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="skQ" placeholder="Cari kode atau nama"></label>
           <label class="tb-field"><span class="sr">Jenis</span><select id="skJenis"><option value="">Semua</option><option value="SKU">SKU</option><option value="Ekstrak">Ekstrak/bulk</option><option value="off">Tidak aktif</option></select></label>
@@ -574,7 +574,7 @@
         </div>
         <p class="mrp-count" id="skInfo"></p>
         <div class="table-wrap mrp-wrap">
-          <table class="po-table mrp-table sk-table"><thead><tr><th>Kode</th><th>Nama</th><th>Jenis</th><th>BOM aktif</th><th>Ukuran batch (kg)</th><th>Ekstrak/bulk di BOM</th><th>Aktif</th><th>Catatan</th><th>Diubah</th></tr></thead><tbody id="skRows"></tbody></table>
+          <table class="po-table mrp-table sk-table"><thead><tr><th>Kode</th><th>Nama</th><th>Jenis</th><th>BOM default</th><th>Ukuran batch (kg)</th><th>Ekstrak/bulk di BOM</th><th>Aktif</th><th>Catatan</th><th>Diubah</th></tr></thead><tbody id="skRows"></tbody></table>
         </div>
       </section>
 
