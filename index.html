@@ -529,7 +529,7 @@
           <span class="pl-hz" id="kbHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="kbQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="kbKat"><option value="">Semua kategori</option></select></label>
-          <label class="tb-check"><input type="checkbox" id="kbMade"> Ekstrak/bulk (diproduksi sendiri)</label>
+          <label class="tb-field"><span class="sr">Jenis kebutuhan</span><select id="kbType"><option value="buy">Material dibeli (RM/PM)</option><option value="made">Ekstrak/bulk (diproduksi)</option><option value="fg">FG untuk rakitan/bonus</option></select></label>
           <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="kbExport">Unduh Excel</button></div>
         </div>
         <div class="pl-kpis" id="kbKpi"></div>
@@ -537,7 +537,7 @@
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table"><thead id="kbHead"></thead><tbody id="kbRows"></tbody></table>
         </div>
-        <p class="hint">Kebutuhan = qty material ÷ qty batch BOM × pcs rencana; ekstrak/bulk dipecah sesuai kebutuhannya sampai bahan baku. Klik baris untuk melihat SKU mana yang memakai.</p>
+        <p class="hint">Kebutuhan = qty material ÷ qty batch BOM × pcs rencana; ekstrak/bulk dipecah sampai bahan baku. Komponen FG (isi Banded / 2in1 / KIT dan FG bonus) tidak dipecah, tampil di pilihan "FG untuk rakitan/bonus". Klik baris untuk melihat SKU mana yang memakai.</p>
       </section>
 
       <!-- ================= MRP: PROYEKSI STOK ================= -->

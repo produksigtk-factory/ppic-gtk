@@ -2815,24 +2815,40 @@
     return (override && bomById(code, override)) || (sku && sku.bom && bomById(code, sku.bom)) || list[0];
   }
   // Pecah kebutuhan 1 baris rencana: hasil = { leaves: Map kode→qty, made: Map kode→qty (ekstrak/bulk) }
-  function needOf(code, kg, override) {
+  // Komponen kategori FG (isi Banded / 2in1 / KIT, atau FG bonus di SKU biasa) tidak dipecah:
+  // FG-nya sudah direncanakan sendiri, jadi cukup dicatat sebagai kebutuhan FG.
+  const isFg = (code) => normU((MRP.master.get(code) || {}).kat) === 'fg';
+  // Satuan rencana: produk rakitan (BOM berisi FG + kemasan saja, tanpa RM/ekstrak/bulk) diisi pcs, lainnya kg
+  const unitMemo = new Map();
+  function planUnit(code) {
+    const bom = activeBom(code);
+    if (!bom) return 'kg';
+    if (unitMemo.has(bom.id)) return unitMemo.get(bom.id);
+    const kats = bom.comps.map((c) => normU((MRP.master.get(c.code) || {}).kat));
+    const u = kats.includes('fg') && !kats.some((k) => /raw|ekstrak|bulk/.test(k)) ? 'pcs' : 'kg';
+    unitMemo.set(bom.id, u);
+    return u;
+  }
+  function needOf(code, qty, override) {
     const bom = activeBom(code, override);
     if (!bom || !bom.batch) return null;
-    const need = normU(bom.uom) === 'kg' ? kg : (kg / 1000) * bom.batch;   // BOM SKU = pcs per batch 1.000 kg (seperti MoQ)
-    const leaves = new Map(), made = new Map();
+    // kg: BOM SKU = pcs per batch 1.000 kg (seperti MoQ); pcs: produk rakitan, qty langsung dalam pcs
+    const need = planUnit(code) === 'pcs' ? qty : normU(bom.uom) === 'kg' ? qty : (qty / 1000) * bom.batch;
+    const leaves = new Map(), made = new Map(), fg = new Map();
     const walk = (b, q, path, depth) => {
       const f = b.batch ? q / b.batch : 0;
       b.comps.forEach((c) => {
         const x = (Number(c.qty) || 0) * f;
         if (!x) return;
-        if (MRP.byProduct.has(c.code) && depth < 6 && !path.has(c.code)) {
+        if (isFg(c.code)) fg.set(c.code, (fg.get(c.code) || 0) + x);
+        else if (MRP.byProduct.has(c.code) && depth < 6 && !path.has(c.code)) {
           made.set(c.code, (made.get(c.code) || 0) + x);
           walk(activeBom(c.code), x, new Set([...path, c.code]), depth + 1);
         } else leaves.set(c.code, (leaves.get(c.code) || 0) + x);
       });
     };
     walk(bom, need, new Set([code]), 0);
-    return { bom, leaves, made };
+    return { bom, leaves, made, fg };
   }
 
   // ---------- Ukuran batch ----------
@@ -2857,7 +2873,7 @@
   function computeReq() {
     const weeks = hzWeeks(), n = weeks.length;
     const idx = new Map(weeks.map((w, i) => [w.bulan + '|' + w.week, i]));
-    const req = new Map(), made = new Map(), noBom = new Set();
+    const req = new Map(), made = new Map(), fgReq = new Map(), noBom = new Set();
     const add = (map, code, i, q, sku) => {
       let o = map.get(code);
       if (!o) { o = { code, w: new Array(n).fill(0), total: 0, src: new Map() }; map.set(code, o); }
@@ -2872,8 +2888,9 @@
       if (!r) { noBom.add(p.code); return; }
       r.leaves.forEach((q, c) => add(req, c, i, q, p.code));
       r.made.forEach((q, c) => add(made, c, i, q, p.code));
+      r.fg.forEach((q, c) => add(fgReq, c, i, q, p.code));
     });
-    return { weeks, idx, req, made, noBom };
+    return { weeks, idx, req, made, fg: fgReq, noBom };
   }
 
   // Incoming dari Monitoring PO: jadwal yang belum Done, sisa qty-nya masuk ke week sesuai tanggal jadwal
@@ -3060,32 +3077,36 @@
     const cell = (c, w) => P.plan.get(`${w.bulan}|${w.week}|${c}`);
     if (only) codes = codes.filter((c) => weeks.some((w) => (cell(c, w) || {}).kg > 0));
     $('plHead').innerHTML = weekHead(weeks, { lead: '<th class="pl-sticky pl-c1"></th>', tail: true }) +
-      `<tr><th class="pl-sticky pl-c1">SKU <small class="pl-thnote">klik untuk BOM per week</small></th>${weekTh(weeks)}<th class="num">Total kg</th></tr>`;
+      `<tr><th class="pl-sticky pl-c1">SKU <small class="pl-thnote">kg; Banded/2in1/KIT dalam pcs · klik untuk BOM per week</small></th>${weekTh(weeks)}<th class="num">Total</th></tr>`;
     const tot = new Array(weeks.length).fill(0);
     let nWarn = 0;
     $('plRows').innerHTML = codes.map((c) => {
-      const sku = P.skus.get(c), list = MRP.byProduct.get(c) || [], multi = list.length > 1;
+      const sku = P.skus.get(c), list = MRP.byProduct.get(c) || [], multi = list.length > 1, pcs = planUnit(c) === 'pcs';
       let rowTot = 0;
       const tds = weeks.map((w, i) => {
         const p = cell(c, w), kg = p ? p.kg : 0;
-        tot[i] += kg; rowTot += kg;
-        const warn = kg > 0 && sku && !batchOk(kg, sku.batch);
+        if (!pcs) tot[i] += kg;
+        rowTot += kg;
+        const warn = !pcs && kg > 0 && sku && !batchOk(kg, sku.batch);
         if (warn) nWarn++;
         const b = kg > 0 ? activeBom(c, p.bom) : null;
         const tip = [b ? `BOM terkunci: ${b.id} · ${b.ref || '-'}` : '', warn ? `${fmtKg(kg)} kg bukan kelipatan/gabungan ukuran batch (${sku.batch.join(', ')} kg)` : ''].filter(Boolean).join('\n');
         const t = tip ? ` title="${esc(tip)}"` : '';
         const tag = b && multi ? `<small class="pl-cbom${sku && b.id !== sku.bom ? ' is-diff' : ''}">${esc(b.id.replace('BOM-', ''))}</small>` : '';
         return P.edit
-          ? `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}><input class="pl-in" inputmode="decimal" data-b="${w.bulan}" data-w="${w.week}" data-c="${esc(c)}" value="${kg || ''}" aria-label="${esc(c)} ${esc(wLabel(w))} kg">${tag}</td>`
+          ? `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}><input class="pl-in" inputmode="decimal" data-b="${w.bulan}" data-w="${w.week}" data-c="${esc(c)}" value="${kg || ''}" aria-label="${esc(c)} ${esc(wLabel(w))} ${pcs ? 'pcs' : 'kg'}">${tag}</td>`
           : `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}>${fmtKg(kg)}${tag}</td>`;
       }).join('');
       const bomTxt = !list.length ? '<span class="pl-bad pl-sub">Tidak ada BOM</span>' : `<span class="pl-sub">BOM default ${esc(((sku && bomById(c, sku.bom)) || list[0]).id.replace('BOM-', ''))}${multi ? ` · ${list.length} versi` : ''}</span>`;
-      return `<tr data-code="${esc(c)}">${matCell(c, nameOf(c), sku ? '' : '<span class="pl-tmp" title="Belum ada di Parameter SKU">baru</span>').replace('</td>', bomTxt + '</td>').replace('class="pl-sticky pl-c1"', 'class="pl-sticky pl-c1 pl-click" tabindex="0" title="Klik untuk melihat / mengubah BOM per week"')}${tds}<td class="num pl-rowtot"><b>${fmtKg(rowTot)}</b></td></tr>`;
+      const badges = (pcs ? '<span class="pl-unit" title="Produk rakitan (Banded / 2in1 / KIT): diisi dalam pcs; komponen FG-nya tidak dipecah ke bahan baku">pcs</span>' : '') + (sku ? '' : '<span class="pl-tmp" title="Belum ada di Parameter SKU">baru</span>');
+      return `<tr data-code="${esc(c)}"${pcs ? ' class="is-pcs"' : ''}>${matCell(c, nameOf(c), badges).replace('</td>', bomTxt + '</td>').replace('class="pl-sticky pl-c1"', 'class="pl-sticky pl-c1 pl-click" tabindex="0" title="Klik untuk melihat / mengubah BOM per week"')}${tds}<td class="num pl-rowtot"><b>${fmtKg(rowTot)}</b>${pcs && rowTot ? ' <small>pcs</small>' : ''}</td></tr>`;
     }).join('') || `<tr class="empty"><td colspan="${weeks.length + 2}">Tidak ada SKU yang cocok.</td></tr>`;
     $('plFoot').innerHTML = `<tr><td class="pl-sticky pl-c1"><b>Total kg</b></td>${tot.map((v, i) => `<td class="num${wCls(weeks, i)}"><b>${fmtKg(v)}</b></td>`).join('')}<td class="num"><b>${fmtKg(tot.reduce((a, b) => a + b, 0))}</b></td></tr>`;
     const nCell = [...P.plan.values()].filter((p) => p.kg > 0 && weeks.some((w) => w.bulan === p.bulan && w.week === p.week)).length;
-    const perMon = [0, 1, 2].map((i) => { const b = addMonth(P.hz, i); return { b, kg: [...P.plan.values()].filter((p) => p.bulan === b).reduce((t, p) => t + p.kg, 0) }; });
+    const perMon = [0, 1, 2].map((i) => { const b = addMonth(P.hz, i); return { b, kg: [...P.plan.values()].filter((p) => p.bulan === b && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0) }; });
+    const pcsTot = [...P.plan.values()].filter((p) => planUnit(p.code) === 'pcs' && weeks.some((w) => w.bulan === p.bulan && w.week === p.week)).reduce((t, p) => t + p.kg, 0);
     $('plKpi').innerHTML = kpis(perMon.map((m) => ({ num: m.kg ? fmtKg(m.kg) : '0', lbl: `kg ${monLabel(m.b)}` }))
+      .concat(pcsTot ? [{ num: fmtKg(pcsTot), lbl: 'pcs Banded/2in1/KIT (3 bulan)' }] : [])
       .concat([{ num: nf.format(nWarn), lbl: 'sel bukan ukuran batch', tone: nWarn ? 'warn' : '', title: 'Kg yang tidak bisa disusun dari ukuran batch SKU (sel kuning). Hanya peringatan.' }]));
     $('plInfo').textContent = `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana`;
   }
@@ -3095,7 +3116,7 @@
     const inp = e.target.closest('.pl-in'); if (!inp) return;
     const raw = inp.value.trim().replace(/\./g, '').replace(',', '.');
     const kg = raw === '' ? 0 : Number(raw);
-    if (isNaN(kg) || kg < 0) { inp.classList.add('is-bad'); toast('Isi kg dengan angka.'); return; }
+    if (isNaN(kg) || kg < 0) { inp.classList.add('is-bad'); toast('Isi qty dengan angka.'); return; }
     inp.classList.remove('is-bad');
     const b = inp.dataset.b, w = inp.dataset.w, c = inp.dataset.c, k = `${b}|${w}|${c}`;
     const old = P.plan.get(k);
@@ -3105,12 +3126,14 @@
     queuePlan({ bulan: b, week: w, kode: c, kg: kg || '', bom: kg > 0 ? lock : '' });
     // Perbarui total tanpa menggambar ulang tabel (fokus tetap di sel)
     const tr = inp.closest('tr'), sku = P.skus.get(c), td = inp.closest('td');
-    const warn = kg > 0 && sku && !batchOk(kg, sku.batch);
+    const pcsRow = planUnit(c) === 'pcs';
+    const warn = !pcsRow && kg > 0 && sku && !batchOk(kg, sku.batch);
     td.classList.toggle('pl-warn', !!warn);
     td.title = warn ? `${fmtKg(kg)} kg bukan kelipatan/gabungan ukuran batch (${sku.batch.join(', ')} kg)` : '';
     const weeks = hzWeeks();
-    tr.querySelector('.pl-rowtot').innerHTML = `<b>${fmtKg(weeks.reduce((t, x) => t + ((P.plan.get(`${x.bulan}|${x.week}|${c}`) || {}).kg || 0), 0))}</b>`;
-    const tot = weeks.map((x) => [...P.plan.values()].filter((p) => p.bulan === x.bulan && p.week === x.week).reduce((t, p) => t + p.kg, 0));
+    const rt = weeks.reduce((t, x) => t + ((P.plan.get(`${x.bulan}|${x.week}|${c}`) || {}).kg || 0), 0);
+    tr.querySelector('.pl-rowtot').innerHTML = `<b>${fmtKg(rt)}</b>${pcsRow && rt ? ' <small>pcs</small>' : ''}`;
+    const tot = weeks.map((x) => [...P.plan.values()].filter((p) => p.bulan === x.bulan && p.week === x.week && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0));
     const tds = $('plFoot').querySelectorAll('td');
     tot.forEach((v, i) => { tds[1 + i].innerHTML = `<b>${fmtKg(v)}</b>`; });
     tds[1 + tot.length].innerHTML = `<b>${fmtKg(tot.reduce((a, x) => a + x, 0))}</b>`;
@@ -3138,7 +3161,7 @@
     openDialog({
       title: `BOM per week · ${code}`, ok: canEdit ? 'Simpan' : 'Tutup', cancel: !!canEdit, wide: true,
       body: `<p class="dlg-lead">${esc((sku && sku.name) || ((list[0] || {}).name) || '')}. Setiap week yang ada rencananya mengunci satu versi BOM; versi itu yang dipakai untuk menghitung kebutuhan week tersebut. Rencana baru otomatis memakai BOM default${def ? ` (<b>${esc(def.id)}</b> · ${esc(def.ref || '-')})` : ''} dari Parameter SKU.</p>
-        ${!rows.length ? '<p class="muted">Belum ada rencana untuk SKU ini di rentang yang ditampilkan.</p>' : `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>Week</th><th>Tanggal</th><th class="num">Qty kg</th><th>BOM terkunci</th></tr></thead><tbody>
+        ${!rows.length ? '<p class="muted">Belum ada rencana untuk SKU ini di rentang yang ditampilkan.</p>' : `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>Week</th><th>Tanggal</th><th class="num">Qty ${planUnit(code)}</th><th>BOM terkunci</th></tr></thead><tbody>
         ${rows.map(({ w, p }) => { const b = activeBom(code, p.bom); return `<tr><td><b>${esc(wLabel(w))}</b> ${esc(w.bulan.slice(0, 4))}</td><td>${fmtDate(w.start)} – ${fmtDate(w.end)}</td><td class="num">${fmtKg(p.kg)}</td><td>${canEdit ? `<select class="wb-sel" data-k="${esc(w.bulan + '|' + w.week)}">${opt(b ? b.id : '')}</select>` : `${esc(b ? b.id : '-')} <span class="muted">${esc(b ? b.ref || '' : '')}</span>`}${p.bom && !bomById(code, p.bom) ? ' <span class="pl-bad">(BOM terkunci sebelumnya sudah tidak ada)</span>' : ''}</td></tr>`; }).join('')}
         </tbody></table></div>`}
         ${!P.edit && rows.length && list.length > 1 ? '<p class="hint">Masuk mode edit untuk mengganti BOM per week.</p>' : ''}
@@ -3165,13 +3188,14 @@
   function downloadPlanTemplate() {
     const weeks = hzWeeks();
     const head = ['KODE', 'NAMA (opsional)'].concat(weeks.map((w) => `${w.week} ${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`));
-    const dates = ['Isi kode SKU mulai baris 3', 'Qty dalam kg'].concat(weeks.map((w) => `${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}`));
+    const dates = ['Isi kode SKU mulai baris 3', 'Qty kg (Banded/2in1/KIT: pcs)'].concat(weeks.map((w) => `${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}`));
     const ws = XLSX.utils.aoa_to_sheet([head, dates]);
     ws['!cols'] = [{ wch: 14 }, { wch: 38 }].concat(weeks.map(() => ({ wch: 20 })));
     ws['!freeze'] = { xSplit: 2, ySplit: 2 };
     const info = XLSX.utils.aoa_to_sheet([
       ['Format upload rencana produksi (MRP PPIC GTK)'], [''],
-      ['1. Isi kode SKU di kolom A mulai baris 3, qty kg di kolom week. Kolom NAMA boleh dikosongkan.'],
+      ['1. Isi kode SKU di kolom A mulai baris 3, qty di kolom week. Kolom NAMA boleh dikosongkan.'],
+      ['   Satuan qty: kg untuk produk biasa; pcs untuk produk rakitan (Banded / 2in1 / KIT).'],
       ['2. Baris 1 (mis. "W1 NOVEMBER 2026") adalah kunci kolom; jangan diubah. Baris 2 hanya keterangan tanggal.'],
       ['3. Upload di website: MRP → Update Data MRP → Upload rencana produksi.'],
       ['4. Bulan yang ada di file mengganti rencana bulan itu; kode yang tidak ada di DATABASE diberi peringatan.'], [''],
@@ -3188,7 +3212,7 @@
   $('plExport').addEventListener('click', () => {
     const weeks = hzWeeks();
     const data = planRowsList().map((c) => {
-      const o = { KODE: c, NAMA: (P.skus.get(c) || {}).name || '', BOM: (activeBom(c) || {}).id || '' };
+      const o = { KODE: c, NAMA: (P.skus.get(c) || {}).name || '', SATUAN: planUnit(c), BOM: (activeBom(c) || {}).id || '' };
       weeks.forEach((w) => { o[`${w.week} ${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`] = (P.plan.get(`${w.bulan}|${w.week}|${c}`) || {}).kg || 0; });
       return o;
     });
@@ -3201,8 +3225,8 @@
   function renderKebutuhan() {
     fillHz($('kbHz'));
     const R = computeReq(), weeks = R.weeks;
-    const q = $('kbQ').value.trim().toLowerCase(), kat = $('kbKat').value, made = $('kbMade').checked;
-    const src = made ? R.made : R.req;
+    const q = $('kbQ').value.trim().toLowerCase(), kat = $('kbKat').value, type = $('kbType').value;
+    const src = type === 'made' ? R.made : type === 'fg' ? R.fg : R.req;
     let rows = [...src.values()].map((o) => { const m = MRP.master.get(o.code) || {}; return Object.assign({ name: m.name || o.code, uom: m.uom || '', kat: m.kat || 'Tanpa kategori' }, o); });
     const kats = [...new Set(rows.map((r) => r.kat))].sort((a, b) => a.localeCompare(b, 'id'));
     const cur = $('kbKat').value;
@@ -3216,15 +3240,15 @@
       || `<tr class="empty"><td colspan="${weeks.length + 3}">${P.plan.size ? 'Tidak ada kebutuhan di rentang ini.' : 'Belum ada rencana produksi.'}</td></tr>`;
     const byKat = {};
     [...src.values()].forEach((o) => { const k = (MRP.master.get(o.code) || {}).kat || 'Tanpa kategori'; byKat[k] = (byKat[k] || 0) + 1; });
-    $('kbKpi').innerHTML = kpis([{ num: nf.format(R.req.size), lbl: 'material dibeli (RM/PM)' }, { num: nf.format(R.made.size), lbl: 'ekstrak/bulk diproduksi' }]
+    $('kbKpi').innerHTML = kpis([{ num: nf.format(R.req.size), lbl: 'material dibeli (RM/PM)' }, { num: nf.format(R.made.size), lbl: 'ekstrak/bulk diproduksi' }, { num: nf.format(R.fg.size), lbl: 'FG untuk rakitan/bonus', title: 'Komponen FG di Banded / 2in1 / KIT dan FG bonus; tidak dipecah ke bahan baku' }]
       .concat(Object.entries(byKat).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => ({ num: nf.format(n), lbl: k })))
       .concat(R.noBom.size ? [{ num: nf.format(R.noBom.size), lbl: 'SKU tanpa BOM', tone: 'bad', title: [...R.noBom].join(', ') }] : []));
-    $('kbInfo').textContent = `${nf.format(rows.length)} ${made ? 'ekstrak/bulk' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai`;
+    $('kbInfo').textContent = `${nf.format(rows.length)} ${type === 'made' ? 'ekstrak/bulk' : type === 'fg' ? 'FG' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai`;
   }
   const round4 = (v) => Math.round(v * 10000) / 10000;
   $('kbQ').addEventListener('input', renderKebutuhan);
   $('kbKat').addEventListener('change', renderKebutuhan);
-  $('kbMade').addEventListener('change', renderKebutuhan);
+  $('kbType').addEventListener('change', renderKebutuhan);
   $('kbRows').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-i]'); if (!tr) return;
     const r = P.kbRows[Number(tr.dataset.i)], weeks = hzWeeks();
@@ -3581,7 +3605,7 @@
             if (!MRP.byProduct.has(code)) unknown.add(code);
             else if (!P.skus.has(code)) notSku.add(code);
             const sku = P.skus.get(code);
-            if (sku && !batchOk(kg, sku.batch)) warn.push(`${code} ${w.week} ${monShort(w.bulan)}: ${fmtKg(kg)} kg`);
+            if (sku && planUnit(code) !== 'pcs' && !batchOk(kg, sku.batch)) warn.push(`${code} ${w.week} ${monShort(w.bulan)}: ${fmtKg(kg)} kg`);
             cells.push({ bulan: w.bulan, week: w.week, code, kg });
           });
         });
@@ -3633,7 +3657,7 @@
       if (!(p.kg > 0)) return;
       if (!MRP.byProduct.has(p.code)) planNoBom.push(p);
       const sku = P.skus.get(p.code);
-      if (sku && !batchOk(p.kg, sku.batch)) planBatch.push({ p, sku });
+      if (sku && planUnit(p.code) !== 'pcs' && !batchOk(p.kg, sku.batch)) planBatch.push({ p, sku });
     });
     const skuBad = [...P.skus.values()].filter((k) => !k.bom || !bomById(k.code, k.bom));
     const lockGone = [...P.plan.values()].filter((p) => p.kg > 0 && (!p.bom || !bomById(p.code, p.bom)) && MRP.byProduct.has(p.code));
