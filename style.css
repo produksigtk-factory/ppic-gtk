@@ -1297,34 +1297,3 @@ span.wb-ekl { display: inline; margin-right: 10px; color: inherit; }
 .bm-table td.bm-cell.is-set { background: #eef6f0; }
 .bm-table td.bm-cell small { display: block; font-size: 10.5px; }
 .bm-table .bm-sel { max-width: 200px; font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-/* Rincian batch (Plan / Real) */
-.bt-table th.bt-grp { text-align: center; font-size: 12px; color: var(--brand-dark); }
-.bt-table .bt-real { background: #f8faf9; }
-.bt-table input.bt-batch { width: 110px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; }
-.bt-table select.bt-tp, .bt-table select.bt-tr { font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-.bt-table .bt-ekb { width: 130px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; }
-.bt-table td { white-space: nowrap; }
-/* Proyeksi: Dependents / Consume MO */
-.pj-dep { color: #9a4d00; }
-.pj-cons { color: #3f7d55; }
-.pj-cell small { flex-wrap: wrap; max-width: 150px; margin-left: auto; }
-td.num > .pj-cons { display: block; font-size: 10.5px; }
-/* Proyeksi Stok: keterangan & kolom rinci */
-.pj-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 14px; margin: 4px 0 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfb; }
-.pj-lg { display: flex; gap: 8px; align-items: flex-start; }
-.pj-lg p { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
-.pj-chip { flex: none; min-width: 78px; text-align: center; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); }
-.pj-s-plan { background: #f3f5f7; color: #4b5563; }
-.pj-s-dep { background: #fff3e6; color: #9a4d00; }
-.pj-s-cons { background: #ecf6ef; color: #2f6e45; }
-.pj-s-saldo { background: #fff; color: var(--ink, #1f2a24); }
-#pjTable thead tr.pl-whead th { top: 28px; }
-#pjTable thead tr.pl-shead th { top: 66px; font-size: 11px; padding-top: 3px; padding-bottom: 3px; }
-#pjTable.pj-det td.pj-s-plan, #pjTable.pj-det td.pj-s-dep, #pjTable.pj-det td.pj-s-cons { min-width: 70px; font-size: 12.5px; }
-#pjTable.pj-det td.pj-s-saldo { min-width: 84px; border-right: 1px solid #dfe6e1; }
-#pjTable td.pj-s-saldo.is-neg { background: var(--late-soft); }
-#pjTable td.pj-s-saldo.is-neg b { color: var(--late); }
-#pjTable td.pj-s-saldo small { display: block; font-size: 10.5px; }
-#pjTable th.pj-s-plan, #pjTable th.pj-s-dep, #pjTable th.pj-s-cons, #pjTable th.pj-s-saldo { font-weight: 700; }
-#pjTable .pl-wgrp { text-align: center; }
-#pjTable td.pj-s-dep small { display: block; font-size: 10.5px; }
