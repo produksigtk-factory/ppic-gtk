@@ -3297,6 +3297,7 @@
     const weeks = hzWeeks(), keys = new Set(weeks.map((w) => w.bulan + '|' + w.week));
     P.plan.forEach((p) => { if (keys.has(p.bulan + '|' + p.week) && p.kg > 0) codes.add(p.code); });
     P.real.forEach((r) => { if (keys.has(r.bulan + '|' + r.week) && (r.qty > 0 || r.items.length)) codes.add(r.code); });
+    (P.plAdded || new Set()).forEach((c) => codes.add(c));   // SKU yang baru ditambahkan manual
     return [...codes].sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
   }
   // Tanggal di sel: pilihan hari dalam week itu (supaya tanggal tidak keluar dari week-nya)
@@ -3326,7 +3327,8 @@
     const nameOf = (c) => (P.skus.get(c) || {}).name || ((MRP.master.get(c) || {}).name) || ((MRP.byProduct.get(c) || [])[0] || {}).name || '';
     let codes = planRowsList().filter((c) => !q || (c + ' ' + nameOf(c)).toLowerCase().includes(q));
     const cell = (c, w) => P.plan.get(`${w.bulan}|${w.week}|${c}`);
-    if (only) codes = codes.filter((c) => weeks.some((w) => (cell(c, w) || {}).kg > 0 || (realOf(w, c) || {}).qty > 0));
+    if (only) codes = codes.filter((c) => (P.plAdded && P.plAdded.has(c)) || weeks.some((w) => (cell(c, w) || {}).kg > 0 || (realOf(w, c) || {}).qty > 0));
+    $('plAddSku').hidden = !P.edit;
     const months = [];
     weeks.forEach((w) => { const l = months[months.length - 1]; if (l && l.b === w.bulan) l.n++; else months.push({ b: w.bulan, n: 1 }); });
     $('plHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th>${months.map((m) => `<th colspan="${m.n * 2}" class="pl-month">${monLabel(m.b)}</th>`).join('')}<th colspan="2"></th></tr>`
@@ -3404,6 +3406,41 @@
     const kgOnly = (m, f) => weeks.map((x) => [...m.values()].filter((p) => p.bulan === x.bulan && p.week === x.week && planUnit(p.code) !== 'pcs').reduce((t, p) => t + f(p), 0));
     paintPlanFoot(kgOnly(P.plan, (p) => p.kg), kgOnly(P.real, (r) => r.qty));
   }
+  // Tambah SKU manual (mode edit): masuk ke Parameter SKU (aktif) supaya baris tetap ada di tabel rencana
+  $('plAddSku').addEventListener('click', () => needEdit(() => {
+    const prods = MRP.products.filter((x) => !isEkCode(x.code) && !(P.skus.get(x.code) || {}).aktif);
+    openDialog({
+      title: 'Tambah SKU ke Rencana Produksi', ok: 'Tambah',
+      body: `<p class="dlg-lead">Pilih produk yang punya BOM di DATABASE PPIC. SKU ikut disimpan (aktif) di Parameter SKU, lalu muncul sebagai baris baru di tabel rencana.</p>
+        <div class="form-grid">
+          ${fld('kode', 'Kode / nama produk *', '', { required: true, list: 'dlPlAdd', wide: true })}
+          <label class="field span-2"><span>BOM default</span><select name="bom" id="plAddBom"><option value="">Pilih produk dulu</option></select></label>
+          ${fld('batch', 'Ukuran batch (kg), pisahkan dengan ; (opsional)', '', { wide: true })}
+        </div><datalist id="dlPlAdd">${prods.map((x) => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</datalist>
+        <p class="hint" id="plAddInfo"></p>`,
+      onSubmit: async (fd) => {
+        const code = (fd.kode || '').trim().split(/\s+/)[0];
+        if (!MRP.byProduct.has(code)) throw new Error('Kode ini tidak punya BOM di DATABASE PPIC.');
+        const old = P.skus.get(code), pr = MRP.products.find((x) => x.code === code);
+        await saveSkuRow({ kode: code, nama: (old && old.name) || (pr && pr.name) || '', jenis: (old && old.jenis) || 'SKU', bom: fd.bom || (activeBom(code) || {}).id || '',
+          batch: fd.batch.trim() || (old ? old.batchText : ''), aktif: 'Y', catatan: (old && old.note) || 'Ditambahkan dari Rencana Produksi' });
+        if (!P.plAdded) P.plAdded = new Set();
+        P.plAdded.add(code);
+        $('plQ').value = '';
+        setTimeout(() => { renderRencana(); const tr = $('plRows').querySelector(`tr[data-code="${CSS.escape(code)}"]`); if (tr) { tr.scrollIntoView({ block: 'center' }); const inp = tr.querySelector('.pl-in'); if (inp) inp.focus(); } }, 0);
+        return `${code} ditambahkan ke rencana.`;
+      },
+    });
+    const kode = $('dlgBody').querySelector('[name=kode]');
+    const fill = () => {
+      const code = kode.value.trim().split(/\s+/)[0], list = MRP.byProduct.get(code) || [], old = P.skus.get(code);
+      const def = (old && bomById(code, old.bom)) || activeBom(code);
+      $('plAddBom').innerHTML = list.length ? list.map((b) => `<option value="${esc(b.id)}"${def && b.id === def.id ? ' selected' : ''}>${esc(refOf(b))} · ${b.comps.length} komponen</option>`).join('') : '<option value="">Pilih produk dulu</option>';
+      const pr = MRP.products.find((x) => x.code === code);
+      $('plAddInfo').textContent = pr ? `${pr.name}${old && !old.aktif ? ' · sudah ada di Parameter SKU tetapi tidak aktif; akan diaktifkan lagi' : ''}${list.length > 1 ? ` · ${list.length} versi BOM` : ''}` : (code ? 'Kode tidak ditemukan / tidak punya BOM.' : '');
+    };
+    kode.addEventListener('input', fill);
+  }));
   $('plQ').addEventListener('input', renderRencana);
   $('plOnly').addEventListener('change', renderRencana);
   const numIn = (v) => { const raw = String(v).trim().replace(/\./g, '').replace(',', '.'); return raw === '' ? 0 : Number(raw); };
