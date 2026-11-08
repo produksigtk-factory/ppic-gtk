@@ -45,7 +45,7 @@
     // ---------- MRP ----------
     ['MRP', 'MRP', 'Material Requirements Planning', 'Perhitungan kebutuhan material: rencana produksi → dipecah lewat BOM → dibandingkan dengan stok dan kedatangan PO per week → terlihat kapan material kurang.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'BOM', 'Bill of Material', 'Resep produk: daftar material beserta qty untuk sejumlah batch tertentu (qty batch BOM).', 'mrp/bom|Bill of Material'],
-    ['MRP', 'BOM ID / Reference', 'Versi BOM', 'Satu produk bisa punya beberapa versi BOM (Reference 00, 01, …). Versi aktif diatur per SKU dan bisa dikunci per week.', 'mrp/sku|Parameter SKU'],
+    ['MRP', 'Reference BOM', 'Versi BOM', 'Satu produk bisa punya beberapa versi BOM, dibedakan dengan Reference dari Odoo (mis. 00, 01, NOGlydantPlus01). Website menampilkan Reference, bukan BOM ID; reference kosong/kembar diberi nomor urut, mis. "tanpa reference (2)". Versi aktif diatur per SKU dan bisa dikunci per week.', 'mrp/sku|Parameter SKU'],
     ['MRP', 'Qty batch BOM', '', 'Jumlah hasil yang menjadi dasar BOM. Untuk SKU = pcs per 1.000 kg; kebutuhan material = qty material ÷ qty batch BOM × pcs rencana.', ''],
     ['MRP', 'Ukuran batch', 'MoQ produksi', 'Kg per batch yang boleh diproduksi. Rencana yang tidak bisa disusun dari ukuran batch diberi warna kuning (peringatan saja).', 'mrp/rencana|Rencana Produksi'],
     ['MRP', 'Rencana produksi', 'MPS, plan', 'Kg (atau pcs untuk rakitan) per SKU per week. Diisi lewat upload Excel atau diketik di sel.', 'mrp/rencana|Rencana Produksi'],
