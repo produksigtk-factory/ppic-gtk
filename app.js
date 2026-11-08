@@ -3188,48 +3188,102 @@
     P.plan.forEach((p) => { if (keys.has(p.bulan + '|' + p.week) && p.kg > 0) codes.add(p.code); });
     return [...codes].sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
   }
+  // Konfirmasi Produksi per SKU-week (MO tersimpan): kg (pcs untuk Banded/KIT) + daftar MO
+  function konfByCell() {
+    const m = new Map();
+    (P.konf || new Map()).forEach((r) => {
+      if (!r.week || !r.bulan || kfIsEk(r.code)) return;
+      const k = `${r.bulan}|${r.week}|${r.code}`, o = m.get(k) || { q: 0, list: [] };
+      o.q += planUnit(r.code) === 'pcs' ? (Number(r.qty) || 0) : (Number(r.kg) || 0);
+      o.list.push(r); m.set(k, o);
+    });
+    return m;
+  }
+  // Status Plan vs Konfirmasi: sesuai bila selisih ≤ 1% plan
+  function konfStatus(plan, kf) {
+    if (!(kf > 0)) return plan > 0 ? { cls: 'kf-none', t: 'Belum ada MO' } : null;
+    if (!(plan > 0)) return { cls: 'kf-out', t: 'Di luar rencana (tidak ada plan di week ini)' };
+    const d = kf - plan;
+    if (Math.abs(d) <= plan * 0.01) return { cls: 'kf-match', t: 'Sesuai plan' };
+    return d < 0 ? { cls: 'kf-less', t: `Kurang ${fmtKg(-d)} dari plan` } : { cls: 'kf-more', t: `Lebih ${fmtKg(d)} dari plan` };
+  }
   function renderRencana() {
     fillHz($('plHz'));
     const weeks = hzWeeks();
+    const KF = konfByCell(), kfOf = (c, w) => KF.get(`${w.bulan}|${w.week}|${c}`);
     const q = $('plQ').value.trim().toLowerCase(), only = $('plOnly').checked;
     const nameOf = (c) => (P.skus.get(c) || {}).name || ((MRP.master.get(c) || {}).name) || ((MRP.byProduct.get(c) || [])[0] || {}).name || '';
-    let codes = planRowsList().filter((c) => !q || (c + ' ' + nameOf(c)).toLowerCase().includes(q));
+    const allCodes = new Set(planRowsList());
+    KF.forEach((o, k) => { const [b, w, c] = k.split('|'); if (weeks.some((x) => x.bulan === b && x.week === w)) allCodes.add(c); });   // MO di luar rencana tetap tampil
+    let codes = [...allCodes].sort((a, b) => a.localeCompare(b, 'id', { numeric: true })).filter((c) => !q || (c + ' ' + nameOf(c)).toLowerCase().includes(q));
     const cell = (c, w) => P.plan.get(`${w.bulan}|${w.week}|${c}`);
-    if (only) codes = codes.filter((c) => weeks.some((w) => (cell(c, w) || {}).kg > 0));
-    $('plHead').innerHTML = weekHead(weeks, { lead: '<th class="pl-sticky pl-c1"></th>', tail: true }) +
-      `<tr><th class="pl-sticky pl-c1">SKU <small class="pl-thnote">kg; Banded/2in1/KIT dalam pcs · klik untuk BOM per week</small></th>${weekTh(weeks)}<th class="num">Total</th></tr>`;
-    const tot = new Array(weeks.length).fill(0);
+    if (only) codes = codes.filter((c) => weeks.some((w) => (cell(c, w) || {}).kg > 0 || kfOf(c, w)));
+    const months = []; weeks.forEach((w) => { const l = months[months.length - 1]; if (l && l.b === w.bulan) l.n++; else months.push({ b: w.bulan, n: 1 }); });
+    $('plHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th>${months.map((m) => `<th colspan="${m.n * 2}" class="pl-month">${monLabel(m.b)}</th>`).join('')}<th colspan="2"></th></tr>`
+      + `<tr class="pl-whead"><th class="pl-sticky pl-c1" rowspan="2">SKU <small class="pl-thnote">kg; Banded/2in1/KIT dalam pcs · klik untuk BOM per week</small></th>${weeks.map((w, i) => `<th colspan="2" class="pl-w pl-wgrp${wCls(weeks, i)}" title="${esc(wTitle(w))}">${w.week}<small>${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}</small></th>`).join('')}<th colspan="2" class="pl-wgrp">Total</th></tr>`
+      + `<tr class="pl-shead">${weeks.map((w, i) => `<th class="num pl-sp${wCls(weeks, i)}" title="Rencana dari MPS">Plan</th><th class="num pl-sk" title="Total MO terkonfirmasi (Konfirmasi Produksi) di week ini">Konfirmasi</th>`).join('')}<th class="num pl-sp">Plan</th><th class="num pl-sk">Konfirmasi</th></tr>`;
+    const tot = new Array(weeks.length).fill(0), totK = new Array(weeks.length).fill(0);
     let nWarn = 0;
     $('plRows').innerHTML = codes.map((c) => {
       const sku = P.skus.get(c), list = MRP.byProduct.get(c) || [], multi = list.length > 1, pcs = planUnit(c) === 'pcs';
-      let rowTot = 0;
+      let rowTot = 0, rowK = 0;
       const tds = weeks.map((w, i) => {
-        const p = cell(c, w), kg = p ? p.kg : 0;
-        if (!pcs) tot[i] += kg;
-        rowTot += kg;
+        const p = cell(c, w), kg = p ? p.kg : 0, kf = kfOf(c, w), kq = kf ? kf.q : 0;
+        if (!pcs) { tot[i] += kg; totK[i] += kq; }
+        rowTot += kg; rowK += kq;
+        const st = konfStatus(kg, kq);
+        const kTd = `<td class="num pl-kf${st ? ' ' + st.cls : ''}${kf ? ' pl-kfclick' : ''}" data-b="${w.bulan}" data-w="${w.week}" data-c="${esc(c)}"${st ? ` title="${esc(st.t + (kf ? ' · MO: ' + kf.list.map((x) => x.no).join(', ') : ''))}"` : ''}>${kq ? fmtKg(kq) : (kg > 0 ? '<span class="kf-dash">–</span>' : '')}${kf ? `<small>${kf.list.length} MO</small>` : ''}</td>`;
         const warn = !pcs && kg > 0 && sku && !batchOk(kg, sku.batch);
         if (warn) nWarn++;
         const b = kg > 0 ? activeBom(c, p.bom) : null;
         const tip = [b ? `BOM terkunci: ${refOf(b)}` : '', warn ? `${fmtKg(kg)} kg bukan kelipatan/gabungan ukuran batch (${sku.batch.join(', ')} kg)` : ''].filter(Boolean).join('\n');
         const t = tip ? ` title="${esc(tip)}"` : '';
         const tag = b && multi ? `<small class="pl-cbom${sku && b.id !== sku.bom ? ' is-diff' : ''}">${esc(refOf(b))}</small>` : '';
-        return P.edit
+        return (P.edit
           ? `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}><input class="pl-in" inputmode="decimal" data-b="${w.bulan}" data-w="${w.week}" data-c="${esc(c)}" value="${kg || ''}" aria-label="${esc(c)} ${esc(wLabel(w))} ${pcs ? 'pcs' : 'kg'}">${tag}</td>`
-          : `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}>${fmtKg(kg)}${tag}</td>`;
+          : `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}>${fmtKg(kg)}${tag}</td>`) + kTd;
       }).join('');
       const bomTxt = !list.length ? '<span class="pl-bad pl-sub">Tidak ada BOM</span>' : `<span class="pl-sub">BOM default ${esc(refOf((sku && bomById(c, sku.bom)) || list[0]))}${multi ? ` · ${list.length} versi` : ''}</span>`;
       const badges = (pcs ? '<span class="pl-unit" title="Produk rakitan (Banded / 2in1 / KIT): diisi dalam pcs; komponen FG-nya tidak dipecah ke bahan baku">pcs</span>' : '') + (sku ? '' : '<span class="pl-tmp" title="Belum ada di Parameter SKU">baru</span>');
-      return `<tr data-code="${esc(c)}"${pcs ? ' class="is-pcs"' : ''}>${matCell(c, nameOf(c), badges).replace('</td>', bomTxt + '</td>').replace('class="pl-sticky pl-c1"', 'class="pl-sticky pl-c1 pl-click" tabindex="0" title="Klik untuk melihat / mengubah BOM per week"')}${tds}<td class="num pl-rowtot"><b>${fmtKg(rowTot)}</b>${pcs && rowTot ? ' <small>pcs</small>' : ''}</td></tr>`;
-    }).join('') || `<tr class="empty"><td colspan="${weeks.length + 2}">Tidak ada SKU yang cocok.</td></tr>`;
-    $('plFoot').innerHTML = `<tr><td class="pl-sticky pl-c1"><b>Total kg</b></td>${tot.map((v, i) => `<td class="num${wCls(weeks, i)}"><b>${fmtKg(v)}</b></td>`).join('')}<td class="num"><b>${fmtKg(tot.reduce((a, b) => a + b, 0))}</b></td></tr>`;
+      return `<tr data-code="${esc(c)}"${pcs ? ' class="is-pcs"' : ''}>${matCell(c, nameOf(c), badges).replace('</td>', bomTxt + '</td>').replace('class="pl-sticky pl-c1"', 'class="pl-sticky pl-c1 pl-click" tabindex="0" title="Klik untuk melihat / mengubah BOM per week"')}${tds}<td class="num pl-rowtot"><b>${fmtKg(rowTot)}</b>${pcs && rowTot ? ' <small>pcs</small>' : ''}</td><td class="num pl-kf pl-rowkf"><b>${fmtKg(rowK)}</b>${pcs && rowK ? ' <small>pcs</small>' : ''}</td></tr>`;
+    }).join('') || `<tr class="empty"><td colspan="${weeks.length * 2 + 3}">Tidak ada SKU yang cocok.</td></tr>`;
+    paintPlanFoot(tot, totK);
     const nCell = [...P.plan.values()].filter((p) => p.kg > 0 && weeks.some((w) => w.bulan === p.bulan && w.week === p.week)).length;
     const perMon = selMonths().map((b) => { return { b, kg: [...P.plan.values()].filter((p) => p.bulan === b && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0) }; });
     const pcsTot = [...P.plan.values()].filter((p) => planUnit(p.code) === 'pcs' && weeks.some((w) => w.bulan === p.bulan && w.week === p.week)).reduce((t, p) => t + p.kg, 0);
     $('plKpi').innerHTML = kpis(perMon.map((m) => ({ num: m.kg ? fmtKg(m.kg) : '0', lbl: `kg ${monLabel(m.b)}` }))
       .concat(pcsTot ? [{ num: fmtKg(pcsTot), lbl: 'pcs Banded/2in1/KIT (bulan dipilih)' }] : [])
       .concat([{ num: nf.format(nWarn), lbl: 'sel bukan ukuran batch', tone: nWarn ? 'warn' : '', title: 'Kg yang tidak bisa disusun dari ukuran batch SKU (sel kuning). Hanya peringatan.' }]));
-    $('plInfo').textContent = `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana`;
+    // ringkasan konfirmasi di rentang ini
+    let nMatch = 0, nLess = 0, nNone = 0, nOut = 0;
+    const seen = new Set([...P.plan.keys()].concat([...KF.keys()]));
+    seen.forEach((k) => {
+      const [b, w, c] = k.split('|'); if (!weeks.some((x) => x.bulan === b && x.week === w)) return;
+      const st = konfStatus((P.plan.get(k) || {}).kg || 0, (KF.get(k) || {}).q || 0); if (!st) return;
+      if (st.cls === 'kf-match') nMatch++; else if (st.cls === 'kf-none') nNone++; else if (st.cls === 'kf-out') nOut++; else nLess++;
+    });
+    $('plInfo').innerHTML = `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana · Konfirmasi: <span class="kf-chip kf-match">${nf.format(nMatch)} sesuai</span> <span class="kf-chip kf-less">${nf.format(nLess)} beda qty</span> <span class="kf-chip kf-none">${nf.format(nNone)} belum ada MO</span> <span class="kf-chip kf-out">${nf.format(nOut)} di luar rencana</span>`;
   }
+  function paintPlanFoot(tot, totK) {
+    const weeks = hzWeeks(), sum = (a) => a.reduce((x, y) => x + y, 0);
+    if (!totK) { const KF = konfByCell(); totK = weeks.map((w) => [...KF.entries()].filter(([k]) => k.startsWith(`${w.bulan}|${w.week}|`) && planUnit(k.split('|')[2]) !== 'pcs').reduce((t, [, o]) => t + o.q, 0)); }
+    $('plFoot').innerHTML = `<tr><td class="pl-sticky pl-c1"><b>Total kg</b></td>${tot.map((v, i) => `<td class="num${wCls(weeks, i)}"><b>${fmtKg(v)}</b></td><td class="num pl-kf"><b>${fmtKg(totK[i])}</b></td>`).join('')}<td class="num"><b>${fmtKg(sum(tot))}</b></td><td class="num pl-kf"><b>${fmtKg(sum(totK))}</b></td></tr>`;
+  }
+  // Klik sel Konfirmasi: daftar MO di SKU-week itu
+  $('plTable').addEventListener('click', (e) => {
+    const td = e.target.closest('td.pl-kfclick'); if (!td) return;
+    const k = `${td.dataset.b}|${td.dataset.w}|${td.dataset.c}`, kf = konfByCell().get(k); if (!kf) return;
+    const plan = (P.plan.get(k) || {}).kg || 0, st = konfStatus(plan, kf.q), pcs = planUnit(td.dataset.c) === 'pcs', u = pcs ? 'pcs' : 'kg';
+    const wk = P.weekBy.get(td.dataset.b + '|' + td.dataset.w);
+    openDialog({
+      title: `Konfirmasi ${td.dataset.c} · ${wk ? wLabel(wk) + ' ' + wk.bulan.slice(0, 4) : td.dataset.w}`, ok: 'Tutup', cancel: false, onSubmit: null,
+      body: `<p class="dlg-lead">Plan <b>${fmtKg(plan) || 0} ${u}</b> · Konfirmasi <b>${fmtKg(kf.q)} ${u}</b> · <span class="kf-chip ${st.cls}">${esc(st.t)}</span></p>
+        <div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No. MO</th><th class="num">Qty</th><th class="num">Konversi kg</th><th>MO Ekstrak</th></tr></thead><tbody>
+        ${kf.list.map((r) => `<tr><td><b>${esc(r.no)}</b></td><td class="num">${fmtQ(r.qty)} ${esc(r.uom)}</td><td class="num">${r.kg !== '' ? fmtKg(r.kg) : '–'}</td><td>${esc(r.moEk || '–')}</td></tr>`).join('')}</tbody></table></div>
+        <p class="pj-actions"><a class="btn btn-sm btn-ghost" href="#/mrp/konfirmasi" id="plToKf">Buka Konfirmasi Produksi</a></p>`,
+    });
+    const a = $('dlgBody').querySelector('#plToKf'); if (a) a.addEventListener('click', () => { $('dlg').close(); $('kfQ').value = td.dataset.c; });
+  });
   $('plQ').addEventListener('input', renderRencana);
   $('plOnly').addEventListener('change', renderRencana);
   $('plTable').addEventListener('change', (e) => {
@@ -3254,9 +3308,15 @@
     const rt = weeks.reduce((t, x) => t + ((P.plan.get(`${x.bulan}|${x.week}|${c}`) || {}).kg || 0), 0);
     tr.querySelector('.pl-rowtot').innerHTML = `<b>${fmtKg(rt)}</b>${pcsRow && rt ? ' <small>pcs</small>' : ''}`;
     const tot = weeks.map((x) => [...P.plan.values()].filter((p) => p.bulan === x.bulan && p.week === x.week && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0));
-    const tds = $('plFoot').querySelectorAll('td');
-    tot.forEach((v, i) => { tds[1 + i].innerHTML = `<b>${fmtKg(v)}</b>`; });
-    tds[1 + tot.length].innerHTML = `<b>${fmtKg(tot.reduce((a, x) => a + x, 0))}</b>`;
+    paintPlanFoot(tot);
+    // status konfirmasi di sel sebelahnya
+    const kTd = td.nextElementSibling;
+    if (kTd && kTd.classList.contains('pl-kf')) {
+      const kf = konfByCell().get(k), st = konfStatus(kg, kf ? kf.q : 0);
+      kTd.className = `num pl-kf${st ? ' ' + st.cls : ''}${kf ? ' pl-kfclick' : ''}`;
+      kTd.title = st ? st.t : '';
+      if (!kf) kTd.innerHTML = kg > 0 ? '<span class="kf-dash">–</span>' : '';
+    }
   });
   $('plTable').addEventListener('keydown', (e) => {
     const inp = e.target.closest('.pl-in'); if (!inp || (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
@@ -3394,6 +3454,13 @@
     const wOpts = (r) => `<option value="">–</option>` + weeks.map((w) => `<option value="${w.bulan}|${w.week}"${r.bulan === w.bulan && r.week === w.week ? ' selected' : ''}>${esc(wLabel(w))} ${w.bulan.slice(0, 4)} · ${fmtDate(w.start).slice(0, 2)}–${fmtDate(w.end).slice(0, 6)}</option>`).join('')
       + (r.week && !weeks.some((w) => w.bulan === r.bulan && w.week === r.week) ? `<option selected value="${r.bulan}|${r.week}">${esc(r.week)} ${esc(monLabel(r.bulan))}</option>` : '');
     const wTxt = (r) => (r.week ? `${r.week} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '<span class="muted">–</span>');
+    // Plan di week yang dipilih vs total MO (termasuk perubahan belum disimpan)
+    const kfAt = new Map(); sku.forEach((x) => { if (!x.week) return; const k = `${x.bulan}|${x.week}|${x.code}`; kfAt.set(k, (kfAt.get(k) || 0) + (planUnit(x.code) === 'pcs' ? Number(x.qty) || 0 : Number(x.kg) || 0)); });
+    const planTxt = (r) => {
+      if (!r.week) return '';
+      const k = `${r.bulan}|${r.week}|${r.code}`, plan = (P.plan.get(k) || {}).kg || 0, st = konfStatus(plan, kfAt.get(k) || 0);
+      return `<small class="kf-plan"><span class="kf-chip ${st ? st.cls : ''}" title="${esc(st ? st.t : '')}">Plan ${fmtKg(plan) || 0} · MO ${fmtKg(kfAt.get(k) || 0)}</span></small>`;
+    };
     let list = sku.map((r) => ({ r, w: kfWarn(r, all) }));
     if (show === 'ek') list = [];
     if (show === 'todo') list = list.filter((x) => x.w.lvl !== 'ok');
@@ -3406,7 +3473,7 @@
       return `<tr class="kf-row${dirty}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b></td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name" title="${esc(r.name)}">${esc(r.name)}</span></td>
         <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td>${b ? esc(refOf(b)) : (r.bom ? '<span class="pl-bad">versi dihapus</span>' : '<span class="muted">–</span>')}</td>
         <td class="num">${r.kg !== '' ? `<b>${fmtKg(r.kg)}</b>` : '<span class="muted">pcs</span>'}</td>
-        <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}</td>
+        <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}${planTxt(r)}</td>
         <td>${r.ek ? `${esc(r.ek)} <span class="muted">${esc(ekShortK(r.ek))}</span>` : '<span class="muted">Tidak perlu</span>'}</td>
         <td class="num">${r.ek ? fmtKg(r.ekKg) : ''}</td>
         <td>${r.ek ? (edit ? `<select class="kf-moek">${moOpts}</select>` : (r.moEk ? `<b>${esc(r.moEk)}</b>` : '<span class="muted">–</span>')) : ''}</td>

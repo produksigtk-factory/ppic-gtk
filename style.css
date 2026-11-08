@@ -1262,3 +1262,23 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .kf-note { display: block; font-size: 11px; margin-top: 2px; }
 .kf-h { font-size: 15px; margin: 18px 0 8px; color: var(--brand-dark); }
 .kf-up { cursor: pointer; }
+/* Rencana Produksi: Plan | Konfirmasi per week */
+#plTable thead tr.pl-whead th { top: 28px; }
+#plTable thead tr.pl-shead th { top: 66px; font-size: 11px; padding-top: 3px; padding-bottom: 3px; }
+#plTable .pl-wgrp { text-align: center; }
+#plTable th.pl-sk, #plTable td.pl-kf { background: #f8faf9; border-right: 1px solid #e3e9e5; min-width: 74px; }
+#plTable td.pl-kf small { display: block; font-size: 10.5px; color: var(--muted); }
+#plTable td.pl-kfclick { cursor: pointer; }
+#plTable td.pl-kfclick:hover { box-shadow: inset 0 0 0 1px #9fb8a8; }
+#plTable td.kf-match { background: #e3f3e8; color: #1f6b3d; }
+#plTable td.kf-less, #plTable td.kf-more { background: #fff0d9; color: #8a5200; }
+#plTable td.kf-out { background: #fbe1de; color: #a12a1f; }
+#plTable td.kf-none .kf-dash { color: #b9c2bc; }
+.kf-chip { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.kf-chip.kf-match { background: #e3f3e8; color: #1f6b3d; }
+.kf-chip.kf-less, .kf-chip.kf-more { background: #fff0d9; color: #8a5200; }
+.kf-chip.kf-none { background: #eef1ef; color: #5b6660; }
+.kf-chip.kf-out { background: #fbe1de; color: #a12a1f; }
+
+.kf-plan { display: block; margin-top: 3px; }
+.kf-plan .kf-chip { font-size: 11px; font-weight: 500; }
