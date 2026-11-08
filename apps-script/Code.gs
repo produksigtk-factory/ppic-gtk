@@ -777,6 +777,12 @@ function delPrLamp_(ss, d, user, stamp) {
   sh.deleteRow(t.rowNo[i]);
   logEdit_(ss, [[stamp, user, 'Lampiran PR', str_(r[0]), '', 'Hapus gambar', String(r[4] || ''), '']]);
 }
+// Jalankan SEKALI dari editor Apps Script (pilih "izinkanDrive" → Run) untuk memberi izin Google Drive.
+// Sekalian membuat folder lampiran di sebelah Sheet MONITORING PO.
+function izinkanDrive() {
+  const f = prLampFolder_(SpreadsheetApp.getActiveSpreadsheet());
+  Logger.log('Izin Drive OK. Folder lampiran: ' + f.getName() + ' — ' + f.getUrl());
+}
 function prLampFile_(ss, id) {
   const r = readPrLamp_(ss, ss.getSpreadsheetTimeZone()).find(x => x[1] === id);
   if (!r) throw new Error('Lampiran tidak ditemukan.');
