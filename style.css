@@ -1402,3 +1402,28 @@ th.ms-th:focus-visible { outline: 2px solid var(--brand-dark); outline-offset: -
 .pr-table textarea { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; padding: 2px 1px; resize: none; line-height: 1.25; display: block; }
 .pr-table textarea:focus { outline: 2px solid #8cc5a1; background: #f4fbf6; }
 .pr-toolbar .pr-f input { height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--surface); }
+/* Purchase Request: rekap & dialog */
+.pr-rekap td { vertical-align: top; }
+.pr-rekap tr.pr-first td { border-top: 2px solid #c9d8ce; }
+.pr-rekap .pr-kc { white-space: nowrap; font-weight: 600; }
+.pr-po { font-family: inherit; font-weight: 600; margin-right: 4px; }
+.pr-poq { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.pr-rekap small.pl-bad { display: block; font-size: 11px; }
+label.is-disabled { opacity: .5; pointer-events: none; }
+.pr-tag { display: block; width: max-content; font-size: 10.5px; font-weight: 600; color: #5b3f8c; background: #f1ecf9; border-radius: 4px; padding: 0 5px; margin-top: 3px; }
+.pr-ed-head { grid-template-columns: 170px 1fr 220px; }
+.pr-ed-wrap { max-height: 52vh; overflow: auto; }
+.pr-ed { font-size: 12.5px; }
+.pr-ed th { white-space: nowrap; }
+.pr-ed td { padding: 3px 4px; }
+.pr-ed input, .pr-ed select { width: 100%; min-width: 60px; border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; font: inherit; }
+.pr-ed .pr-in-kode { width: 80px; } .pr-ed .pr-in-s { width: 90px; } .pr-ed .pr-in-n { width: 78px; text-align: right; } .pr-ed .pr-in-po { width: 150px; }
+.pr-ed td:nth-child(3) input { min-width: 200px; }
+.pr-formpo { font-size: 13px; margin: 0 0 10px; }
+.pr-pochip { display: inline-flex; gap: 4px; align-items: center; margin-right: 10px; }
+.pr-toolbar #prKode { min-width: 220px; }
+.pr-rekap { min-width: 1560px; }
+.pr-rekap td:nth-child(5) { min-width: 210px; }
+.pr-rekap td:nth-child(15) { min-width: 170px; }
+.pr-rekap th { white-space: nowrap; }
+.pr-rekap td.date, .pr-rekap td:nth-child(6) { white-space: nowrap; }

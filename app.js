@@ -154,7 +154,8 @@
     'csl/sku':           { view: 'view-csl-sku',           crumb: 'CSL Personal Care',         title: 'Rekap per SKU',   actions: 'csl' },
     'csl/os':            { view: 'view-csl-os',            crumb: 'CSL Personal Care',         title: 'Sisa SO',         actions: 'csl' },
     'csl/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Personal Care',         title: 'Weekly Review',   actions: 'csl' },
-    'pr/form':           { view: 'view-pr-form',           crumb: 'Purchase Request',          title: 'Formulir PR',     actions: '' },
+    'pr/rekap':          { view: 'view-pr-rekap',          crumb: 'Purchase Request',          title: 'Rekap PR',        actions: 'po' },
+    'pr/form':           { view: 'view-pr-form',           crumb: 'Purchase Request',          title: 'Formulir PR',     actions: 'po' },
     'info/glosarium':    { view: 'view-info-glosarium',    crumb: 'Bantuan & Sistem',          title: 'Glosarium',       actions: '' },
     'info/kapasitas':    { view: 'view-info-kapasitas',    crumb: 'Bantuan & Sistem',          title: 'Kapasitas Google Sheet', actions: '' },
     'csl/amount':        { view: 'view-csl-amount',        crumb: 'CSL Personal Care',         title: 'Amount Check',    actions: 'csl' },
@@ -200,6 +201,7 @@
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
     if (r.actions === 'mrp') { mrpEnter(key); renderDataInfo(); }
     if (key === 'pr/form') prEnter();
+    if (key === 'pr/rekap') renderPrRekap();
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
     else if (state.routeKey.startsWith('info/')) { if (window.HELP) window.HELP.enter(state.routeKey); }
     else if (state.freshLoaded) renderDataInfo();
@@ -326,6 +328,8 @@
     if (!Array.isArray(data.manual)) state.oldScript = true;   // Apps Script versi lama (belum mendukung edit)
     state.lastUpload = data.lastUpload || null;
     state.readAt = data.readAt || '';
+    state.noPrScript = !Array.isArray(data.pr);
+    setPrData(data.pr || []);
   }
   async function loadData(fresh) {
     if (!CFG.APPS_SCRIPT_URL) { showSetup(); return; }
@@ -404,6 +408,7 @@
     renderDataInfo();
     tasksRefresh();
     if (MRP.loaded) { refreshMrpHome(); if (PLAN_KEYS.has(state.routeKey)) renderPlanView(state.routeKey); }
+    renderPrViews();
   }
 
   // Baris info di bawah judul: kapan terakhir di-upload, kapan terakhir direvisi manual, kapan data dibaca
@@ -718,7 +723,7 @@
     const open = state.openKey === r.key;
     const man = r.manual ? `<span class="tag-manual" title="Terakhir diedit ${esc(r.manual.time)}">Diedit manual</span>` : '';
     let html = `<tr class="row${open ? ' is-open' : ''}${r.status === 'takeout' || r.status === 'cancel' ? ' is-takeout' : ''}" data-key="${esc(r.key)}" tabindex="0" aria-expanded="${open}">
-      <td class="po">${esc(r.po)}${man}</td>
+      <td class="po">${esc(r.po)}${man}${state.prByPo && state.prByPo.has(r.po) ? [...state.prByPo.get(r.po)].map((k) => `<span class="pr-tag" title="Purchase Request">${esc(k)}</span>`).join('') : ''}</td>
       <td class="date">${fmtDate(r.date)}</td>
       <td class="supplier">${esc(r.supplier)}</td>
       <td><div class="mat-name">${esc(r.name)}</div><div class="mat-code">${esc(r.code)}${r.jenis ? ' · ' + esc(r.jenis) : ''}</div>${note}</td>
@@ -1800,6 +1805,7 @@
     $('btnEditMode').classList.toggle('is-on', on);
     document.body.classList.toggle('edit-on', on);
     render();
+    renderPrViews();
   }
 
   $('btnEditMode').addEventListener('click', () => {
@@ -4602,102 +4608,270 @@
   // urutan tidak diingat: pindah halaman → kembali ke urutan awal
   window.addEventListener('hashchange', () => { [...MS.state.keys()].forEach((t) => { MS.state.delete(t); if (t.isConnected) msApply(t); }); });
 
-  /* ---------- Purchase Request: formulir LF1004-01 (template, cetak PDF) ----------
-     Angka masih diisi manual; rumus & penyimpanan ke Google Sheet menyusul. Draft disimpan di browser ini. */
-  const PR_KEY = 'ppic-pr-draft';
+  /* ================= Purchase Request ================= */
+  // Data di Google Sheet MONITORING PO (tab REKAP_PR, lewat Code.gs PO). Rekap PR = tempat input; Formulir PR menarik data dari Rekap per Kode PR.
+  // Baris rekap: { kodePr, tanggal, no, kode, nama, jenis, note, stok, butuh, ospo, kurang, buka, pakai, kirim, pos[], status, time, by }
   const PR_NUM = ['stok', 'butuh', 'ospo', 'kurang', 'buka', 'pakai'];
   const PR_COLS = [
     { k: 'stok', h: 'Stok Awal', u: '(Kg/Pcs)' }, { k: 'butuh', h: 'Kebutuhan', u: '(Kg/Pcs)' }, { k: 'ospo', h: 'OS PO', u: '(Kg/Pcs)' },
     { k: 'kurang', h: 'Kekurangan', u: '(Kg/Pcs)' }, { k: 'buka', h: 'Jumlah Buka PO', u: '(Kg/Pcs)' }, { k: 'pakai', h: 'Pemakaian', u: '(Bulan)' },
   ];
-  const prBlank = () => ({ kode: '', nama: '', jenis: '', note: '', stok: '', butuh: '', ospo: '', kurang: '', buka: '', pakai: '', kirim: '' });
-  let PR = null;
-  function prLoad() {
-    let d = null;
-    try { d = JSON.parse(localStorage.getItem(PR_KEY) || 'null'); } catch (e) { d = null; }
-    PR = d && Array.isArray(d.rows) ? d : { date: todayStr(), kode: '', rows: [] };
-    while (PR.rows.length < 5) PR.rows.push(prBlank());
+  const splitPo = (t) => String(t || '').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+  function setPrData(list) {
+    state.pr = (list || []).map((r) => ({ kodePr: r[0], tanggal: r[1], no: r[2], kode: r[3], nama: r[4], jenis: r[5], note: r[6],
+      stok: r[7], butuh: r[8], ospo: r[9], kurang: r[10], buka: r[11], pakai: r[12], kirim: r[13], pos: splitPo(r[14]), status: r[15] || 'Aktif', time: r[16], by: r[17] }));
+    state.prByPo = new Map();
+    state.pr.forEach((r) => { if (r.status !== 'Batal') r.pos.forEach((po) => { const s = state.prByPo.get(po) || new Set(); s.add(r.kodePr); state.prByPo.set(po, s); }); });
   }
-  function prSave() { try { localStorage.setItem(PR_KEY, JSON.stringify(PR)); } catch (e) { /* abaikan */ } }
-  const prDefKode = (date) => `PR/GTK/${(date || todayStr()).slice(2, 4)}${(date || todayStr()).slice(5, 7)}/001`;
-  // 12-Nov-26 (seperti format tanggal di formulir)
+  // Kelompok per Kode PR
+  function prGroups() {
+    const m = new Map();
+    (state.pr || []).forEach((r) => { const g = m.get(r.kodePr) || { kodePr: r.kodePr, tanggal: r.tanggal, rows: [] }; g.rows.push(r); m.set(r.kodePr, g); });
+    m.forEach((g) => { g.rows.sort((a, b) => a.no - b.no); g.batal = g.rows.every((r) => r.status === 'Batal'); });
+    return [...m.values()].sort((a, b) => (a.kodePr < b.kodePr ? 1 : -1));
+  }
+  const prDefKode = (date) => `PR/GTK/${(date || todayStr()).slice(2, 4)}${(date || todayStr()).slice(5, 7)}/…`;
   const prDateTxt = (d) => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${Number(dd)}-${BULAN_ID[Number(m) - 1]}-${y.slice(2)}`; };
-  const prNumTxt = (v) => { if (v === '' || v === null || v === undefined) return '-'; const n = Number(String(v).replace(',', '.')); return isNaN(n) ? esc(v) : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(n); };
-  function prSheet(print) {
-    const v = (r, k) => esc(r[k] || '');
+  const prNum = (v) => (v === '' || v === null || v === undefined ? '' : Number(String(v).replace(',', '.')));
+  const prNumTxt = (v, dash = '-') => { if (v === '' || v === null || v === undefined) return dash; const n = Number(v); return isNaN(n) ? esc(v) : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(n); };
+  // qty PO (dari Monitoring PO) untuk No PO yang tercatat + kode material yang sama
+  function prPoQty(r) {
+    if (!r.pos.length) return null;
+    const set = new Set(r.pos);
+    const lines = (state.rows || []).filter((x) => set.has(x.po) && x.code === r.kode && !x.cancel);
+    return { qty: lines.reduce((t, x) => t + (Number(x.qty) || 0), 0), found: new Set(lines.map((x) => x.po)), uom: (lines[0] || {}).uom || '' };
+  }
+  const prStatus = (r) => (r.status === 'Batal' ? { t: 'Batal', cls: 'b-cancel' } : r.pos.length ? { t: 'Sudah ada PO', cls: 'b-done' } : { t: 'Belum ada PO', cls: 'b-none' });
+  const prPoLinks = (r) => r.pos.map((po) => `<button type="button" class="btn-link pr-po" data-gopo="${esc(po)}" data-gocode="${esc(r.kode)}" title="Buka ${esc(po)} di Monitoring PO">${esc(po)}</button>`).join(' ');
+
+  /* ---------- Rekap PR ---------- */
+  function renderPrRekap() {
+    if (!$('prRows')) return;
+    const groups = prGroups();
+    const months = [...new Set(groups.map((g) => g.tanggal.slice(0, 7)).filter(Boolean))].sort().reverse();
+    const curM = $('prMon').value;
+    $('prMon').innerHTML = '<option value="">Semua bulan</option>' + months.map((m) => `<option value="${m}"${m === curM ? ' selected' : ''}>${esc(monLabel(m))}</option>`).join('');
+    const q = $('prQ').value.trim().toLowerCase(), mon = $('prMon').value, st = $('prSt').value;
+    let rows = (state.pr || []).filter((r) => (!mon || r.tanggal.slice(0, 7) === mon)
+      && (!q || (r.kodePr + ' ' + r.kode + ' ' + r.nama + ' ' + r.note + ' ' + r.pos.join(' ')).toLowerCase().includes(q))
+      && (!st || prStatus(r).t === st));
+    rows = rows.slice().sort((a, b) => (a.kodePr < b.kodePr ? 1 : a.kodePr > b.kodePr ? -1 : a.no - b.no));
+    const ed = state.edit.on;
+    let prev = '';
+    $('prRows').innerHTML = rows.map((r) => {
+      const first = r.kodePr !== prev; prev = r.kodePr;
+      const s = prStatus(r), pq = prPoQty(r), unk = pq ? r.pos.filter((po) => !pq.found.has(po)) : [];
+      return `<tr class="row${r.status === 'Batal' ? ' is-takeout' : ''}${first ? ' pr-first' : ''}">
+        <td class="pr-kc"><button type="button" class="btn-link" data-openpr="${esc(r.kodePr)}" title="Buka formulir PR ini">${esc(r.kodePr)}</button>${ed && first ? ` <button type="button" class="btn-link" data-editpr="${esc(r.kodePr)}">Ubah</button>` : ''}</td>
+        <td class="date">${esc(prDateTxt(r.tanggal))}</td><td class="num">${r.no}</td>
+        <td class="mono">${esc(r.kode)}</td><td>${esc(r.nama)}</td><td>${esc(r.jenis)}</td><td>${esc(r.note)}</td>
+        ${PR_NUM.map((k) => `<td class="num">${prNumTxt(r[k], '')}</td>`).join('')}
+        <td class="date">${esc(prDateTxt(r.kirim))}</td>
+        <td>${prPoLinks(r) || '<span class="muted">–</span>'}${pq ? `<small class="pr-poq">qty PO ${prNumTxt(pq.qty, '0')} ${esc(pq.uom)}${r.buka !== '' ? ` / buka ${prNumTxt(r.buka)}` : ''}</small>` : ''}${unk.length ? `<small class="pl-bad">tidak ada di data PO untuk kode ini: ${esc(unk.join(', '))}</small>` : ''}</td>
+        <td><span class="badge ${s.cls}">${s.t}</span></td></tr>`;
+    }).join('') || `<tr class="empty"><td colspan="16">${(state.pr || []).length ? 'Tidak ada PR yang cocok.' : (state.noPrScript ? 'Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).' : 'Belum ada PR. Klik "Tambah PR baru" (mode edit) atau upload Excel.')}</td></tr>`;
+    const nG = groups.length, nAct = groups.filter((g) => !g.batal).length;
+    const lines = (state.pr || []).filter((r) => r.status !== 'Batal');
+    $('prKpi').innerHTML = kpis([{ num: nf.format(nAct), lbl: 'PR aktif' }, { num: nf.format(lines.length), lbl: 'baris material' },
+      { num: nf.format(lines.filter((r) => !r.pos.length).length), lbl: 'belum ada PO', tone: lines.some((r) => !r.pos.length) ? 'warn' : '' },
+      { num: nf.format(nG - nAct), lbl: 'PR batal' }]);
+    $('prInfo').textContent = `${nf.format(rows.length)} baris ditampilkan · klik Kode PR untuk membuka formulir · klik No PO untuk membuka di Monitoring PO${ed ? '' : ' · masuk Mode edit untuk menambah / mengubah PR'}`;
+    $('prNew').disabled = !ed; $('prUpBtn').classList.toggle('is-disabled', !ed);
+  }
+  ['prQ', 'prMon', 'prSt'].forEach((id) => $(id).addEventListener(id === 'prQ' ? 'input' : 'change', renderPrRekap));
+  function prGoPo(po, code) {
+    const row = state.rows.find((x) => x.po === po && x.code === code && !x.cancel) || state.rows.find((x) => x.po === po && x.code === code) || state.rows.find((x) => x.po === po);
+    if ($('dlg').open) $('dlg').close();
+    goMonitor({ q: row && row.code === code ? po + ' ' + code : po, openKey: row ? row.key : null, jenis: '', supplier: '' });
+    if (row) setTimeout(() => scrollRowTop(row.key), 300);
+  }
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('.pr-po[data-gopo]'); if (g) { prGoPo(g.dataset.gopo, g.dataset.gocode); return; }
+    const o = e.target.closest('[data-openpr]'); if (o) { PRF.kode = o.dataset.openpr; location.hash = '#/pr/form'; return; }
+    const ed = e.target.closest('[data-editpr]'); if (ed) prEdit(ed.dataset.editpr);
+  });
+
+  // Dialog tambah / ubah PR (mode edit PO)
+  const prBlank = () => ({ kode: '', nama: '', jenis: '', note: '', stok: '', butuh: '', ospo: '', kurang: '', buka: '', pakai: '', kirim: '', pos: [], status: 'Aktif' });
+  function prEdit(kodePr) {
+    if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
+    if (state.noPrScript) { toast('Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).'); return; }
+    const g = kodePr ? prGroups().find((x) => x.kodePr === kodePr) : null;
+    const D = { kodePr: kodePr || '', tanggal: g ? g.tanggal : todayStr(), rows: g ? g.rows.map((r) => Object.assign({}, r, { pos: r.pos.slice() })) : [prBlank(), prBlank(), prBlank()] };
+    const matOpts = [...(MRP.master || new Map()).values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim())).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
+    const rowHtml = (r, i) => `<tr data-i="${i}"><td class="num">${i + 1}</td>
+      <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"></td>
+      <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
+      <td><input data-k="note" value="${esc(r.note)}" class="pr-in-s" aria-label="Note"></td>
+      ${PR_NUM.map((k) => `<td><input data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n" aria-label="${k}"></td>`).join('')}
+      <td><input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim"></td>
+      <td><input data-k="pos" value="${esc(r.pos.join(', '))}" list="prEdPo${i}" class="pr-in-po" placeholder="PO… , PO…" aria-label="No PO"><datalist id="prEdPo${i}">${prPoSuggest(r.kode, D.tanggal)}</datalist></td>
+      <td><select data-k="status" aria-label="Status"><option${r.status !== 'Batal' ? ' selected' : ''}>Aktif</option><option${r.status === 'Batal' ? ' selected' : ''}>Batal</option></select></td>
+      <td><button type="button" class="btn-link danger" data-rm="${i}" title="Hapus baris (belum tersimpan)">×</button></td></tr>`;
+    const paint = () => { $('dlgBody').querySelector('#prEdRows').innerHTML = D.rows.map(rowHtml).join(''); };
+    openDialog({
+      title: kodePr ? `Ubah ${kodePr}` : 'Tambah PR baru', ok: 'Simpan PR', wide: true,
+      body: `<div class="form-grid pr-ed-head"><label class="field"><span>Tanggal PR *</span><input type="date" name="tanggal" value="${esc(D.tanggal)}" required></label>
+          <label class="field"><span>Kode PR</span><input value="${esc(kodePr || prDefKode(D.tanggal) + ' (otomatis)')}" readonly></label>
+          ${kodePr ? `<label class="field pr-ed-batal"><span>Status seluruh PR</span><select name="allst"><option value="">Ikuti per baris</option><option value="Aktif">Aktifkan semua</option><option value="Batal">Batalkan seluruh PR</option></select></label>` : ''}</div>
+        <datalist id="prEdMat">${matOpts}</datalist>
+        <div class="table-wrap pr-ed-wrap"><table class="po-table pr-ed"><thead><tr><th>No</th><th>Kode</th><th>Nama Item</th><th>Jenis</th><th>Note</th>${PR_COLS.map((c) => `<th class="num">${c.h}</th>`).join('')}<th>Tgl Kirim</th><th>No PO <small>(pisah koma)</small></th><th>Status</th><th></th></tr></thead><tbody id="prEdRows"></tbody></table></div>
+        <p><button type="button" class="btn btn-ghost btn-sm" id="prEdAdd">Tambah baris</button></p>
+        <p class="hint">Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
+      onSubmit: async (fd) => {
+        const rows = D.rows.filter((r) => String(r.kode || '').trim());
+        if (!rows.length) throw new Error('Isi minimal satu kode material.');
+        const bad = rows.filter((r) => MRP.master && MRP.master.size && !MRP.master.get(String(r.kode).trim()));
+        if (bad.length && !D.warned) { D.warned = true; throw new Error(`Kode tidak ada di Daftar Material: ${bad.map((r) => r.kode).join(', ')}. Klik Simpan PR sekali lagi bila memang benar.`); }
+        const all = fd.allst || '';
+        const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
+          ...PR_NUM.map((k) => prNum(r[k])), r.kirim || '', r.pos.join(', '), all || r.status]) } });
+        setPrData(res.pr); if (res.editLog) state.editLog = res.editLog;
+        renderPrRekap(); renderLog();
+        return `${res.codes[0]} tersimpan.`;
+      },
+    });
+    paint();
+    const body = $('dlgBody');
+    body.querySelector('[name=tanggal]').addEventListener('change', (e) => { D.tanggal = e.target.value; if (!kodePr) body.querySelector('.pr-ed-head input[readonly]').value = prDefKode(D.tanggal) + ' (otomatis)'; });
+    body.querySelector('#prEdAdd').addEventListener('click', () => { D.rows.push(prBlank()); paint(); });
+    body.addEventListener('input', (e) => {
+      const inp = e.target.closest('#prEdRows [data-k]'); if (!inp) return;
+      const i = Number(inp.closest('tr').dataset.i), k = inp.dataset.k, r = D.rows[i];
+      if (k === 'pos') r.pos = splitPo(inp.value); else r[k] = inp.value;
+      if (k === 'kode') {
+        const m = MRP.master && MRP.master.get(inp.value.trim());
+        if (m) { r.nama = m.name || ''; r.jenis = m.kat || ''; const tr = inp.closest('tr'); tr.querySelector('[data-k=nama]').value = r.nama; tr.querySelector('[data-k=jenis]').value = r.jenis; tr.querySelector('datalist').innerHTML = prPoSuggest(m.code, D.tanggal); }
+      }
+    });
+    body.addEventListener('change', (e) => { const sl = e.target.closest('#prEdRows select[data-k]'); if (sl) D.rows[Number(sl.closest('tr').dataset.i)].status = sl.value; });
+    body.addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (!b) return; D.rows.splice(Number(b.dataset.rm), 1); if (!D.rows.length) D.rows.push(prBlank()); paint(); });
+  }
+  // Saran No PO: PO di Monitoring PO dengan kode material sama, tgl order ≥ tgl PR (terbaru di atas)
+  function prPoSuggest(kode, tanggal) {
+    if (!kode) return '';
+    const seen = new Set();
+    return (state.rows || []).filter((x) => x.code === String(kode).trim() && !x.cancel && (!tanggal || x.date >= tanggal))
+      .sort((a, b) => (a.date < b.date ? 1 : -1)).filter((x) => !seen.has(x.po) && seen.add(x.po)).slice(0, 15)
+      .map((x) => `<option value="${esc(x.po)}">${esc(x.supplier)} · ${fmtDate(x.date)} · ${fmtNum(x.qty)} ${esc(x.uom)}</option>`).join('');
+  }
+  $('prNew').addEventListener('click', () => prEdit(''));
+
+  // Excel: format, upload, unduh rekap
+  const PR_XL = ['KODE PR', 'TANGGAL PR', 'KODE', 'NAMA ITEM', 'JENIS', 'NOTE', 'STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO', 'PEMAKAIAN (BULAN)', 'TANGGAL KIRIM', 'NO PO', 'STATUS'];
+  $('prTpl').addEventListener('click', () => {
+    const ws = XLSX.utils.aoa_to_sheet([PR_XL, ['', todayStr(), '', '', '', '', '', '', '', '', '', '', '', '', 'Aktif']]);
+    ws['!cols'] = PR_XL.map((h) => ({ wch: Math.max(12, h.length + 2) })); ws['!cols'][3] = { wch: 36 };
+    const info = XLSX.utils.aoa_to_sheet([['Petunjuk'], ['KODE PR kosong = PR baru. Baris dengan KODE PR kosong dan TANGGAL PR sama digabung menjadi satu PR; Kode PR dibuat otomatis (PR/GTK/YYMM/NNN).'],
+      ['KODE PR diisi (yang sudah ada) = seluruh isi PR itu diganti dengan baris di file.'], ['TANGGAL PR & TANGGAL KIRIM format tanggal (yyyy-mm-dd). NAMA ITEM & JENIS boleh kosong (diisi dari Daftar Material).'],
+      ['NO PO boleh lebih dari satu, pisah koma. STATUS: Aktif / Batal (kosong = Aktif).']]);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'REKAP PR'); XLSX.utils.book_append_sheet(wb, info, 'PETUNJUK');
+    XLSX.writeFile(wb, `Format_Upload_PR_${todayStr()}.xlsx`);
+  });
+  const xlDate = (v) => {
+    if (v === '' || v === null || v === undefined) return '';
+    if (typeof v === 'number') { const d = XLSX.SSF.parse_date_code(v); return d ? `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}` : ''; }
+    const t = String(v).trim(); let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
+  };
+  $('prFile').addEventListener('change', async () => {
+    const f = $('prFile').files[0]; $('prFile').value = ''; if (!f) return;
+    if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
+    try {
+      const wb = await readBook(f), sn = wb.SheetNames.find((n) => /rekap/i.test(n)) || wb.SheetNames[0], A = sheetRows(wb, sn);
+      const h = A.findIndex((r) => r.some((x) => txt(x).toUpperCase() === 'KODE PR'));
+      if (h < 0) throw new Error('Kolom KODE PR tidak ditemukan. Pakai "Unduh format Excel".');
+      const H = A[h].map((x) => txt(x).toUpperCase()), ix = (n) => H.indexOf(n);
+      if (ix('KODE') < 0 || ix('TANGGAL PR') < 0) throw new Error('Kolom KODE dan TANGGAL PR wajib ada.');
+      const groups = new Map(), errs = [];
+      A.slice(h + 1).forEach((r, i) => {
+        const kode = txt(r[ix('KODE')]).replace(/\.0+$/, ''); if (!kode) return;
+        const kp = txt(r[ix('KODE PR')]), tg = xlDate(r[ix('TANGGAL PR')]);
+        if (!tg) { errs.push(`baris ${h + i + 2}: TANGGAL PR kosong/tidak dikenal`); return; }
+        const key = kp || 'NEW|' + tg, g = groups.get(key) || { kodePr: kp, tanggal: tg, rows: [] };
+        const m = MRP.master && MRP.master.get(kode), g2 = (n) => (ix(n) >= 0 ? r[ix(n)] : '');
+        g.rows.push([kode, txt(g2('NAMA ITEM')) || (m ? m.name : ''), txt(g2('JENIS')) || (m ? m.kat : ''), txt(g2('NOTE')),
+          ...['STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO', 'PEMAKAIAN (BULAN)'].map((n) => prNum(g2(n) === '' ? '' : g2(n))),
+          xlDate(g2('TANGGAL KIRIM')), splitPo(g2('NO PO')).join(', '), /batal/i.test(txt(g2('STATUS'))) ? 'Batal' : 'Aktif']);
+        groups.set(key, g);
+      });
+      if (errs.length) throw new Error(errs.slice(0, 5).join('; '));
+      const G = [...groups.values()]; if (!G.length) throw new Error('Tidak ada baris dengan KODE material.');
+      const exist = new Set((state.pr || []).map((r) => r.kodePr));
+      const nNew = G.filter((g) => !g.kodePr).length, nRep = G.filter((g) => g.kodePr && exist.has(g.kodePr)).length;
+      openDialog({
+        title: `Upload PR · ${f.name}`, ok: 'Simpan ke Google Sheet',
+        body: `<p class="dlg-lead">Terbaca <b>${nf.format(G.length)}</b> PR, <b>${nf.format(G.reduce((t, g) => t + g.rows.length, 0))}</b> baris material.</p>
+          <ul class="pj-list"><li>${nf.format(nNew)} PR baru (Kode PR otomatis)</li><li>${nf.format(nRep)} PR yang sudah ada akan <b>diganti seluruh isinya</b>: ${esc(G.filter((g) => g.kodePr && exist.has(g.kodePr)).map((g) => g.kodePr).join(', ')) || '–'}</li>
+          ${G.filter((g) => g.kodePr && !exist.has(g.kodePr)).length ? `<li>${nf.format(G.filter((g) => g.kodePr && !exist.has(g.kodePr)).length)} Kode PR di file belum ada di Rekap → dibuat dengan kode tersebut</li>` : ''}</ul>`,
+        onSubmit: async () => {
+          const res = await api('uploadPr', { data: { file: f.name, groups: G } });
+          setPrData(res.pr); if (res.editLog) state.editLog = res.editLog; renderPrRekap(); renderLog();
+          return `${res.codes.length} PR tersimpan.`;
+        },
+      });
+    } catch (err) { toast('Upload PR gagal: ' + err.message); }
+  });
+  $('prExport').addEventListener('click', () => {
+    const data = (state.pr || []).map((r) => ({ 'KODE PR': r.kodePr, 'TANGGAL PR': r.tanggal, NO: r.no, KODE: r.kode, 'NAMA ITEM': r.nama, JENIS: r.jenis, NOTE: r.note,
+      'STOK AWAL': r.stok, KEBUTUHAN: r.butuh, 'OS PO': r.ospo, KEKURANGAN: r.kurang, 'JUMLAH BUKA PO': r.buka, 'PEMAKAIAN (BULAN)': r.pakai, 'TANGGAL KIRIM': r.kirim,
+      'NO PO': r.pos.join(', '), 'QTY PO (MONITORING PO)': (prPoQty(r) || {}).qty ?? '', STATUS: prStatus(r).t, DIUBAH: r.time, OLEH: r.by }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'REKAP PR');
+    XLSX.writeFile(wb, `Rekap_PR_${todayStr()}.xlsx`);
+  });
+
+  /* ---------- Formulir PR (tarik data dari Rekap per Kode PR, cetak PDF) ---------- */
+  const PRF = { kode: '' };
+  function prSheet(g) {
+    const rows = g ? g.rows.filter((r) => r.status !== 'Batal') : [];
+    while (rows.length < 5) rows.push(null);
     const head = `<div class="pr-top"><img src="assets/logo-gondowangi.png" alt="Gondowangi" class="pr-logo"><span class="pr-lamp">Lampiran 8.1</span></div>
       <h2 class="pr-title">FORMULIR PURCHASE REQUEST (PR)</h2>
       <div class="pr-meta"><div class="pr-berlaku">Tanggal Berlaku : 02 Okt 2025<br>Tanggal Kaji Ulang : 02 Okt 2028</div>
-        <div class="pr-ids"><span>Tanggal PR :</span><b class="pr-box">${esc(prDateTxt(PR.date))}</b><span>Kode PR :</span><b class="pr-box pr-box2">${esc(PR.kode || prDefKode(PR.date))}</b></div></div>`;
+        <div class="pr-ids"><span>Tanggal PR :</span><b class="pr-box">${g ? esc(prDateTxt(g.tanggal)) : ''}</b><span>Kode PR :</span><b class="pr-box pr-box2">${g ? esc(g.kodePr) : ''}</b></div></div>`;
     const th = `<tr><th class="pr-no">No.</th><th class="pr-kode">Kode</th><th class="pr-nama">Nama Item</th><th class="pr-jenis">Jenis</th><th class="pr-note">Note</th>
-      ${PR_COLS.map((c) => `<th class="pr-n">${c.h}<small>${c.u}</small></th>`).join('')}<th class="pr-kirim">Tanggal Kirim</th>${print ? '' : '<th class="pr-x no-print"></th>'}</tr>`;
-    const rows = PR.rows.map((r, i) => print
-      ? `<tr><td class="pr-no">${i + 1}</td><td class="pr-kode">${v(r, 'kode')}</td><td class="pr-nama">${v(r, 'nama')}</td><td class="pr-jenis">${v(r, 'jenis')}</td><td class="pr-note">${v(r, 'note')}</td>
+      ${PR_COLS.map((c) => `<th class="pr-n">${c.h}<small>${c.u}</small></th>`).join('')}<th class="pr-kirim">Tanggal Kirim</th></tr>`;
+    const body = rows.map((r, i) => (r
+      ? `<tr><td class="pr-no">${i + 1}</td><td class="pr-kode">${esc(r.kode)}</td><td class="pr-nama">${esc(r.nama)}</td><td class="pr-jenis">${esc(r.jenis)}</td><td class="pr-note">${esc(r.note)}</td>
         ${PR_NUM.map((k) => `<td class="pr-n">${prNumTxt(r[k])}</td>`).join('')}<td class="pr-kirim">${esc(prDateTxt(r.kirim))}</td></tr>`
-      : `<tr data-i="${i}"><td class="pr-no">${i + 1}</td>
-        <td class="pr-kode"><input data-k="kode" value="${v(r, 'kode')}" list="prMatList" aria-label="Kode baris ${i + 1}"></td>
-        <td class="pr-nama"><textarea data-k="nama" rows="2" aria-label="Nama item baris ${i + 1}">${v(r, 'nama')}</textarea></td>
-        <td class="pr-jenis"><input data-k="jenis" value="${v(r, 'jenis')}" aria-label="Jenis baris ${i + 1}"></td>
-        <td class="pr-note"><input data-k="note" value="${v(r, 'note')}" aria-label="Note baris ${i + 1}"></td>
-        ${PR_NUM.map((k) => `<td class="pr-n"><input data-k="${k}" value="${v(r, k)}" inputmode="decimal" aria-label="${k} baris ${i + 1}"></td>`).join('')}
-        <td class="pr-kirim"><input type="date" data-k="kirim" value="${v(r, 'kirim')}" aria-label="Tanggal kirim baris ${i + 1}"></td>
-        <td class="pr-x no-print"><button type="button" class="btn-link danger" data-del="${i}" title="Hapus baris ini">×</button></td></tr>`).join('');
+      : `<tr><td class="pr-no">${i + 1}</td><td></td><td></td><td></td><td></td>${PR_NUM.map(() => '<td class="pr-n">-</td>').join('')}<td></td></tr>`)).join('');
     const foot = `<div class="pr-bottom"><div class="pr-dok">No. Dok : LF1004-01<br>No. Rev : 04</div>
       <table class="pr-sign"><tr><th>Dibuat Oleh :</th><th>Diperiksa Oleh :</th><th colspan="2">Disetujui Oleh :</th></tr>
         <tr><td>(.........................)</td><td>(.........................)</td><td>(.........................)</td><td>(.........................)</td></tr></table></div>`;
-    return head + `<table class="pr-table"><thead>${th}</thead><tbody>${rows}</tbody></table>` + foot;
-  }
-  function prRender() {
-    $('prDate').value = PR.date || '';
-    $('prKode').value = PR.kode || '';
-    $('prKode').placeholder = prDefKode(PR.date);
-    $('prPaper').innerHTML = prSheet(false);
+    return head + `<table class="pr-table"><thead>${th}</thead><tbody>${body}</tbody></table>` + foot;
   }
   function prEnter() {
-    if (!PR) prLoad();
-    const dl = $('prMatList');
-    if (MRP.master && MRP.master.size && dl.childElementCount !== MRP.master.size) {
-      dl.innerHTML = [...MRP.master.values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim())).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
-    }
-    prRender();
+    const groups = prGroups();
+    $('prKodeList').innerHTML = groups.filter((g) => !g.batal).map((g) => `<option value="${esc(g.kodePr)}">${esc(prDateTxt(g.tanggal))} · ${g.rows.filter((r) => r.status !== 'Batal').length} item</option>`).join('');
+    if (!PRF.kode) { const g0 = groups.find((g) => !g.batal); if (g0) PRF.kode = g0.kodePr; }
+    $('prKode').value = PRF.kode;
+    prRenderForm();
   }
-  $('prDate').addEventListener('change', () => { PR.date = $('prDate').value; prSave(); prRender(); });
-  $('prKode').addEventListener('input', () => { PR.kode = $('prKode').value.trim(); prSave(); });
-  $('prPaper').addEventListener('input', (e) => {
-    const inp = e.target.closest('[data-k]'); if (!inp) return;
-    const i = Number(inp.closest('tr').dataset.i), k = inp.dataset.k, r = PR.rows[i];
-    r[k] = inp.value;
-    if (k === 'kode') {
-      const m = MRP.master && MRP.master.get(inp.value.trim());
-      if (m) {
-        r.kode = m.code; r.nama = m.name || ''; r.jenis = m.kat || '';
-        const tr = inp.closest('tr'); tr.querySelector('[data-k=nama]').value = r.nama; tr.querySelector('[data-k=jenis]').value = r.jenis;
-      }
-    }
-    prSave();
-  });
-  $('prPaper').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-del]'); if (!b) return;
-    PR.rows.splice(Number(b.dataset.del), 1);
-    while (PR.rows.length < 5) PR.rows.push(prBlank());
-    prSave(); prRender();
-  });
-  $('prAdd').addEventListener('click', () => { PR.rows.push(prBlank()); prSave(); prRender(); const ins = $('prPaper').querySelectorAll('[data-k=kode]'); ins[ins.length - 1].focus(); });
-  $('prClear').addEventListener('click', () => {
-    openDialog({ title: 'Kosongkan formulir PR?', body: '<p class="dlg-lead">Semua baris dan isian di formulir ini dihapus dari browser. Belum ada yang tersimpan di Google Sheet.</p>', ok: 'Kosongkan', danger: true,
-      onSubmit: async () => { PR = { date: todayStr(), kode: '', rows: [] }; while (PR.rows.length < 5) PR.rows.push(prBlank()); prSave(); prRender(); return 'Formulir dikosongkan.'; } });
-  });
+  function prRenderForm() {
+    const g = prGroups().find((x) => x.kodePr === PRF.kode);
+    const msg = !PRF.kode ? (state.noPrScript ? 'Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).' : 'Pilih atau ketik Kode PR. Data diambil dari Rekap PR.')
+      : !g ? `Kode PR ${PRF.kode} tidak ada di Rekap PR.` : g.batal ? `${PRF.kode} berstatus Batal.` : '';
+    $('prFormMsg').textContent = msg; $('prFormMsg').className = 'check' + (msg && PRF.kode ? ' err' : '');
+    $('prPaper').innerHTML = prSheet(g && !g.batal ? g : null);
+    $('prPrint').disabled = !(g && !g.batal);
+    const pos = g ? [...new Set(g.rows.filter((r) => r.status !== 'Batal').flatMap((r) => r.pos))] : [];
+    $('prFormPo').innerHTML = g && !g.batal ? `No PO terbit dari PR ini: ${pos.length ? g.rows.filter((r) => r.status !== 'Batal' && r.pos.length).map((r) => `<span class="pr-pochip"><span class="mono">${esc(r.kode)}</span> ${prPoLinks(r)}</span>`).join(' ') : '<span class="muted">belum ada</span>'}` : '';
+  }
+  $('prKode').addEventListener('input', () => { PRF.kode = $('prKode').value.trim(); prRenderForm(); });
   $('prPrint').addEventListener('click', () => {
+    const g = prGroups().find((x) => x.kodePr === PRF.kode); if (!g || g.batal) return;
     let root = document.getElementById('prPrintRoot');
     if (!root) { root = document.createElement('div'); root.id = 'prPrintRoot'; document.body.appendChild(root); }
-    root.innerHTML = `<div class="pr-paper is-print">${prSheet(true)}</div>`;
+    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g)}</div>`;
     document.body.classList.add('printing-pr');
-    const done = () => { document.body.classList.remove('printing-pr'); window.removeEventListener('afterprint', done); };
+    const t0 = document.title; document.title = g.kodePr.replace(/\//g, '-');   // nama file PDF bawaan
+    const done = () => { document.body.classList.remove('printing-pr'); document.title = t0; window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
     const img = root.querySelector('img');
     const go = () => { window.print(); setTimeout(done, 1000); };
     if (img && !img.complete) img.addEventListener('load', go, { once: true }); else go();
   });
+  function renderPrViews() { if (state.routeKey === 'pr/rekap') renderPrRekap(); if (state.routeKey === 'pr/form') prEnter(); }
 
   window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld, workdaysSince };
   route();

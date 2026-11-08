@@ -6,7 +6,7 @@
  * - doGet  : website membaca PO_LINE, PO_SCHEDULE, tanda edit manual, dan riwayat edit.
  *            Disimpan di cache 5 menit (dihapus setiap upload/edit); ?fresh=1 selalu membaca langsung.
  *            ?view=supplier → daftar supplier & MoQ (histori) per material RM/PM (tab SUPPLIER_MATERIAL di DATABASE PPIC).
- * - doPost : upload export Odoo dan edit manual dari website (dilindungi PIN).
+ * - doPost : upload export Odoo, edit manual, dan Purchase Request (REKAP_PR) dari website (dilindungi PIN).
  *
  * PIN diatur di: Project Settings → Script Properties → UPLOAD_PIN.
  * Setelah kode diganti: Deploy → Manage deployments → Edit (ikon pensil) → Version: New version → Deploy.
@@ -26,6 +26,7 @@ const CONFIG = {
   SUPPLIER_SHEET: 'SUPPLIER_MATERIAL',  // di DATABASE PPIC: hasil hitung otomatis (jangan diketik)
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
   MONITOR_SHEET: 'MONITORING_PO',  // tampilan di Google Sheet: diisi Apps Script sebagai tabel biasa (tanpa rumus berat)
+  PR_SHEET: 'REKAP_PR',            // Purchase Request: satu baris = satu material di satu PR (tidak tersentuh upload Odoo)
 };
 const MONITOR_VERSION = '2';      // naikkan bila susunan tab MONITORING_PO berubah
 const LINE_COLS = 13;   // A–M PO_LINE
@@ -65,6 +66,7 @@ function doGet(e) {
     cancels: readCancels_(ss, tz),
     changes: readChanges_(ss, 4000),
     lastUpload: lastUpload_(ss, tz),
+    pr: readPr_(ss, tz),
     readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
   };
   putBig_(cache, 'po_main', out, 300);
@@ -143,6 +145,11 @@ function doPost(e) {
     if (action === 'saveFollowup') {
       saveFollowup_(ss, body, user, stamp, tz);
       return json_({ ok: true, time: stamp, followups: readFollowups_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
+    }
+
+    if (action === 'savePr' || action === 'uploadPr') {
+      const codes = action === 'savePr' ? [savePr_(ss, body.data || {}, user, stamp, tz)] : uploadPr_(ss, body.data || {}, user, stamp, tz);
+      return json_({ ok: true, time: stamp, codes, pr: readPr_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
     }
 
     const handlers = { saveLine: saveLine_, deleteLine: deleteLine_, saveSched: saveSched_, deleteSched: deleteSched_ };
@@ -624,6 +631,89 @@ function setCancel_(ss, body, user, stamp, tz) {
     sh.deleteRow(t.rowNo[i]);
     logEdit_(ss, [[stamp, user, kode ? 'Aktifkan lagi baris' : 'Aktifkan lagi PO', po, kode, 'Alasan cancel', old, '']]);
   }
+}
+
+/* ================= Purchase Request (REKAP_PR) ================= */
+// Satu baris = satu material di satu PR. Kode PR otomatis PR/GTK/YYMM/NNN mengikuti bulan TANGGAL PR (nomor urut per bulan).
+// NO PO boleh lebih dari satu (dipisah koma). STATUS: Aktif / Batal. Tidak tersentuh upload export Odoo.
+const PR_HEAD = ['KODE PR', 'TANGGAL PR', 'NO', 'KODE', 'NAMA ITEM', 'JENIS', 'NOTE', 'STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN',
+  'JUMLAH BUKA PO', 'PEMAKAIAN (BULAN)', 'TANGGAL KIRIM', 'NO PO', 'STATUS', 'DIUBAH', 'OLEH'];
+const PR_COLS = PR_HEAD.length;
+const PR_FMT = [['A', '@'], ['B', '@'], ['D', '@'], ['N', '@'], ['O', '@'], ['Q', '@']];
+
+function prSheet_(ss) {
+  let sh = ss.getSheetByName(CONFIG.PR_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.PR_SHEET);
+    sh.getRange(1, 1, 1, PR_COLS).setValues([PR_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    PR_FMT.forEach(([c, f]) => sh.getRange(c + ':' + c).setNumberFormat(f));
+  }
+  return sh;
+}
+// [kodePr, tanggal, no, kode, nama, jenis, note, stok, kebutuhan, osPo, kekurangan, buka, pemakaian, tglKirim, noPo, status, diubah, oleh]
+function readPr_(ss, tz) {
+  const sh = ss.getSheetByName(CONFIG.PR_SHEET);
+  if (!sh) return [];
+  return readRows_(sh, PR_COLS).map(r => [str_(r[0]), fmtDate_(r[1], tz), Number(r[2]) || 0, str_(r[3]), String(r[4] || ''), String(r[5] || ''), String(r[6] || ''),
+    numOrBlank_(r[7]), numOrBlank_(r[8]), numOrBlank_(r[9]), numOrBlank_(r[10]), numOrBlank_(r[11]), numOrBlank_(r[12]),
+    fmtDate_(r[13], tz), str_(r[14]), str_(r[15]) || 'Aktif', show_(r[16], tz), String(r[17] || '')]);
+}
+function nextPrCode_(all, tanggal) {
+  const pre = 'PR/GTK/' + tanggal.slice(2, 4) + tanggal.slice(5, 7) + '/';
+  let max = 0;
+  all.forEach(r => { if (r[0].indexOf(pre) === 0) { const n = Number(r[0].slice(pre.length)); if (n > max) max = n; } });
+  return pre + String(max + 1).padStart(3, '0');
+}
+// Ganti seluruh baris satu Kode PR (kodePr kosong = PR baru). rows: [kode, nama, jenis, note, stok, kebutuhan, osPo, kekurangan, buka, pemakaian, tglKirim, noPo, status]
+function applyPr_(all, d, stamp, user, log) {
+  const tanggal = str_(d.tanggal);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) throw new Error('Tanggal PR wajib diisi (format tanggal).');
+  const rows = (d.rows || []).filter(r => str_(r[0]));
+  if (!rows.length) throw new Error('PR harus berisi minimal satu kode material.');
+  let kode = str_(d.kodePr);
+  const isNew = !kode;
+  if (isNew) kode = nextPrCode_(all, tanggal);
+  else if (!/^PR\/GTK\/\d{4}\/\d+$/.test(kode)) throw new Error('Format Kode PR tidak dikenal: ' + kode + ' (contoh PR/GTK/2611/001).');
+  const old = all.filter(r => r[0] === kode);
+  const oldPo = {}; old.forEach(r => { oldPo[r[3]] = r[14]; });
+  const keep = all.filter(r => r[0] !== kode);
+  const nb = (v) => (v === '' || v === null || v === undefined || isNaN(Number(v)) ? '' : Number(v));
+  const dt = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(str_(v)) ? str_(v) : '');
+  const add = rows.map((r, i) => [kode, tanggal, i + 1, str_(r[0]), String(r[1] || ''), String(r[2] || ''), String(r[3] || ''),
+    nb(r[4]), nb(r[5]), nb(r[6]), nb(r[7]), nb(r[8]), nb(r[9]), dt(r[10]),
+    String(r[11] || '').split(/[,;\s]+/).map(str_).filter(Boolean).join(', '), str_(r[12]) === 'Batal' ? 'Batal' : 'Aktif', stamp, user]);
+  log.push([stamp, user, isNew ? 'Buat PR' : (old.length ? 'Ubah PR' : 'Buat PR'), kode, '', 'Jumlah baris', old.length ? String(old.length) : '', String(add.length)]);
+  add.forEach(r => { if ((oldPo[r[3]] || '') !== r[14] && (old.length || r[14])) log.push([stamp, user, 'No PO di PR', kode, r[3], 'No PO', oldPo[r[3]] || '', r[14]]); });
+  const nBatal = add.filter(r => r[15] === 'Batal').length;
+  if (nBatal) log.push([stamp, user, 'Status PR', kode, '', 'Baris batal', '', String(nBatal)]);
+  keep.push(...add);
+  all.length = 0; all.push(...keep);
+  return kode;
+}
+function writePr_(ss, all) {
+  all.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[2] - b[2]));
+  writeTable_(prSheet_(ss), all, PR_COLS, PR_FMT);
+}
+function savePr_(ss, d, user, stamp, tz) {
+  const all = readPr_(ss, tz).map(r => { r[16] = r[16] || ''; return r; });
+  const log = [];
+  const kode = applyPr_(all, d, stamp, user, log);
+  writePr_(ss, all);
+  logEdit_(ss, log);
+  return kode;
+}
+// Upload Excel: groups [{ kodePr, tanggal, rows }] — Kode PR kosong = PR baru, Kode PR ada = isinya diganti dengan isi file
+function uploadPr_(ss, d, user, stamp, tz) {
+  const groups = d.groups || [];
+  if (!groups.length) throw new Error('Tidak ada baris PR di file.');
+  const all = readPr_(ss, tz);
+  const log = [], codes = [];
+  groups.forEach(g => codes.push(applyPr_(all, g, stamp, user, log)));
+  writePr_(ss, all);
+  log.push([stamp, user, 'Upload PR', '', '', 'File', '', String(d.file || '') + ' · ' + codes.length + ' PR']);
+  logEdit_(ss, log);
+  return codes;
 }
 
 /* ================= Supplier & MoQ per material ================= */
