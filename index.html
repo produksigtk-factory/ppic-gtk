@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=bdad73d9">
+<link rel="stylesheet" href="style.css?v=94ccd434">
 </head>
 <body>
 <div class="shell">
@@ -579,12 +579,30 @@
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="kfShow"><option value="">Semua MO</option><option value="todo">Perlu dilengkapi / diperiksa</option><option value="sku">MO SKU</option><option value="ek">MO ekstrak</option></select></label>
           <div class="tb-actions">
             <label class="btn btn-sm btn-ghost kf-up" for="kfFile">Upload LIST_MO<input type="file" id="kfFile" accept=".xls,.xlsx" hidden></label>
-            <label class="btn btn-sm btn-ghost kf-up" for="consFile" title="Export Odoo Products to Consume (PC) atau Consumed Products (CP); diganti per No MO">Upload PC / CP<input type="file" id="consFile" accept=".xls,.xlsx" hidden></label>
             <button class="btn btn-ghost btn-sm" id="kfExport">Unduh Excel</button>
             <button class="btn btn-sm" id="kfSaveBtn" hidden>Simpan perubahan</button>
           </div>
         </div>
         <p class="check" id="kfCheck"></p>
+        <div class="cons-card">
+          <h2>Upload PC &amp; CP dari Odoo</h2>
+          <p class="lead">Data diganti per No MO yang ada di file; MO lain tetap. Week MO diambil dari tabel Konfirmasi di bawah.</p>
+          <div class="cons-grid">
+            <div class="cons-col">
+              <h3>PC · Products to Consume <small>belum dikonsumsi</small></h3>
+              <label class="file-drop" for="pcFile"><input type="file" id="pcFile" accept=".xls,.xlsx"><span class="file-btn">Pilih file PC</span><span class="file-name" id="pcName">Belum ada file</span></label>
+              <p class="check" id="pcCheck"></p>
+              <p class="up-now" id="pcNow"></p>
+            </div>
+            <div class="cons-col">
+              <h3>CP · Consumed Products <small>sudah dikonsumsi</small></h3>
+              <label class="file-drop" for="cpFile"><input type="file" id="cpFile" accept=".xls,.xlsx"><span class="file-btn">Pilih file CP</span><span class="file-name" id="cpName">Belum ada file</span></label>
+              <p class="check" id="cpCheck"></p>
+              <p class="up-now" id="cpNow"></p>
+            </div>
+          </div>
+          <div class="send-row"><button class="btn" id="consSend" disabled>Simpan ke Google Sheet</button><p class="send-result" id="consResult" aria-live="polite"></p></div>
+        </div>
         <div class="pl-kpis" id="kfKpi"></div>
         <p class="mrp-count" id="kfInfo"></p>
         <div class="table-wrap mrp-wrap">
@@ -594,7 +612,7 @@
         <div class="table-wrap mrp-wrap">
           <table class="po-table mrp-table kf-table"><thead><tr><th>No. MO</th><th>Ekstrak</th><th class="num">Hasil (kg)</th><th>Plotting Week</th><th class="num">Dipakai SKU (kg)</th><th class="num">Sisa (kg)</th><th>Dipakai oleh</th><th>Status</th></tr></thead><tbody id="kfEkRows"></tbody></table>
         </div>
-        <p class="hint">Upload file LIST_MO dari Odoo (kolom Reference, Product, Product Quantity, Product Unit of Measure), atau file Konfirmasi Produksi yang sudah diisi. <b>Konversi kg</b> = Qty ÷ pcs per batch BOM × 1.000 (BOM default Parameter SKU, dikunci saat disimpan). <b>Kebutuhan ekstrak</b> mengikuti BOM yang sama. Selisih kecil karena pembulatan (lebih sampai 1% atau 1 kg dari hasil MO ekstrak) dianggap aman. Banded/KIT dirakit dari FG lain sehingga tidak dikonversi ke kg. Perubahan baru tersimpan setelah klik <b>Simpan perubahan</b>. <b>Upload PC / CP</b>: export Odoo Products to Consume / Consumed Products; data diganti per No MO yang ada di file (MO lain tetap). Tanda <span class="kf-cons"><span>PC</span><span>CP</span></span> di No MO = sudah ada datanya.</p>
+        <p class="hint">Upload file LIST_MO dari Odoo (kolom Reference, Product, Product Quantity, Product Unit of Measure), atau file Konfirmasi Produksi yang sudah diisi. <b>Konversi kg</b> = Qty ÷ pcs per batch BOM × 1.000 (BOM default Parameter SKU, dikunci saat disimpan). <b>Kebutuhan ekstrak</b> mengikuti BOM yang sama. Selisih kecil karena pembulatan (lebih sampai 1% atau 1 kg dari hasil MO ekstrak) dianggap aman. Banded/KIT dirakit dari FG lain sehingga tidak dikonversi ke kg. Perubahan baru tersimpan setelah klik <b>Simpan perubahan</b>. <b>Upload PC &amp; CP</b>: export Odoo Products to Consume dan Consumed Products, masing-masing di kolomnya; data diganti per No MO yang ada di file (MO lain tetap). Tanda <span class="kf-cons"><span>PC</span><span>CP</span></span> di No MO = sudah ada datanya.</p>
       </section>
 
       <!-- ================= MRP: KEBUTUHAN MATERIAL ================= -->
@@ -1121,7 +1139,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=a1c4c502"></script>
+<script src="app.js?v=80eabda3"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
 <script src="help.js?v=794ae7d3"></script>
 <script src="tasks.js?v=4755b43f"></script>

@@ -3540,6 +3540,7 @@
     $('kfInfo').innerHTML = `${nf.format(list.length)} MO SKU ditampilkan` + (nDirty ? ` · <b class="pl-warn-t">${nf.format(nDirty)} perubahan belum disimpan</b>` : '')
       + (!P.hasKonf ? ' · <span class="pl-bad">Apps Script MRP perlu diperbarui supaya Konfirmasi Produksi bisa disimpan</span>' : (!P.edit ? ' · masuk mode edit untuk memilih week & MO ekstrak' : ''))
       + (() => { const n = (j) => new Set((P.cons || []).filter((c) => c.jenis === j).map((c) => c.mo)).size; return ` · PC tersimpan ${nf.format(n('PC'))} MO, CP ${nf.format(n('CP'))} MO`; })();
+    paintConsNow();
     $('kfSaveBtn').hidden = !(P.edit && P.hasKonf);
     $('kfSaveBtn').disabled = !nDirty;
     $('kfSaveBtn').textContent = nDirty ? `Simpan perubahan (${nDirty})` : 'Simpan perubahan';
@@ -3639,39 +3640,67 @@
     }
     throw new Error('Format tidak dikenali. Pakai export Odoo PC (move_lines) atau CP (move_lines2).');
   }
-  $('consFile').addEventListener('change', async () => {
-    const file = $('consFile').files[0]; if (!file) return;
-    $('consFile').value = '';
-    let p;
-    try { p = parseCons(await readBook(file)); } catch (err) { $('kfCheck').className = 'check err'; $('kfCheck').textContent = err.message; return; }
+  // Dua kolom upload: PC dan CP (bisa salah satu atau keduanya), disimpan bersamaan
+  P.consUp = { PC: null, CP: null };
+  function consSummary(p) {
     const noK = p.mos.filter(([mo]) => !P.konf.has(mo)).map(([mo]) => mo);
     const noW = p.mos.filter(([mo]) => P.konf.has(mo) && !P.konf.get(mo).week).map(([mo]) => mo);
     const emp = p.mos.filter(([mo]) => !p.rows.some((r) => r[0] === mo)).map(([mo]) => mo);
     const old = new Set((P.cons || []).filter((c) => c.jenis === p.jenis).map((c) => c.mo));
-    const nRep = p.mos.filter(([mo]) => old.has(mo)).length;
-    const nSkip = p.rows.filter((r) => consSkip(r[2])).length;
-    const label = p.jenis === 'PC' ? 'PC · Products to Consume (belum dikonsumsi)' : 'CP · Consumed Products (sudah dikonsumsi)';
-    needEdit(() => openDialog({
-      title: `Upload ${p.jenis} · ${file.name}`, ok: `Simpan ${p.jenis}`, wide: true,
-      body: `<p class="dlg-lead">Terbaca sebagai <b>${label}</b>: <b>${nf.format(p.mos.length)}</b> MO, <b>${nf.format(p.rows.length)}</b> baris material.</p>
-        <ul class="pj-list">
-          <li>${nf.format(p.mos.length - nRep)} MO baru, <b>${nf.format(nRep)} MO diganti</b> (data ${p.jenis} lama untuk MO ini dihapus). MO lain tidak berubah.</li>
-          ${emp.length ? `<li>${nf.format(emp.length)} MO tanpa baris material → ${p.jenis} dianggap 0: ${esc(emp.slice(0, 10).join(', '))}${emp.length > 10 ? '…' : ''}</li>` : ''}
-          ${nSkip ? `<li>${nf.format(nSkip)} baris ekstrak/bulk/FG disimpan, tapi dilewati di Proyeksi (dihitung lewat MO-nya sendiri).</li>` : ''}
-          ${noK.length ? `<li class="pl-bad">${nf.format(noK.length)} MO belum ada di Konfirmasi Produksi (week belum diketahui, belum ikut Proyeksi): ${esc(noK.slice(0, 10).join(', '))}${noK.length > 10 ? '…' : ''}</li>` : ''}
-          ${noW.length ? `<li class="pl-warn-t">${nf.format(noW.length)} MO belum dipilih week-nya: ${esc(noW.slice(0, 10).join(', '))}</li>` : ''}
-        </ul>`,
-      onSubmit: async () => {
-        if (!P.hasCons) throw new Error('Apps Script MRP perlu diperbarui dulu (versi dengan PC/CP).');
-        const res = await mrpApi('uploadCons', { jenis: p.jenis, file: file.name, mos: p.mos, rows: p.rows.map((r) => [r[0], r[1], r[2], r[3], round4(r[4]), r[5]]) });
-        setCons(res.cons || []);
-        renderKonf();
-        $('kfCheck').className = 'check ok';
-        $('kfCheck').textContent = `${p.jenis} tersimpan: ${nf.format(res.mos)} MO dari ${file.name}. Lihat hasilnya di Proyeksi Stok → Mode PC + CP.`;
-        return `${p.jenis} tersimpan.`;
-      },
-    }));
+    const nRep = p.mos.filter(([mo]) => old.has(mo)).length, nSkip = p.rows.filter((r) => consSkip(r[2])).length;
+    const cut = (a) => esc(a.slice(0, 8).join(', ')) + (a.length > 8 ? '…' : '');
+    return `Terbaca <b>${nf.format(p.mos.length)}</b> MO, <b>${nf.format(p.rows.length)}</b> baris material · ${nf.format(p.mos.length - nRep)} MO baru, ${nf.format(nRep)} MO diganti.`
+      + (emp.length ? `<br>${nf.format(emp.length)} MO tanpa baris material (dianggap 0): ${cut(emp)}` : '')
+      + (nSkip ? `<br>${nf.format(nSkip)} baris ekstrak/bulk/FG disimpan tapi dilewati di Proyeksi (dihitung lewat MO-nya sendiri).` : '')
+      + (noK.length ? `<br><span class="pl-bad">${nf.format(noK.length)} MO belum ada di Konfirmasi Produksi</span> (belum ikut Proyeksi): ${cut(noK)}` : '')
+      + (noW.length ? `<br><span class="pl-warn-t">${nf.format(noW.length)} MO belum dipilih week-nya</span>: ${cut(noW)}` : '');
+  }
+  function paintConsNow() {
+    ['PC', 'CP'].forEach((j) => {
+      const list = (P.cons || []).filter((c) => c.jenis === j), mos = new Set(list.map((c) => c.mo));
+      const last = list.reduce((m, c) => (c.time > m ? c.time : m), '');
+      $(j.toLowerCase() + 'Now').textContent = mos.size ? `Tersimpan sekarang: ${nf.format(mos.size)} MO · terakhir ${last}` : 'Belum ada data tersimpan.';
+    });
+    $('consSend').disabled = !(P.consUp && (P.consUp.PC || P.consUp.CP));
+  }
+  ['PC', 'CP'].forEach((J) => {
+    const k = J.toLowerCase();
+    $(k + 'File').addEventListener('change', async () => {
+      const f = $(k + 'File').files[0];
+      P.consUp[J] = null; $(k + 'Name').textContent = f ? f.name : 'Belum ada file';
+      $('consResult').textContent = '';
+      if (f) {
+        try {
+          const p = parseCons(await readBook(f));
+          if (p.jenis !== J) throw new Error(`File ini berisi ${p.jenis} (${p.jenis === 'PC' ? 'move_lines' : 'move_lines2'}), bukan ${J}. Pilih di kolom ${p.jenis}.`);
+          p.file = f.name; P.consUp[J] = p;
+          $(k + 'Check').className = 'check ok'; $(k + 'Check').innerHTML = consSummary(p);
+        } catch (err) { $(k + 'Check').className = 'check err'; $(k + 'Check').textContent = err.message; }
+      } else { $(k + 'Check').className = 'check'; $(k + 'Check').textContent = ''; }
+      paintConsNow();
+    });
   });
+  $('consSend').addEventListener('click', () => needEdit(async () => {
+    if (!P.hasCons) { $('consResult').className = 'send-result err'; $('consResult').textContent = 'Apps Script MRP perlu diperbarui dulu (versi dengan PC/CP).'; return; }
+    const todo = ['PC', 'CP'].filter((j) => P.consUp[j]); if (!todo.length) return;
+    $('consSend').disabled = true; $('consResult').className = 'send-result'; $('consResult').textContent = 'Mengirim ke Google Sheet…';
+    const done = [];
+    try {
+      for (const j of todo) {
+        const p = P.consUp[j];
+        const res = await mrpApi('uploadCons', { jenis: j, file: p.file, mos: p.mos, rows: p.rows.map((r) => [r[0], r[1], r[2], r[3], round4(r[4]), r[5]]) });
+        setCons(res.cons || []); done.push(`${j} ${nf.format(res.mos)} MO`);
+        P.consUp[j] = null; const k = j.toLowerCase();
+        $(k + 'File').value = ''; $(k + 'Name').textContent = 'Belum ada file'; $(k + 'Check').className = 'check'; $(k + 'Check').textContent = '';
+      }
+      $('consResult').className = 'send-result ok';
+      $('consResult').textContent = `Tersimpan: ${done.join(', ')}. Lihat di Proyeksi Stok → Mode PC + CP.`;
+    } catch (err) {
+      $('consResult').className = 'send-result err';
+      $('consResult').textContent = (done.length ? `Tersimpan: ${done.join(', ')}. ` : '') + 'Gagal: ' + err.message;
+    }
+    renderKonf(); paintConsNow();
+  }));
   $('kfFile').addEventListener('change', async () => {
     const file = $('kfFile').files[0]; if (!file) return;
     $('kfCheck').className = 'check'; $('kfCheck').textContent = '';
