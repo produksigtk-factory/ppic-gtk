@@ -1285,3 +1285,17 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 /* Proyeksi: stok gantung / tersedia */
 .pj-table td.pj-gt, .pj-table th.pj-gt { background: #fff5e8; color: #8a5200; }
 .pj-table td.pj-ts, .pj-table th.pj-ts { background: #eef6f0; }
+/* Proyeksi: Mode Plan / Mode PC + CP */
+.pj-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.pj-seg button { border: 0; background: none; padding: 7px 12px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+.pj-seg button + button { border-left: 1px solid var(--line); }
+.pj-seg button[aria-pressed="true"] { background: var(--brand-dark); color: #fff; font-weight: 600; }
+.pj-seg button:focus-visible { outline: 2px solid var(--brand-dark); outline-offset: -2px; }
+.pj-table th.pj-wk { text-align: center; color: var(--ink); font-weight: 600; }
+.pj-table th.pj-wk small { font-weight: 500; color: var(--muted); margin-left: 4px; }
+.pj-table td.pj-sp { color: var(--muted); font-size: 12.5px; }
+.pj-table td.pj-spc, .pj-table th.pj-spc { background: #f3f6fb; }
+.pj-table td.pj-scp, .pj-table th.pj-scp { background: #f1f7f2; }
+.kf-cons { display: inline-flex; gap: 3px; margin-top: 2px; }
+.kf-cons span { font-size: 10.5px; font-weight: 600; padding: 0 4px; border-radius: 3px; background: #e7eefb; color: #2d4f86; }
+.kf-cons span + span { background: #e3f1e6; color: #1f6b35; }

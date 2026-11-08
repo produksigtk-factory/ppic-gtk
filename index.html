@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=71147ea1">
+<link rel="stylesheet" href="style.css?v=bdad73d9">
 </head>
 <body>
 <div class="shell">
@@ -579,6 +579,7 @@
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="kfShow"><option value="">Semua MO</option><option value="todo">Perlu dilengkapi / diperiksa</option><option value="sku">MO SKU</option><option value="ek">MO ekstrak</option></select></label>
           <div class="tb-actions">
             <label class="btn btn-sm btn-ghost kf-up" for="kfFile">Upload LIST_MO<input type="file" id="kfFile" accept=".xls,.xlsx" hidden></label>
+            <label class="btn btn-sm btn-ghost kf-up" for="consFile" title="Export Odoo Products to Consume (PC) atau Consumed Products (CP); diganti per No MO">Upload PC / CP<input type="file" id="consFile" accept=".xls,.xlsx" hidden></label>
             <button class="btn btn-ghost btn-sm" id="kfExport">Unduh Excel</button>
             <button class="btn btn-sm" id="kfSaveBtn" hidden>Simpan perubahan</button>
           </div>
@@ -593,7 +594,7 @@
         <div class="table-wrap mrp-wrap">
           <table class="po-table mrp-table kf-table"><thead><tr><th>No. MO</th><th>Ekstrak</th><th class="num">Hasil (kg)</th><th>Plotting Week</th><th class="num">Dipakai SKU (kg)</th><th class="num">Sisa (kg)</th><th>Dipakai oleh</th><th>Status</th></tr></thead><tbody id="kfEkRows"></tbody></table>
         </div>
-        <p class="hint">Upload file LIST_MO dari Odoo (kolom Reference, Product, Product Quantity, Product Unit of Measure), atau file Konfirmasi Produksi yang sudah diisi. <b>Konversi kg</b> = Qty ÷ pcs per batch BOM × 1.000 (BOM default Parameter SKU, dikunci saat disimpan). <b>Kebutuhan ekstrak</b> mengikuti BOM yang sama. Selisih kecil karena pembulatan (lebih sampai 1% atau 1 kg dari hasil MO ekstrak) dianggap aman. Banded/KIT dirakit dari FG lain sehingga tidak dikonversi ke kg. Perubahan baru tersimpan setelah klik <b>Simpan perubahan</b>.</p>
+        <p class="hint">Upload file LIST_MO dari Odoo (kolom Reference, Product, Product Quantity, Product Unit of Measure), atau file Konfirmasi Produksi yang sudah diisi. <b>Konversi kg</b> = Qty ÷ pcs per batch BOM × 1.000 (BOM default Parameter SKU, dikunci saat disimpan). <b>Kebutuhan ekstrak</b> mengikuti BOM yang sama. Selisih kecil karena pembulatan (lebih sampai 1% atau 1 kg dari hasil MO ekstrak) dianggap aman. Banded/KIT dirakit dari FG lain sehingga tidak dikonversi ke kg. Perubahan baru tersimpan setelah klik <b>Simpan perubahan</b>. <b>Upload PC / CP</b>: export Odoo Products to Consume / Consumed Products; data diganti per No MO yang ada di file (MO lain tetap). Tanda <span class="kf-cons"><span>PC</span><span>CP</span></span> di No MO = sudah ada datanya.</p>
       </section>
 
       <!-- ================= MRP: KEBUTUHAN MATERIAL ================= -->
@@ -623,6 +624,7 @@
         <div class="toolbar mrp-toolbar">
           <button type="button" class="pl-hz pl-hzbtn" id="pjHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
+          <div class="pj-seg" id="pjCalc" role="group" aria-label="Mode hitung"><button type="button" data-calc="plan" aria-pressed="true">Mode Plan</button><button type="button" data-calc="mo" aria-pressed="false">Mode PC + CP</button></div>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
           <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="pjExport">Unduh Excel</button></div>
@@ -634,7 +636,7 @@
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table pj-table"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
         </div>
-        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus.</p>
+        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus. <b>Mode Plan</b>: saldo dikurangi kebutuhan MPS. <b>Mode PC + CP</b>: saldo dikurangi PC (belum dikonsumsi) + CP (sudah dikonsumsi) dari MO di Konfirmasi Produksi; Plan tampil sebagai pembanding.</p>
       </section>
 
       <!-- ================= MRP: PARAMETER SKU ================= -->
@@ -1119,9 +1121,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=fd299c04"></script>
+<script src="app.js?v=a1c4c502"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=de9b1be7"></script>
+<script src="help.js?v=794ae7d3"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>

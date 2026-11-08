@@ -4,7 +4,7 @@
  * Dipasang di: MRP PPIC GTK → Extensions → Apps Script (terpisah dari Apps Script MONITORING PO).
  * - doGet  : website membaca BOM, master material, dan PEMBAGIAN_WEEK dari DATABASE PPIC GTK,
  *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, STOK, STOK_GANTUNG, STOK_KOREKSI,
- *            INCOMING_MANUAL, KONFIRMASI_PRODUKSI, LOG_MRP).
+ *            INCOMING_MANUAL, KONFIRMASI_PRODUKSI, PC_CP_MO, LOG_MRP).
  * - doPost : simpan rencana produksi, parameter SKU, upload stok, koreksi stok, dan incoming manual
  *            dari website. Semua dilindungi PIN.
  *
@@ -29,6 +29,7 @@ const MRP_CONFIG = {
   INC_SHEET: 'INCOMING_MANUAL',
   LOG_SHEET: 'LOG_MRP',
   KONF_SHEET: 'KONFIRMASI_PRODUKSI',
+  CONS_SHEET: 'PC_CP_MO',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -43,6 +44,8 @@ const MRP_HEAD = {
   LOG_MRP: { head: ['WAKTU', 'AKSI', 'RINGKASAN'], text: [1, 2, 3] },
   // Konfirmasi Produksi: satu baris = satu MO Odoo (dari LIST_MO). BOM ID & konversi kg dikunci saat disimpan.
   KONFIRMASI_PRODUKSI: { head: ['NO MO', 'KODE', 'NAMA PRODUK', 'QTY', 'UoM', 'BOM ID', 'KONVERSI KG', 'BULAN', 'WEEK', 'KODE EKSTRAK', 'KEBUTUHAN EKSTRAK KG', 'MO EKSTRAK', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 14] },
+  // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo. Baris tanpa KODE MATERIAL = penanda MO ada di file tapi kosong.
+  PC_CP_MO: { head: ['JENIS', 'NO MO', 'KODE SKU', 'KODE MATERIAL', 'NAMA MATERIAL', 'QTY', 'UoM', 'FILE', 'DIUBAH'], text: [1, 2, 3, 4, 5, 7, 8, 9] },
 };
 
 /* ================= Baca data ================= */
@@ -73,7 +76,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -155,6 +158,7 @@ function doPost(e) {
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
     else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
+    else if (action === 'uploadCons') res = uploadCons_(ss, body.jenis, body.mos || [], body.rows || [], body.file || '', now);
     else if (action === 'uploadGantung') res = uploadGantung_(ss, body.date, body.rows || [], body.file || '', now);
     else if (action === 'addAdj') res = addAdj_(ss, body, now);
     else if (action === 'addInc') res = addInc_(ss, body, now);
@@ -309,6 +313,35 @@ function saveKonf_(ss, rows, del, file, now) {
   if (all.length) sh.getRange(2, 1, all.length, KONF_COLS).setValues(all);
   log_(ss, now, 'Konfirmasi produksi', `${file ? file + ' · ' : ''}${nAdd} MO baru, ${nUpd} diubah${nDel ? ', ' + nDel + ' dihapus' : ''}`);
   return { added: nAdd, updated: nUpd, deleted: nDel, konf: readKonf_(ss, tz) };
+}
+
+/* ================= PC / CP per MO ================= */
+const CONS_COLS = 9;
+// cons: [jenis, noMo, kodeSku, kodeMaterial, namaMaterial, qty, uom, file, diubah]
+function readCons_(ss, tz) {
+  return rows_(ss.getSheetByName(MRP_CONFIG.CONS_SHEET), CONS_COLS).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), n_(r[5]), s_(r[6]), s_(r[7]),
+    d_(r[8], tz, 'yyyy-MM-dd HH:mm')]);
+}
+// Ganti per MO: baris lama dengan JENIS sama dan NO MO yang ada di file dihapus, lalu diisi isi file.
+// mos: [[noMo, kodeSku]] semua MO di file (termasuk yang barisnya kosong); rows: [[noMo, kodeSku, kodeMaterial, nama, qty, uom]]
+function uploadCons_(ss, jenis, mos, rows, file, now) {
+  const j = s_(jenis).toUpperCase();
+  if (j !== 'PC' && j !== 'CP') throw new Error('Jenis file harus PC atau CP.');
+  if (!mos.length) throw new Error('Tidak ada No MO di file.');
+  const tz = ss.getSpreadsheetTimeZone();
+  const set = new Set(mos.map(m => s_(m[0])));
+  const keep = readCons_(ss, tz).filter(r => !(r[0] === j && set.has(r[1])));
+  const has = new Set();
+  const add = rows.map(r => { has.add(s_(r[0])); return [j, s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), Number(r[4]) || 0, s_(r[5]), file, now]; })
+    .filter(r => r[1] && r[3]);
+  mos.forEach(m => { if (!has.has(s_(m[0]))) add.push([j, s_(m[0]), s_(m[1]), '', '', 0, '', file, now]); });
+  const all = keep.concat(add);
+  const sh = sheet_(ss, MRP_CONFIG.CONS_SHEET);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, CONS_COLS).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, CONS_COLS).setValues(all);
+  log_(ss, now, 'Upload ' + j, `${file || 'file'} · ${set.size} MO · ${add.filter(r => r[3]).length} baris material`);
+  return { saved: add.length, mos: set.size, cons: readCons_(ss, tz) };
 }
 
 function delRow_(ss, kind, id, now) {

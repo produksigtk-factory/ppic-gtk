@@ -45,6 +45,9 @@
     // ---------- MRP ----------
     ['MRP', 'MRP', 'Material Requirements Planning', 'Perhitungan kebutuhan material: rencana produksi → dipecah lewat BOM → dibandingkan dengan stok dan kedatangan PO per week → terlihat kapan material kurang.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'BOM', 'Bill of Material', 'Resep produk: daftar material beserta qty untuk sejumlah batch tertentu (qty batch BOM).', 'mrp/bom|Bill of Material'],
+    ['MRP', 'PC (Products to Consume)', '', 'Material MO yang belum dikonsumsi, dari export Odoo. Diupload di Konfirmasi Produksi, diganti per No MO.', 'mrp/konfirmasi|Konfirmasi Produksi'],
+    ['MRP', 'CP (Consumed Products)', '', 'Material MO yang sudah dikonsumsi, dari export Odoo. Diupload di Konfirmasi Produksi, diganti per No MO.', 'mrp/konfirmasi|Konfirmasi Produksi'],
+    ['MRP', 'Mode PC + CP', '', 'Mode Proyeksi Stok: saldo = Stok Tersedia − (PC + CP) per week, week MO dari Konfirmasi Produksi. Baris ekstrak di MO produk dilewati; RM ekstrak dihitung dari MO ekstraknya. Mode Plan memakai kebutuhan MPS.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Stok Gantung', '', 'Stok yang ada tetapi tidak bisa dipakai, di-upload sendiri di Update Data MRP. Mengurangi stok awal.', 'mrp/update|Update Data MRP'],
     ['MRP', 'Stok Tersedia', '', 'Stok Awal (termasuk koreksi) − Stok Gantung. Inilah saldo awal yang dipakai di Proyeksi Stok.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Konfirmasi Produksi', '', 'Daftar MO Odoo (dari LIST_MO) yang dikonfirmasi: konversi pcs ke kg sesuai BOM, Plotting Week (dicocokkan dengan MPS), dan MO ekstrak yang dipakai beserta peringatan bila ekstrak tidak cukup.', 'mrp/konfirmasi|Konfirmasi Produksi'],
