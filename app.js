@@ -3075,6 +3075,35 @@
     return { m, W };
   }
 
+  // PO per material (hanya tampilan, tidak menambah saldo): lewat tanggal, per week (mulai week berjalan), belum dijadwalkan
+  function poByMat(R) {
+    const n = R.weeks.length, today = todayStr(), m = new Map(), W = { outside: 0 };
+    const groups = new Map();
+    (state.rows || []).forEach((r) => { const k = r.po + '|' + r.code; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+    const get = (code) => { let o = m.get(code); if (!o) { o = { late: 0, unsched: 0, w: new Array(n).fill(0), list: [] }; m.set(code, o); } return o; };
+    groups.forEach((rs) => {
+      const act = rs.filter((r) => !r.cancel && !r.takeout);
+      if (!act.length) return;
+      const r0 = rs[0], code = r0.code, sched = r0.sched || [];
+      const base = { po: r0.po, supplier: r0.supplier, uom: r0.uom, orderDate: r0.date };
+      sched.forEach((x) => {
+        if (x.status === 'Done') return;
+        const sisa = (Number(x.qty) || 0) - (Number(x.rec) || 0);
+        if (!(sisa > 1e-9)) return;
+        const o = get(code), it = Object.assign({ date: x.date, qty: Number(x.qty) || 0, rec: Number(x.rec) || 0, sisa }, base);
+        if (!x.date || x.date < today) { o.late += sisa; it.kind = 'late'; }
+        else {
+          const w = weekOfDate(x.date), i = w ? R.idx.get(w.bulan + '|' + w.week) : undefined;
+          if (i === undefined) { it.kind = 'out'; W.outside++; } else { o.w[i] += sisa; it.kind = 'w'; it.i = i; }
+        }
+        o.list.push(it);
+      });
+      const ord = act.reduce((t, r) => t + (Number(r.qty) || 0), 0), sch = sched.reduce((t, x) => t + (Number(x.qty) || 0), 0);
+      if (ord - sch > 1e-9) { const o = get(code); o.unsched += ord - sch; o.list.push(Object.assign({ kind: 'none', date: '', qty: ord, rec: 0, sisa: ord - sch, sch }, base)); }
+    });
+    return { m, W };
+  }
+
   function computeProj() {
     const R = computeReq(spanWeeks()), weeks = R.weeks, n = weeks.length;   // saldo berjalan lewat bulan yang tidak dicentang
     let s = 0, stockNote = '';
@@ -3092,7 +3121,7 @@
       const o = manual.get(x.code) || new Array(n).fill(0);
       o[Math.max(i, s)] += x.qty; manual.set(x.code, o);
     });
-    const rows = [], moMode = P.pjCalc === 'mo', C = moMode ? consByWeek(R, s) : null;
+    const rows = [], moMode = P.pjCalc === 'mo', C = moMode ? consByWeek(R, s) : null, PO = poByMat(R);
     const codes = new Set(R.req.keys()); if (C) C.m.forEach((v, code) => codes.add(code));
     const zero = new Array(n).fill(0);
     codes.forEach((code) => {
@@ -3116,10 +3145,10 @@
       rows.push({
         code, name: m.name || code, uom: m.uom || '', kat: m.kat || '', start, awal, gant, hasStock: !!st, adj,
         need: q.w, inW, saldo, firstShort, short: minS < 0 ? -minS : 0, total: q.total, src: q.src, man,
-        pc: cs ? cs.pc : zero, cp: cs ? cs.cp : zero, moList: cs ? cs.list : [],
+        pc: cs ? cs.pc : zero, cp: cs ? cs.cp : zero, moList: cs ? cs.list : [], po: PO.m.get(code) || null,
       });
     });
-    return { R, weeks, s, rows, stockNote, moMode, C };
+    return { R, weeks, s, rows, stockNote, moMode, C, PO };
   }
 
   // ---------- Simpan ke Apps Script MRP ----------
@@ -3826,22 +3855,26 @@
         + (W.outside.size ? ` ${nf.format(W.outside.size)} MO di luar rentang bulan.` : '')
         + (W.before.size ? ` ${nf.format(W.before.size)} MO sebelum week stok (tidak dihitung).` : '');
     }
+    {
+      const poRead = state.readAt ? whenText(state.readAt) : '', poUp = (state.lastUpload && (state.lastUpload.detTime || state.lastUpload.time)) || '';
+      note += `<br><b>PO</b> (hanya informasi, tidak menambah saldo): ${state.rows && state.rows.length ? `data PO upload ${poUp ? esc(fmtDate(poUp.slice(0, 10))) : '-'}${P.stockDate ? ` · stok per ${fmtDate(P.stockDate)}` : ''}${poRead ? ` · dibaca ${esc(poRead)}` : ''}. Jadwal Done, PO cancel, dan take out tidak dihitung.` : '<span class="pl-bad">data PO belum dimuat</span>.'}`;
+    }
     $('pjNote').innerHTML = note;
     // hanya week di bulan yang dicentang yang ditampilkan; saldo tetap dihitung lewat bulan di antaranya
     const ms = new Set(selMonths()), vis = weeks.map((w, j) => j).filter((j) => ms.has(weeks[j].bulan)), VW = vis.map((j) => weeks[j]);
     if (J.moMode) return renderProyeksiMo(J, rows, vis, VW, mode);
     $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: PJ_TAIL, cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
-      subs: [{ label: 'Saldo', title: 'Saldo akhir week (tebal); di bawahnya +incoming / −kebutuhan' }] });
+      subs: [PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Saldo akhir week (tebal); di bawahnya +incoming / −kebutuhan' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
         const sub = (r.inW[j] ? `<span class="pj-in">+${fq((r.inW[j]))}</span>` : '') + (r.need[j] ? `<span class="pj-out">−${fq((r.need[j]))}</span>` : '');
-        return `<td class="num pj-cell w-start${neg ? ' is-neg' : ''}${wCls(VW, k)}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
+        return `<td class="num pj-spo w-start${wCls(VW, k)}">${r.po ? poQ(r.po.w[j]) : ''}</td><td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length + 4}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 2 + 6}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   function pjKpis(J) {
@@ -3856,26 +3889,31 @@
     $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok`;
   }
   // Kolom kiri Proyeksi yang ringkas: material (+UoM) dan stok tersedia (awal − gantung di bawahnya)
-  const PJ_LEAD = [{ html: 'Material', cls: 'pl-sticky pl-c1' }, { html: 'Stok tersedia<small>awal − gantung</small>', cls: 'num pj-stk', title: 'Stok Tersedia = Stok Awal (stok upload + koreksi) − Stok Gantung; dipakai sebagai saldo awal' }];
+  const PJ_LEAD = [{ html: 'Material', cls: 'pl-sticky pl-c1' }, { html: 'Stok tersedia<small>awal − gantung</small>', cls: 'num pj-stk', title: 'Stok Tersedia = Stok Awal (stok upload + koreksi) − Stok Gantung; dipakai sebagai saldo awal' },
+    { html: 'PO lewat<small>tanggal</small>', cls: 'num pj-pol', title: 'Sisa qty jadwal PO yang belum Done dan tanggalnya sudah lewat (informasi, tidak menambah saldo)' },
+    { html: 'PO belum<small>dijadwalkan</small>', cls: 'num pj-pon', title: 'Qty order PO yang belum dibagi ke jadwal kirim (informasi, tidak menambah saldo)' }];
+  const PJ_PO_SUB = { label: 'PO', cls: 'pj-spo', title: 'Sisa qty jadwal PO yang jatuh di week ini (informasi, tidak menambah saldo)' };
+  const poQ = (v) => (v > 1e-9 ? fq(v) : '');
   const PJ_TAIL = [{ html: 'Mulai kurang' }, { html: 'Kurang', cls: 'num' }];
   const pjLead = (r) => matCell(r.code, r.name, r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '')
-    + `<td class="num pj-stk"><b class="${r.start < -1e-9 ? 'pl-bad' : ''}">${fq(r.start)}</b>${r.gant ? `<small>${fq(r.awal)} − <span class="pj-gtx">${fq(r.gant)}</span></small>` : ''}</td>`;
+    + `<td class="num pj-stk"><b class="${r.start < -1e-9 ? 'pl-bad' : ''}">${fq(r.start)}</b>${r.gant ? `<small>${fq(r.awal)} − <span class="pj-gtx">${fq(r.gant)}</span></small>` : ''}</td>`
+    + `<td class="num pj-pol">${r.po ? poQ(r.po.late) : ''}</td><td class="num pj-pon">${r.po ? poQ(r.po.unsched) : ''}</td>`;
   // Mode PC + CP: tiap week Plan | PC | CP | Saldo
   function renderProyeksiMo(J, rows, vis, VW, mode) {
     const s = J.s, weeks = J.weeks, q0 = (v) => (Math.abs(v) > 1e-12 ? fq(v) : '');
     $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: PJ_TAIL, cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
       subs: [{ label: 'Plan', cls: 'pj-sp', title: 'Kebutuhan MPS (pembanding)' }, { label: 'PC', cls: 'pj-spc', title: 'Products to Consume: belum dikonsumsi' },
-        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia − (PC + CP) berjalan' }] });
+        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia − (PC + CP) berjalan' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
-        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td>`
+        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td><td class="num pj-spo">${r.po ? poQ(r.po.w[j]) : ''}</td>`
           + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq(v)}</b>${r.inW[j] ? `<small><span class="pj-in">+${fq(r.inW[j])}</span></small>` : ''}</td>`;
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq(r.short)}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length * 4 + 4}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 5 + 6}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   // pilihan mode hitung Proyeksi (diingat per browser)
@@ -3907,8 +3945,10 @@
           ${row('Incoming manual', (i) => q4(r.man ? r.man[i] : 0))}
           ${row(J.moMode ? 'Plan (pembanding)' : 'Kebutuhan', (i) => q4(r.need[i]), J.moMode ? 'muted' : '')}
           ${J.moMode ? row('PC (belum dikonsumsi)', (i) => q4(r.pc[i])) + row('CP (sudah dikonsumsi)', (i) => q4(r.cp[i])) : ''}
+          ${row('PO (info, tidak dihitung)', (i) => q4(r.po ? r.po.w[i] : 0), 'pj-porow')}
           ${row('Saldo akhir', (i) => `<b class="${r.saldo[i] < -1e-9 ? 'pl-bad' : ''}">${fq((r.saldo[i]))}</b>`, 'pj-sum')}
         </tbody></table></div>
+        ${pjPoListHtml(r, weeks)}
         ${J.moMode ? pjMoListHtml(r, weeks) : ''}
         <h3 class="pj-h">Incoming manual (${manList.length})</h3>
         ${manList.length ? `<ul class="pj-list">${manList.map((x) => `<li><b>${x.qty > 0 ? '+' : ''}${fmtQ(x.qty)}</b> · ${esc(x.week)} ${esc(monLabel(x.bulan))} · ${esc(x.note)} <span class="muted">${esc(x.time)}</span>${P.edit ? ` <button class="btn-link danger" data-del-inc="${esc(x.id)}">Hapus</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Belum ada.</p>'}
@@ -3930,6 +3970,19 @@
         toast('Dihapus.'); renderProyeksi(); openProjDetail(code);
       } catch (err) { b.disabled = false; b.textContent = 'Hapus'; toast('Gagal: ' + err.message); }
     }));
+  }
+  function pjPoListHtml(r, weeks) {
+    const L = r.po ? r.po.list.slice() : [];
+    const ord = { late: 0, w: 1, out: 2, none: 3 };
+    L.sort((a, b) => ord[a.kind] - ord[b.kind] || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const ket = (x) => (x.kind === 'late' ? '<span class="badge b-late">Lewat tanggal</span>' : x.kind === 'none' ? '<span class="badge b-none">Belum dijadwalkan</span>'
+      : x.kind === 'out' ? '<span class="muted">di luar rentang</span>' : esc(wLabel(weeks[x.i])));
+    const uomBad = L.filter((x) => x.uom && r.uom && normU(x.uom) !== normU(r.uom));
+    return `<h3 class="pj-h">PO (${L.length}) <small class="muted">informasi, tidak menambah saldo</small></h3>` + (L.length ? `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Tgl jadwal</th><th>Masuk ke</th><th class="num">Qty</th><th class="num">Diterima</th><th class="num">Sisa</th><th>UoM</th></tr></thead><tbody>
+      ${L.map((x) => `<tr><td><b>${esc(x.po)}</b></td><td>${esc(x.supplier)}</td><td>${x.date ? fmtDate(x.date) : '<span class="muted">–</span>'}</td><td>${ket(x)}</td>
+        <td class="num">${x.kind === 'none' ? `${fq(x.qty)} <small class="muted">order, ${fq(x.sch)} terjadwal</small>` : fq(x.qty)}</td><td class="num">${x.rec ? fq(x.rec) : ''}</td><td class="num"><b>${fq(x.sisa)}</b></td>
+        <td${x.uom && r.uom && normU(x.uom) !== normU(r.uom) ? ' class="pl-bad" title="UoM PO berbeda dengan UoM material"' : ''}>${esc(x.uom || '')}</td></tr>`).join('')}
+      </tbody></table></div>${uomBad.length ? `<p class="pl-bad">UoM PO berbeda dengan UoM material (${esc(r.uom)}). Periksa satuannya.</p>` : ''}` : '<p class="muted">Tidak ada PO terbuka untuk material ini.</p>');
   }
   function pjMoListHtml(r, weeks) {
     const by = new Map();
@@ -3984,12 +4037,14 @@
   $('pjExport').addEventListener('click', () => {
     const J = P.proj; if (!J) return;
     const data = (P.pjRows || []).map((r) => {
-      const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'STOK AWAL': round4(r.awal), 'STOK GANTUNG': round4(r.gant), 'STOK TERSEDIA': round4(r.start) };
+      const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'STOK AWAL': round4(r.awal), 'STOK GANTUNG': round4(r.gant), 'STOK TERSEDIA': round4(r.start),
+        'PO LEWAT TANGGAL': round4(r.po ? r.po.late : 0), 'PO BELUM DIJADWALKAN': round4(r.po ? r.po.unsched : 0) };
       J.weeks.forEach((w, i) => {
         if (i < J.s) return;
         const k = wLabel(w) + ' ' + w.bulan.slice(0, 4);
         o[k + ' IN'] = round4(r.inW[i]);
         if (J.moMode) { o[k + ' PLAN'] = round4(r.need[i]); o[k + ' PC'] = round4(r.pc[i]); o[k + ' CP'] = round4(r.cp[i]); } else o[k + ' KEBUTUHAN'] = round4(r.need[i]);
+        o[k + ' PO (INFO)'] = round4(r.po ? r.po.w[i] : 0);
         o[k + ' SALDO'] = round4(r.saldo[i]);
       });
       o['MULAI KURANG'] = r.firstShort >= 0 ? wLabel(J.weeks[r.firstShort]) : ''; o.KURANG = round4(r.short);

@@ -1329,3 +1329,9 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .pl-table th.wsub-m { min-width: 84px; }
 .pj-table th.pj-ssal { min-width: 100px; }
 .pj-table th.pj-stk small { display: block; }
+/* Proyeksi: PO (informasi, tidak menambah saldo) */
+.pj-table th.pj-pol, .pj-table td.pj-pol, .pj-table th.pj-pon, .pj-table td.pj-pon { background: #f6f3fb; color: #5b3f8c; min-width: 82px; }
+.pj-table th.pj-pon, .pj-table td.pj-pon { border-right: 1px solid var(--line); }
+.pj-table th.pj-pol small, .pj-table th.pj-pon small { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.pj-table th.pj-spo, .pj-table td.pj-spo { background: #f6f3fb; color: #5b3f8c; }
+.pj-detail tr.pj-porow td, .pj-detail tr.pj-porow th { color: #5b3f8c; }
