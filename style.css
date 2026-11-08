@@ -1309,3 +1309,13 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .cons-col h3 small { font-weight: 500; color: var(--muted); margin-left: 4px; }
 .cons-col .check { font-size: 12.5px; }
 @media (max-width: 900px) { .cons-grid { grid-template-columns: 1fr; } }
+/* Proyeksi: kolom kiri ringkas */
+.pj-uom { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+.pj-table th.pj-stk, .pj-table td.pj-stk { background: #eef6f0; border-right: 1px solid var(--line); min-width: 104px; }
+.pj-table th.pj-stk small { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.pj-table td.pj-stk b { display: block; }
+.pj-table td.pj-stk small { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.pj-gtx { color: #8a5200; }
+/* Tabel MRP: baris selang-seling + sorot baris saat mouse diarahkan (lapisan tipis di atas warna sel) */
+[id^="view-mrp-"] .po-table tbody tr:not(.empty):nth-child(even) > td { box-shadow: inset 0 0 0 9999px rgba(27, 43, 63, .028); }
+[id^="view-mrp-"] .po-table tbody tr:not(.empty):hover > td { box-shadow: inset 0 0 0 9999px rgba(11, 79, 43, .075); }

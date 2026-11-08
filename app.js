@@ -3827,12 +3827,9 @@
     // hanya week di bulan yang dicentang yang ditampilkan; saldo tetap dihitung lewat bulan di antaranya
     const ms = new Set(selMonths()), vis = weeks.map((w, j) => j).filter((j) => ms.has(weeks[j].bulan)), VW = vis.map((j) => weeks[j]);
     if (J.moMode) return renderProyeksiMo(J, rows, vis, VW, mode);
-    $('pjHead').innerHTML = weekHead(VW, { lead: '<th class="pl-sticky pl-c1"></th><th colspan="4"></th>', tail: true, tailN: 2 }) +
-      `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th><th class="num" title="Stok per tanggal upload + koreksi stok">Stok awal</th><th class="num pj-gt" title="Stok yang tidak bisa dipakai (upload Stok Gantung)">Stok gantung</th><th class="num pj-ts" title="Stok Awal − Stok Gantung; dipakai sebagai saldo awal">Stok tersedia</th>${weekTh(VW, (k) => (vis[k] < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
-    $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, '')}<td class="pl-uom">${esc(r.uom)}</td>
-      <td class="num">${r.hasStock || r.adj ? fq((r.awal)) : '<span class="muted">0</span>'}</td>
-      <td class="num pj-gt">${r.gant ? fq(r.gant) : ''}</td>
-      <td class="num pj-ts${r.start < -1e-9 ? ' pl-bad' : ''}"><b>${fq(r.start)}</b></td>
+    $('pjHead').innerHTML = weekHead(VW, { lead: '<th class="pl-sticky pl-c1"></th><th></th>', tail: true, tailN: 2 }) +
+      `<tr><th class="pl-sticky pl-c1">Material</th>${PJ_STK_TH}${weekTh(VW, (k) => (vis[k] < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
+    $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
         if (j < s) return `<td class="num is-past${wCls(VW, k)}"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
@@ -3841,7 +3838,7 @@
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length + 4}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   function pjKpis(J) {
@@ -3855,17 +3852,18 @@
     ].concat(P.stockDate ? [{ num: nf.format(nNoSt), lbl: 'tidak ada di file stok', tone: nNoSt ? 'warn' : '', title: 'Stok awalnya dianggap 0' }] : []));
     $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok`;
   }
+  // Kolom kiri Proyeksi yang ringkas: material (+UoM) dan stok tersedia (awal − gantung di bawahnya)
+  const PJ_STK_TH = '<th class="num pj-stk" title="Stok Tersedia = Stok Awal (stok upload + koreksi) − Stok Gantung; dipakai sebagai saldo awal">Stok tersedia<small>awal − gantung</small></th>';
+  const pjLead = (r) => matCell(r.code, r.name, r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '')
+    + `<td class="num pj-stk"><b class="${r.start < -1e-9 ? 'pl-bad' : ''}">${fq(r.start)}</b>${r.gant ? `<small>${fq(r.awal)} − <span class="pj-gtx">${fq(r.gant)}</span></small>` : ''}</td>`;
   // Mode PC + CP: tiap week Plan | PC | CP | Saldo
   function renderProyeksiMo(J, rows, vis, VW, mode) {
     const s = J.s, weeks = J.weeks, q0 = (v) => (Math.abs(v) > 1e-12 ? fq(v) : '');
-    $('pjHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th><th colspan="4"></th>${VW.map((w, k) => `<th colspan="4" class="pj-wk${wCls(VW, k)}${vis[k] < s ? ' is-past' : ''}" title="${esc(wTitle(w))}">${esc(wLabel(w))} ${w.bulan.slice(0, 4)} <small>${fmtDate(w.start).slice(0, 6)}</small></th>`).join('')}<th colspan="2"></th></tr>`
-      + `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th><th class="num">Stok awal</th><th class="num pj-gt">Stok gantung</th><th class="num pj-ts">Stok tersedia</th>`
+    $('pjHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th><th></th>${VW.map((w, k) => `<th colspan="4" class="pj-wk${wCls(VW, k)}${vis[k] < s ? ' is-past' : ''}" title="${esc(wTitle(w))}">${esc(wLabel(w))} ${w.bulan.slice(0, 4)} <small>${fmtDate(w.start).slice(0, 6)}</small></th>`).join('')}<th colspan="2"></th></tr>`
+      + `<tr><th class="pl-sticky pl-c1">Material</th>${PJ_STK_TH}`
       + VW.map((w, k) => `<th class="num pj-sp${wCls(VW, k)}" title="Kebutuhan MPS (pembanding)">Plan</th><th class="num pj-spc" title="Products to Consume: belum dikonsumsi">PC</th><th class="num pj-scp" title="Consumed Products: sudah dikonsumsi">CP</th><th class="num" title="Stok tersedia − (PC + CP) berjalan">Saldo</th>`).join('')
       + '<th>Mulai kurang</th><th class="num">Kurang</th></tr>';
-    $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, '')}<td class="pl-uom">${esc(r.uom)}</td>
-      <td class="num">${r.hasStock || r.adj ? fq(r.awal) : '<span class="muted">0</span>'}</td>
-      <td class="num pj-gt">${r.gant ? fq(r.gant) : ''}</td>
-      <td class="num pj-ts${r.start < -1e-9 ? ' pl-bad' : ''}"><b>${fq(r.start)}</b></td>
+    $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
         if (j < s) return `<td class="num is-past${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
@@ -3874,7 +3872,7 @@
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq(r.short)}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length * 4 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 4 + 4}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   // pilihan mode hitung Proyeksi (diingat per browser)
