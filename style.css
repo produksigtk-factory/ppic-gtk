@@ -1343,3 +1343,62 @@ th.ms-th { cursor: pointer; user-select: none; }
 th.ms-th:hover { color: var(--brand); }
 th.ms-th .sort-ind { margin-left: 3px; vertical-align: -1px; }
 th.ms-th:focus-visible { outline: 2px solid var(--brand-dark); outline-offset: -2px; }
+/* ---------- Purchase Request: formulir LF1004-01 ---------- */
+.pr-toolbar .pr-f { display: flex; align-items: center; gap: 8px; }
+.pr-toolbar .pr-f span { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.pr-toolbar #prKode { min-width: 190px; }
+.pr-hint { margin: 0 0 12px; }
+.pr-scroll { overflow-x: auto; padding-bottom: 8px; }
+.pr-paper { background: #fff; color: #111; font-family: "Times New Roman", Times, serif; width: 1120px; min-width: 1120px; margin: 0 auto; padding: 22px 26px 26px; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 1px 3px rgba(27,43,63,.08); }
+.pr-top { display: flex; justify-content: space-between; align-items: flex-end; }
+.pr-logo { height: 74px; width: auto; }
+.pr-lamp { font-size: 15px; margin-bottom: 8px; }
+.pr-title { text-align: center; font-size: 19px; font-weight: 700; margin: 18px 0 6px; letter-spacing: .2px; font-family: inherit; }
+.pr-meta { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; font-size: 14px; }
+.pr-berlaku { line-height: 1.55; }
+.pr-ids { display: grid; grid-template-columns: auto 170px; align-items: center; column-gap: 8px; text-align: right; }
+.pr-box { display: block; background: #dcdcdc; min-height: 24px; padding: 3px 8px; text-align: left; font-weight: 600; font-family: Inter, system-ui, sans-serif; font-size: 13px; }
+.pr-box2 { background: #c4c4c4; }
+.pr-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.pr-table th, .pr-table td { border: 1px solid #222; padding: 4px 5px; vertical-align: middle; }
+.pr-table th { font-weight: 400; text-align: center; height: 70px; line-height: 1.25; }
+.pr-table th small { display: block; font-size: 13px; margin-top: 10px; }
+.pr-table td { height: 38px; }
+.pr-table .pr-no { width: 34px; text-align: center; }
+.pr-table .pr-kode { width: 70px; text-align: center; }
+.pr-table .pr-nama { width: auto; }
+.pr-table .pr-jenis { width: 82px; text-align: center; }
+.pr-table .pr-note { width: 74px; }
+.pr-table .pr-n { width: 88px; text-align: right; }
+.pr-table th.pr-n { text-align: center; }
+.pr-table .pr-kirim { width: 104px; text-align: center; }
+.pr-table .pr-x { width: 28px; border: 0; text-align: center; }
+.pr-table input { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; padding: 2px 1px; text-align: inherit; }
+.pr-table input:focus { outline: 2px solid #8cc5a1; background: #f4fbf6; }
+.pr-table td.pr-n input { text-align: right; }
+.pr-table input[type="date"] { font-size: 12px; }
+.pr-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 14px; }
+.pr-dok { font-size: 14px; line-height: 1.5; }
+.pr-sign { border-collapse: collapse; width: 66%; font-family: Inter, system-ui, sans-serif; font-size: 13px; }
+.pr-sign th, .pr-sign td { border: 1px solid #222; text-align: center; }
+.pr-sign th { font-weight: 400; padding: 6px; border-bottom: 0; }
+.pr-sign td { height: 76px; vertical-align: bottom; padding-bottom: 10px; border-top: 0; }
+.pr-sign th:last-child { border-left: 1px solid #222; }
+#prPrintRoot { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body.printing-pr > *:not(#prPrintRoot) { display: none !important; }
+  body.printing-pr { background: #fff !important; }
+  body.printing-pr #prPrintRoot { display: block; }
+  #prPrintRoot .pr-paper { width: auto; min-width: 0; border: 0; box-shadow: none; padding: 0; margin: 0; }
+  #prPrintRoot .pr-table thead { display: table-header-group; }
+  #prPrintRoot .pr-table tr { page-break-inside: avoid; }
+  #prPrintRoot .pr-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #prPrintRoot .pr-bottom { page-break-inside: avoid; }
+}
+.pr-toolbar .pr-f { flex: none; min-width: 0; }
+.pr-toolbar .pr-f input { width: auto; }
+.pr-toolbar #prDate { width: 150px; }
+.pr-table textarea { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; padding: 2px 1px; resize: none; line-height: 1.25; display: block; }
+.pr-table textarea:focus { outline: 2px solid #8cc5a1; background: #f4fbf6; }
+.pr-toolbar .pr-f input { height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--surface); }

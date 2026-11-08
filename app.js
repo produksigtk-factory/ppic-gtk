@@ -154,6 +154,7 @@
     'csl/sku':           { view: 'view-csl-sku',           crumb: 'CSL Personal Care',         title: 'Rekap per SKU',   actions: 'csl' },
     'csl/os':            { view: 'view-csl-os',            crumb: 'CSL Personal Care',         title: 'Sisa SO',         actions: 'csl' },
     'csl/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Personal Care',         title: 'Weekly Review',   actions: 'csl' },
+    'pr/form':           { view: 'view-pr-form',           crumb: 'Purchase Request',          title: 'Formulir PR',     actions: '' },
     'info/glosarium':    { view: 'view-info-glosarium',    crumb: 'Bantuan & Sistem',          title: 'Glosarium',       actions: '' },
     'info/kapasitas':    { view: 'view-info-kapasitas',    crumb: 'Bantuan & Sistem',          title: 'Kapasitas Google Sheet', actions: '' },
     'csl/amount':        { view: 'view-csl-amount',        crumb: 'CSL Personal Care',         title: 'Amount Check',    actions: 'csl' },
@@ -198,6 +199,7 @@
     document.title = `${r.title} · PPIC Gondowangi`;
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
     if (r.actions === 'mrp') { mrpEnter(key); renderDataInfo(); }
+    if (key === 'pr/form') prEnter();
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
     else if (state.routeKey.startsWith('info/')) { if (window.HELP) window.HELP.enter(state.routeKey); }
     else if (state.freshLoaded) renderDataInfo();
@@ -4599,6 +4601,103 @@
   });
   // urutan tidak diingat: pindah halaman → kembali ke urutan awal
   window.addEventListener('hashchange', () => { [...MS.state.keys()].forEach((t) => { MS.state.delete(t); if (t.isConnected) msApply(t); }); });
+
+  /* ---------- Purchase Request: formulir LF1004-01 (template, cetak PDF) ----------
+     Angka masih diisi manual; rumus & penyimpanan ke Google Sheet menyusul. Draft disimpan di browser ini. */
+  const PR_KEY = 'ppic-pr-draft';
+  const PR_NUM = ['stok', 'butuh', 'ospo', 'kurang', 'buka', 'pakai'];
+  const PR_COLS = [
+    { k: 'stok', h: 'Stok Awal', u: '(Kg/Pcs)' }, { k: 'butuh', h: 'Kebutuhan', u: '(Kg/Pcs)' }, { k: 'ospo', h: 'OS PO', u: '(Kg/Pcs)' },
+    { k: 'kurang', h: 'Kekurangan', u: '(Kg/Pcs)' }, { k: 'buka', h: 'Jumlah Buka PO', u: '(Kg/Pcs)' }, { k: 'pakai', h: 'Pemakaian', u: '(Bulan)' },
+  ];
+  const prBlank = () => ({ kode: '', nama: '', jenis: '', note: '', stok: '', butuh: '', ospo: '', kurang: '', buka: '', pakai: '', kirim: '' });
+  let PR = null;
+  function prLoad() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(PR_KEY) || 'null'); } catch (e) { d = null; }
+    PR = d && Array.isArray(d.rows) ? d : { date: todayStr(), kode: '', rows: [] };
+    while (PR.rows.length < 5) PR.rows.push(prBlank());
+  }
+  function prSave() { try { localStorage.setItem(PR_KEY, JSON.stringify(PR)); } catch (e) { /* abaikan */ } }
+  const prDefKode = (date) => `PR/GTK/${(date || todayStr()).slice(2, 4)}${(date || todayStr()).slice(5, 7)}/001`;
+  // 12-Nov-26 (seperti format tanggal di formulir)
+  const prDateTxt = (d) => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${Number(dd)}-${BULAN_ID[Number(m) - 1]}-${y.slice(2)}`; };
+  const prNumTxt = (v) => { if (v === '' || v === null || v === undefined) return '-'; const n = Number(String(v).replace(',', '.')); return isNaN(n) ? esc(v) : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(n); };
+  function prSheet(print) {
+    const v = (r, k) => esc(r[k] || '');
+    const head = `<div class="pr-top"><img src="assets/logo-gondowangi.png" alt="Gondowangi" class="pr-logo"><span class="pr-lamp">Lampiran 8.1</span></div>
+      <h2 class="pr-title">FORMULIR PURCHASE REQUEST (PR)</h2>
+      <div class="pr-meta"><div class="pr-berlaku">Tanggal Berlaku : 02 Okt 2025<br>Tanggal Kaji Ulang : 02 Okt 2028</div>
+        <div class="pr-ids"><span>Tanggal PR :</span><b class="pr-box">${esc(prDateTxt(PR.date))}</b><span>Kode PR :</span><b class="pr-box pr-box2">${esc(PR.kode || prDefKode(PR.date))}</b></div></div>`;
+    const th = `<tr><th class="pr-no">No.</th><th class="pr-kode">Kode</th><th class="pr-nama">Nama Item</th><th class="pr-jenis">Jenis</th><th class="pr-note">Note</th>
+      ${PR_COLS.map((c) => `<th class="pr-n">${c.h}<small>${c.u}</small></th>`).join('')}<th class="pr-kirim">Tanggal Kirim</th>${print ? '' : '<th class="pr-x no-print"></th>'}</tr>`;
+    const rows = PR.rows.map((r, i) => print
+      ? `<tr><td class="pr-no">${i + 1}</td><td class="pr-kode">${v(r, 'kode')}</td><td class="pr-nama">${v(r, 'nama')}</td><td class="pr-jenis">${v(r, 'jenis')}</td><td class="pr-note">${v(r, 'note')}</td>
+        ${PR_NUM.map((k) => `<td class="pr-n">${prNumTxt(r[k])}</td>`).join('')}<td class="pr-kirim">${esc(prDateTxt(r.kirim))}</td></tr>`
+      : `<tr data-i="${i}"><td class="pr-no">${i + 1}</td>
+        <td class="pr-kode"><input data-k="kode" value="${v(r, 'kode')}" list="prMatList" aria-label="Kode baris ${i + 1}"></td>
+        <td class="pr-nama"><textarea data-k="nama" rows="2" aria-label="Nama item baris ${i + 1}">${v(r, 'nama')}</textarea></td>
+        <td class="pr-jenis"><input data-k="jenis" value="${v(r, 'jenis')}" aria-label="Jenis baris ${i + 1}"></td>
+        <td class="pr-note"><input data-k="note" value="${v(r, 'note')}" aria-label="Note baris ${i + 1}"></td>
+        ${PR_NUM.map((k) => `<td class="pr-n"><input data-k="${k}" value="${v(r, k)}" inputmode="decimal" aria-label="${k} baris ${i + 1}"></td>`).join('')}
+        <td class="pr-kirim"><input type="date" data-k="kirim" value="${v(r, 'kirim')}" aria-label="Tanggal kirim baris ${i + 1}"></td>
+        <td class="pr-x no-print"><button type="button" class="btn-link danger" data-del="${i}" title="Hapus baris ini">×</button></td></tr>`).join('');
+    const foot = `<div class="pr-bottom"><div class="pr-dok">No. Dok : LF1004-01<br>No. Rev : 04</div>
+      <table class="pr-sign"><tr><th>Dibuat Oleh :</th><th>Diperiksa Oleh :</th><th colspan="2">Disetujui Oleh :</th></tr>
+        <tr><td>(.........................)</td><td>(.........................)</td><td>(.........................)</td><td>(.........................)</td></tr></table></div>`;
+    return head + `<table class="pr-table"><thead>${th}</thead><tbody>${rows}</tbody></table>` + foot;
+  }
+  function prRender() {
+    $('prDate').value = PR.date || '';
+    $('prKode').value = PR.kode || '';
+    $('prKode').placeholder = prDefKode(PR.date);
+    $('prPaper').innerHTML = prSheet(false);
+  }
+  function prEnter() {
+    if (!PR) prLoad();
+    const dl = $('prMatList');
+    if (MRP.master && MRP.master.size && dl.childElementCount !== MRP.master.size) {
+      dl.innerHTML = [...MRP.master.values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim())).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
+    }
+    prRender();
+  }
+  $('prDate').addEventListener('change', () => { PR.date = $('prDate').value; prSave(); prRender(); });
+  $('prKode').addEventListener('input', () => { PR.kode = $('prKode').value.trim(); prSave(); });
+  $('prPaper').addEventListener('input', (e) => {
+    const inp = e.target.closest('[data-k]'); if (!inp) return;
+    const i = Number(inp.closest('tr').dataset.i), k = inp.dataset.k, r = PR.rows[i];
+    r[k] = inp.value;
+    if (k === 'kode') {
+      const m = MRP.master && MRP.master.get(inp.value.trim());
+      if (m) {
+        r.kode = m.code; r.nama = m.name || ''; r.jenis = m.kat || '';
+        const tr = inp.closest('tr'); tr.querySelector('[data-k=nama]').value = r.nama; tr.querySelector('[data-k=jenis]').value = r.jenis;
+      }
+    }
+    prSave();
+  });
+  $('prPaper').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    PR.rows.splice(Number(b.dataset.del), 1);
+    while (PR.rows.length < 5) PR.rows.push(prBlank());
+    prSave(); prRender();
+  });
+  $('prAdd').addEventListener('click', () => { PR.rows.push(prBlank()); prSave(); prRender(); const ins = $('prPaper').querySelectorAll('[data-k=kode]'); ins[ins.length - 1].focus(); });
+  $('prClear').addEventListener('click', () => {
+    openDialog({ title: 'Kosongkan formulir PR?', body: '<p class="dlg-lead">Semua baris dan isian di formulir ini dihapus dari browser. Belum ada yang tersimpan di Google Sheet.</p>', ok: 'Kosongkan', danger: true,
+      onSubmit: async () => { PR = { date: todayStr(), kode: '', rows: [] }; while (PR.rows.length < 5) PR.rows.push(prBlank()); prSave(); prRender(); return 'Formulir dikosongkan.'; } });
+  });
+  $('prPrint').addEventListener('click', () => {
+    let root = document.getElementById('prPrintRoot');
+    if (!root) { root = document.createElement('div'); root.id = 'prPrintRoot'; document.body.appendChild(root); }
+    root.innerHTML = `<div class="pr-paper is-print">${prSheet(true)}</div>`;
+    document.body.classList.add('printing-pr');
+    const done = () => { document.body.classList.remove('printing-pr'); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    const img = root.querySelector('img');
+    const go = () => { window.print(); setTimeout(done, 1000); };
+    if (img && !img.complete) img.addEventListener('load', go, { once: true }); else go();
+  });
 
   window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld, workdaysSince };
   route();

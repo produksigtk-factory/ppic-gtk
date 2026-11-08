@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=319a655d">
+<link rel="stylesheet" href="style.css?v=7c6d42b1">
 </head>
 <body>
 <div class="shell">
@@ -54,6 +54,14 @@
           <a class="menu-item sub" href="#/mrp/material" data-route="mrp/material">Daftar Material</a>
           <a class="menu-item sub" href="#/mrp/dipakai" data-route="mrp/dipakai">Material Dipakai di Mana</a>
           <a class="menu-item sub" href="#/mrp/cek" data-route="mrp/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="mrpBadge" hidden></span></a>
+        </div>
+      </div>
+      <div class="menu-group" data-group="pr">
+        <button class="menu-group-head" aria-expanded="false">
+          <span>Purchase Request</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <div class="submenu">
+          <a class="menu-item sub" href="#/pr/form" data-route="pr/form">Formulir PR</a>
         </div>
       </div>
       <div class="menu-group" data-group="csl">
@@ -1100,6 +1108,22 @@
       </section>
 
       <!-- ================= BANTUAN: GLOSARIUM ================= -->
+      <!-- ================= PURCHASE REQUEST: FORMULIR ================= -->
+      <section id="view-pr-form" class="view" hidden>
+        <div class="toolbar pr-toolbar">
+          <label class="pr-f"><span>Tanggal PR</span><input type="date" id="prDate"></label>
+          <label class="pr-f"><span>Kode PR</span><input type="text" id="prKode" placeholder="PR/GTK/2611/001"></label>
+          <div class="tb-actions">
+            <button class="btn btn-ghost btn-sm" id="prAdd">Tambah baris</button>
+            <button class="btn btn-ghost btn-sm" id="prClear">Kosongkan formulir</button>
+            <button class="btn btn-sm" id="prPrint">Cetak / simpan PDF</button>
+          </div>
+        </div>
+        <p class="hint pr-hint">Ketik kode material, Nama Item dan Jenis terisi dari Daftar Material. Kolom angka diisi manual dulu (rumusnya menyusul). Isian tersimpan sementara di browser ini sampai dikosongkan. Untuk PDF: klik <b>Cetak / simpan PDF</b> lalu pilih <i>Save as PDF</i>, kertas A4 landscape.</p>
+        <datalist id="prMatList"></datalist>
+        <div class="pr-scroll"><div class="pr-paper" id="prPaper"></div></div>
+      </section>
+
       <section id="view-info-glosarium" class="view" hidden>
         <div class="toolbar">
           <label class="tb-search"><span class="sr">Cari istilah</span><input type="search" id="glQ" placeholder="Cari istilah, mis. MAPE, DO-OS, shortage"></label>
@@ -1139,9 +1163,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=acbce58a"></script>
+<script src="app.js?v=00fc52c0"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=4a8a67a3"></script>
+<script src="help.js?v=3b3a4c93"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
