@@ -1273,3 +1273,11 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .pl-legend.pl-lg-met { background: #e9f5ec; color: #16663a; }
 .pl-legend.pl-lg-under { background: #fff3e2; color: #8a4b00; }
 .pl-legend.pl-lg-miss { background: #fdf0ef; color: #b0433a; }
+/* BOM SKU + ekstrak per week / tanggal */
+#plTable .pl-cbom { display: block; white-space: normal; line-height: 1.2; max-width: 92px; margin-left: auto; font-size: 10px; }
+.wb-ekl { display: inline-flex; flex-direction: column; gap: 2px; margin: 0 8px 4px 0; font-size: 11.5px; color: var(--muted); vertical-align: top; }
+.wb-ekl select, .wb-sel { font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 170px; }
+.dd-table .dd-in { width: 78px; }
+.dd-table td, .dd-table th { padding: 6px 8px; }
+span.wb-ekl { display: inline; margin-right: 10px; color: inherit; }
+.dd-table td { vertical-align: middle; }

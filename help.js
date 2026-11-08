@@ -54,6 +54,8 @@
     ['MRP', 'Ekstrak / bulk dipecah', '', 'Ekstrak dan bulk yang punya BOM sendiri dipecah terus sampai bahan baku, dengan kebutuhan pas (tanpa pembulatan batch).', ''],
     ['MRP', 'Kebutuhan', '', 'Qty material yang dibutuhkan untuk rencana produksi pada week tersebut.', 'mrp/kebutuhan|Kebutuhan Material'],
     ['MRP', 'Realisasi produksi', 'Real', 'Qty yang benar-benar diproduksi per SKU per week (satuan sama dengan Plan), dicatat per tanggal produksi. Dibandingkan dengan Plan untuk melihat pencapaian; belum dipakai di hitungan kebutuhan material.', 'mrp/rencana|Rencana Produksi'],
+    ['MRP', 'BOM ekstrak terkunci', '', 'Versi BOM ekstrak/bulk (mis. Ekstrak C - new Ref 01) yang dipakai sebuah rencana. Dikunci per week atau per tanggal bersama BOM SKU, sehingga pergantian BOM di tengah bulan tidak mengubah rencana sebelumnya. Default rencana baru diatur di Parameter SKU.', 'mrp/rencana|Rencana Produksi'],
+    ['MRP', 'Ekstrak lama', '', 'Ekstrak yang ditandai tidak dipakai lagi (Parameter SKU, Aktif = Tidak). Rencana yang BOM-nya masih memakai ekstrak ini diberi tanda dan muncul di Pemeriksaan Data.', 'mrp/cek|Pemeriksaan Data'],
     ['MRP', 'Rincian per tanggal', '', 'Plan dan Real satu SKU dalam satu week bisa dibagi ke beberapa tanggal produksi (mis. Sen 300 kg, Rab 200 kg). Total week = jumlah rinciannya.', 'mrp/rencana|Rencana Produksi'],
     ['MRP', 'Incoming', '', 'Barang yang akan datang dan ditambahkan ke saldo stok per week, dicatat lewat Incoming manual.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Saldo / Proyeksi stok', '', 'Stok awal + incoming − kebutuhan, dibawa dari week ke week. Saldo minus (merah) = material akan kurang.', 'mrp/proyeksi|Proyeksi Stok'],

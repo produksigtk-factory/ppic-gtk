@@ -2504,11 +2504,11 @@
 
   const bomVer = (code) => {
     const list = MRP.byProduct.get(code) || [];
-    return list.find((b) => b.id === MRP.ver[code]) || list[0];
+    return list.find((b) => b.id === MRP.ver[code]) || (P.ready && activeBom(code)) || list[0];
   };
   const subBom = (code) => {
     const list = MRP.byProduct.get(code) || [];
-    return list.find((b) => b.id === MRP.subVer[code]) || list[0];
+    return list.find((b) => b.id === MRP.subVer[code]) || (P.ready && activeBom(code)) || list[0];
   };
 
   // Urai BOM bertingkat. need = qty produk yang dibuat; tiap komponen = qty BOM × need / batch.
@@ -2544,7 +2544,7 @@
     const tree = explode(bom, need, 0, new Set([code]), bom.id);
     const multi = tree.some((n) => n.kids);
     const tabs = p.boms.map((b) => `<button class="mrp-ver${b.id === bom.id ? ' is-on' : ''}" data-ver="${esc(b.id)}" title="${esc(b.ref)}">
-        <b>${esc(b.id)}</b><span>${esc(b.ref || 'tanpa reference')}</span><span class="muted">${b.comps.length} komponen</span></button>`).join('');
+        <b>${esc(b.id)}</b><span>${esc(b.ref || 'tanpa reference')}</span><span class="muted">${b.comps.length} komponen${isMrpDefault(code, b.id) ? ' · default MRP' : ''}</span></button>`).join('');
 
     const rows = [];
     const walk = (nodes, parentOpen) => nodes.forEach((n) => {
@@ -2554,7 +2554,7 @@
       const m = MRP.master.get(n.c.code);
       rows.push(`<tr class="lvl-${Math.min(n.depth, 3)}${n.kids ? ' has-sub' : ''}">
         <td class="mrp-code" style="padding-left:${10 + n.depth * 22}px">${n.kids ? `<button class="mrp-tog" data-tog="${esc(n.key)}" aria-expanded="${open}" title="${open ? 'Tutup' : 'Uraikan BOM'} ${esc(n.c.code)}">${open ? '▾' : '▸'}</button>` : '<span class="mrp-tog-sp"></span>'}<button class="btn-link mrp-goto" data-use="${esc(n.c.code)}" title="Lihat pemakaian material ini">${esc(n.c.code)}</button></td>
-        <td>${esc((m && m.name) || n.c.name)}${n.kids ? `<div class="mrp-subinfo">Punya BOM sendiri: ${subs.length > 1 ? `<select class="mrp-subsel" data-sub="${esc(n.c.code)}">${subs.map((b) => `<option value="${esc(b.id)}"${b.id === n.sub.id ? ' selected' : ''}>${esc(b.id)} · ${esc(b.ref || '-')}</option>`).join('')}</select>` : `${esc(n.sub.id)} · ${esc(n.sub.ref || '-')}`} (batch ${fmtQ(n.sub.batch)} ${esc(n.sub.uom)})</div>` : ''}</td>
+        <td>${esc((m && m.name) || n.c.name)}${n.kids ? `<div class="mrp-subinfo">Punya BOM sendiri: ${subs.length > 1 ? `<select class="mrp-subsel" data-sub="${esc(n.c.code)}">${subs.map((b) => `<option value="${esc(b.id)}"${b.id === n.sub.id ? ' selected' : ''}>${esc(b.id)} · ${esc(b.ref || '-')}${isMrpDefault(n.c.code, b.id) ? ' (default MRP)' : ''}</option>`).join('')}</select>` : `${esc(n.sub.id)} · ${esc(n.sub.ref || '-')}`}${ekOff(n.c.code) ? ' <span class="pl-bad">tidak dipakai lagi</span>' : ''} (batch ${fmtQ(n.sub.batch)} ${esc(n.sub.uom)})</div>` : ''}</td>
         <td>${esc(n.c.kat || (m && m.kat) || '')}</td>
         <td class="num">${fmtQ(n.per)}</td>
         <td class="num"><b>${fmtQ(n.qty)}</b></td>
@@ -2824,7 +2824,10 @@
   const fmtKg = (v) => (v ? numParts(v).txt : '');
 
   // Rincian per tanggal: "2026-11-03=300;2026-11-05=200" → [['2026-11-03', 300], ...]
-  const rinciParse = (t) => String(t || '').split(';').filter(Boolean).map((x) => { const [d, q] = x.split('='); return [d, Number(q) || 0]; }).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x[0]) && x[1] > 0);
+  // Rincian plan: "tgl=qty|BOM SKU|kodeEkstrak:BOM,…;…" → [[tgl, qty, bomSku, {kode: bom}], …]
+  const ekParse = (t) => { const o = {}; String(t || '').split(',').filter(Boolean).forEach((x) => { const [k, v] = x.split(':'); if (k && v) o[k.trim()] = v.trim(); }); return o; };
+  const ekStr = (o) => Object.keys(o || {}).filter((k) => o[k]).sort().map((k) => k + ':' + o[k]).join(',');
+  const rinciParse = (t) => String(t || '').split(';').filter(Boolean).map((x) => { const [a, bom, ek] = x.split('|'); const [d, q] = a.split('='); return [d, Number(q) || 0, bom || '', ekParse(ek)]; }).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x[0]) && x[1] > 0);
   function setPlanData(d) {
     P.ready = Array.isArray(d.skus);
     P.skus = new Map((d.skus || []).map((r) => [r[0], {
@@ -2834,7 +2837,7 @@
     P.plan = new Map();
     (d.plan || []).forEach((r) => {
       if (!r[0] || !r[1] || !r[2]) return;
-      P.plan.set(`${r[0]}|${r[1]}|${r[2]}`, { bulan: r[0], week: r[1], code: r[2], kg: Number(r[3]) || 0, bom: r[4] || '', src: r[5], time: r[6], rinci: rinciParse(r[7]) });
+      P.plan.set(`${r[0]}|${r[1]}|${r[2]}`, { bulan: r[0], week: r[1], code: r[2], kg: Number(r[3]) || 0, bom: r[4] || '', src: r[5], time: r[6], rinci: rinciParse(r[7]), ek: ekParse(r[8]) });
     });
     // Realisasi produksi per SKU per week (Apps Script MRP versi 3 ke atas)
     P.hasReal = Array.isArray(d.real);
@@ -2897,6 +2900,37 @@
     const sku = P.skus.get(code);
     return (override && bomById(code, override)) || (sku && sku.bom && bomById(code, sku.bom)) || list[0];
   }
+  const isMrpDefault = (code, id) => { const b = P.ready ? activeBom(code) : null; return !!b && b.id === id && (MRP.byProduct.get(code) || []).length > 1; };
+  // Ekstrak/bulk yang dipakai sebuah BOM (punya BOM sendiri, bukan FG), sampai ke dalam
+  function madeIn(bom, ek, seen = new Set()) {
+    if (!bom) return [];
+    bom.comps.forEach((c) => {
+      if (isFg(c.code) || !MRP.byProduct.has(c.code) || seen.has(c.code)) return;
+      seen.add(c.code); madeIn(activeBom(c.code, ek && ek[c.code]), ek, seen);
+    });
+    return [...seen];
+  }
+  // Ekstrak yang versinya harus dipilih (lebih dari 1 BOM)
+  const ekChoices = (bom, ek) => madeIn(bom, ek).filter((c) => (MRP.byProduct.get(c) || []).length > 1);
+  // Ekstrak yang ditandai "tidak dipakai lagi" di Parameter SKU (jenis Ekstrak, aktif = Tidak)
+  const ekOff = (code) => { const k = P.skus && P.skus.get(code); return !!k && k.jenis === 'Ekstrak' && !k.aktif; };
+  // Kunci BOM ekstrak: pakai kunci yang ada bila masih valid, selain itu default Parameter SKU
+  function ekDefaults(bom, cur) {
+    const o = {};
+    ekChoices(bom, cur).forEach((c) => { o[c] = cur && cur[c] && bomById(c, cur[c]) ? cur[c] : (activeBom(c) || {}).id; });
+    return o;
+  }
+  const ekShort = (code) => { const n = (MRP.master.get(code) || {}).name || code; return n.replace(/^(Ekstrak|Extender)\s*/i, '').trim() || code; };
+  const refOf = (b) => (b ? (b.ref && b.ref !== 'Empty Ref' ? b.ref : b.id.replace('BOM-', '')) : '?');
+  // Bagian-bagian 1 sel rencana: per tanggal (bila dirinci) atau satu untuk seluruh week
+  const planParts = (p) => (p.rinci && p.rinci.length
+    ? p.rinci.map((x) => ({ tgl: x[0], q: x[1], bom: x[2] || p.bom, ek: Object.assign({}, p.ek, x[3]) }))
+    : [{ tgl: '', q: p.kg, bom: p.bom, ek: p.ek || {} }]);
+  // Label BOM yang dipakai (BOM SKU + versi ekstrak), mis. "BOM 05 · C - new 01"
+  function partLabel(code, pt) {
+    const b = activeBom(code, pt.bom); if (!b) return '';
+    return [`BOM ${refOf(b)}`].concat(ekChoices(b, pt.ek).map((e) => `${ekShort(e)} ${refOf(activeBom(e, pt.ek[e]))}`)).join(' · ');
+  }
   // Pecah kebutuhan 1 baris rencana: hasil = { leaves: Map kode→qty, made: Map kode→qty (ekstrak/bulk) }
   // Komponen kategori FG (isi Banded / 2in1 / KIT, atau FG bonus di SKU biasa) tidak dipecah:
   // FG-nya sudah direncanakan sendiri, jadi cukup dicatat sebagai kebutuhan FG.
@@ -2912,12 +2946,12 @@
     unitMemo.set(bom.id, u);
     return u;
   }
-  function needOf(code, qty, override) {
+  function needOf(code, qty, override, ek) {
     const bom = activeBom(code, override);
     if (!bom || !bom.batch) return null;
     // kg: BOM SKU = pcs per batch 1.000 kg (seperti MoQ); pcs: produk rakitan, qty langsung dalam pcs
     const need = planUnit(code) === 'pcs' ? qty : normU(bom.uom) === 'kg' ? qty : (qty / 1000) * bom.batch;
-    const leaves = new Map(), made = new Map(), fg = new Map();
+    const leaves = new Map(), made = new Map(), fg = new Map(), madeBom = new Map();
     const walk = (b, q, path, depth) => {
       const f = b.batch ? q / b.batch : 0;
       b.comps.forEach((c) => {
@@ -2926,12 +2960,14 @@
         if (isFg(c.code)) fg.set(c.code, (fg.get(c.code) || 0) + x);
         else if (MRP.byProduct.has(c.code) && depth < 6 && !path.has(c.code)) {
           made.set(c.code, (made.get(c.code) || 0) + x);
-          walk(activeBom(c.code), x, new Set([...path, c.code]), depth + 1);
+          const sb = activeBom(c.code, ek && ek[c.code]);   // versi ekstrak yang dikunci di rencana
+          madeBom.set(c.code, sb.id);
+          walk(sb, x, new Set([...path, c.code]), depth + 1);
         } else leaves.set(c.code, (leaves.get(c.code) || 0) + x);
       });
     };
     walk(bom, need, new Set([code]), 0);
-    return { bom, leaves, made, fg };
+    return { bom, leaves, made, fg, madeBom };
   }
 
   // ---------- Ukuran batch ----------
@@ -2956,7 +2992,7 @@
   function computeReq() {
     const weeks = hzWeeks(), n = weeks.length;
     const idx = new Map(weeks.map((w, i) => [w.bulan + '|' + w.week, i]));
-    const req = new Map(), made = new Map(), fgReq = new Map(), noBom = new Set();
+    const req = new Map(), made = new Map(), fgReq = new Map(), noBom = new Set(), madeUse = new Map();
     const add = (map, code, i, q, sku) => {
       let o = map.get(code);
       if (!o) { o = { code, w: new Array(n).fill(0), total: 0, src: new Map() }; map.set(code, o); }
@@ -2967,13 +3003,17 @@
     P.plan.forEach((p) => {
       const i = idx.get(p.bulan + '|' + p.week);
       if (i === undefined || !(p.kg > 0)) return;
-      const r = needOf(p.code, p.kg, p.bom);
-      if (!r) { noBom.add(p.code); return; }
-      r.leaves.forEach((q, c) => add(req, c, i, q, p.code));
-      r.made.forEach((q, c) => add(made, c, i, q, p.code));
-      r.fg.forEach((q, c) => add(fgReq, c, i, q, p.code));
+      // tiap tanggal produksi memakai BOM SKU + BOM ekstrak-nya sendiri
+      planParts(p).forEach((pt) => {
+        const r = needOf(p.code, pt.q, pt.bom, pt.ek);
+        if (!r) { noBom.add(p.code); return; }
+        r.leaves.forEach((q, c) => add(req, c, i, q, p.code));
+        r.made.forEach((q, c) => add(made, c, i, q, p.code));
+        r.fg.forEach((q, c) => add(fgReq, c, i, q, p.code));
+        r.madeBom.forEach((id, c) => { if (!madeUse.has(c)) madeUse.set(c, new Set()); madeUse.get(c).add(id); });
+      });
     });
-    return { weeks, idx, req, made, fg: fgReq, noBom };
+    return { weeks, idx, req, made, fg: fgReq, noBom, madeUse };
   }
 
   function computeProj() {
@@ -3171,7 +3211,14 @@
         const b = kg > 0 ? activeBom(c, p.bom) : null;
         const tip = [b ? `BOM terkunci: ${b.id} · ${b.ref || '-'}` : '', warn ? `${fmtKg(kg)} kg bukan kelipatan/gabungan ukuran batch (${sku.batch.join(', ')} kg)` : '', p && p.rinci.length ? 'Plan per tanggal: ' + p.rinci.map((x) => `${fmtDate(x[0])} ${fmtKg(x[1])}`).join(', ') : ''].filter(Boolean).join('\n');
         const t = tip ? ` title="${esc(tip)}"` : '';
-        const tag = b && multi ? `<small class="pl-cbom${sku && b.id !== sku.bom ? ' is-diff' : ''}">${esc(b.id.replace('BOM-', ''))}</small>` : '';
+        let tag = '';
+        if (b) {
+          const parts = planParts(p), labels = [...new Set(parts.map((pt) => partLabel(c, pt)))];
+          const offs = [...new Set(parts.flatMap((pt) => madeIn(activeBom(c, pt.bom), pt.ek)).filter(ekOff))];
+          const lbl2 = labels.length > 1 ? 'BOM campuran' : labels[0];
+          const tipB = parts.length > 1 ? parts.map((pt) => `${fmtDate(pt.tgl)}: ${partLabel(c, pt)}`).join('\n') : lbl2;
+          tag = `<small class="pl-cbom${sku && b.id !== sku.bom ? ' is-diff' : ''}" title="${esc(tipB)}">${esc(lbl2).replace(/ · /g, '<br>')}</small>${offs.length ? `<small class="pl-cbom pl-bad" title="Memakai ekstrak yang ditandai tidak dipakai lagi: ${esc(offs.join(', '))}">ekstrak lama</small>` : ''}`;
+        }
         const lbl = `${esc(c)} ${esc(wLabel(w))}`;
         const tone = realTone(kg, rq, w);
         const rTip = r ? ` title="${esc(`Realisasi ${fmtKg(rq) || 0} ${pcs ? 'pcs' : 'kg'}${kg ? ` (${Math.round((rq / kg) * 100)}% dari plan)` : ''}: ` + r.items.map((x) => `${fmtDate(x[0])} ${fmtKg(x[1])}`).join(', '))}"` : (tone ? ' title="Week sudah lewat, realisasi belum diisi"' : '');
@@ -3192,6 +3239,7 @@
     }).join('') || `<tr class="empty"><td colspan="${weeks.length * 2 + 3}">Tidak ada SKU yang cocok.</td></tr>`;
     paintPlanFoot(totP, totR);
     const inHz = (x) => weeks.some((w) => w.bulan === x.bulan && w.week === x.week);
+    const nOpen = [...P.plan.values()].filter((p) => p.kg > 0 && !p.rinci.length && ekChoices(activeBom(p.code, p.bom), p.ek).some((e) => !(p.ek || {})[e])).length;
     const nCell = [...P.plan.values()].filter((p) => p.kg > 0 && inHz(p)).length;
     const perMon = [0, 1, 2].map((i) => { const b = addMonth(P.hz, i); return { b, kg: [...P.plan.values()].filter((p) => p.bulan === b && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0) }; });
     const pcsTot = [...P.plan.values()].filter((p) => planUnit(p.code) === 'pcs' && inHz(p)).reduce((t, p) => t + p.kg, 0);
@@ -3204,7 +3252,8 @@
       .concat(done.length && pDone ? [{ num: pDone ? `${Math.round((rDone / pDone) * 100)}%` : '–', lbl: `realisasi ${wLabel(done[0])}${done.length > 1 ? '–' + wLabel(done[done.length - 1]) : ''} (${fmtKg(rDone) || 0} dari ${fmtKg(pDone) || 0} kg)`, tone: pDone && rDone < pDone * 0.995 ? 'warn' : pDone ? 'ok' : '', title: 'Realisasi dibanding plan untuk week yang sudah selesai di rentang ini (produk kg saja)' }] : [])
       .concat([{ num: nf.format(nWarn), lbl: 'sel bukan ukuran batch', tone: nWarn ? 'warn' : '', title: 'Kg yang tidak bisa disusun dari ukuran batch SKU (sel kuning). Hanya peringatan.' }]));
     $('plInfo').innerHTML = `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana`
-      + (!P.hasReal ? ' · <span class="pl-bad">Apps Script MRP perlu diperbarui supaya tanggal plan dan realisasi bisa disimpan</span>' : '');
+      + (!P.hasReal ? ' · <span class="pl-bad">Apps Script MRP perlu diperbarui supaya tanggal plan, BOM ekstrak, dan realisasi bisa disimpan</span>' : '')
+      + (P.edit && P.hasReal && nOpen ? ` · <button type="button" class="btn-link" id="plLockEk">Kunci BOM ekstrak ${nf.format(nOpen)} sel ke default</button>` : (nOpen ? ` · <span class="muted">${nf.format(nOpen)} sel belum mengunci BOM ekstrak (memakai default)</span>` : ''));
   }
   function paintPlanFoot(totP, totR) {
     const weeks = hzWeeks();
@@ -3230,9 +3279,10 @@
     const b = inp.dataset.b, w = inp.dataset.w, c = inp.dataset.c, k = `${b}|${w}|${c}`;
     const old = P.plan.get(k);
     const lock = (old && old.bom) || (activeBom(c) || {}).id || '';   // BOM dikunci saat week ini pertama diisi
-    if (kg > 0) P.plan.set(k, { bulan: b, week: w, code: c, kg, bom: lock, src: 'Website', time: '', rinci: [] });
+    const ek = kg > 0 ? ekDefaults(activeBom(c, lock), old && old.ek) : {};   // begitu juga BOM ekstraknya
+    if (kg > 0) P.plan.set(k, { bulan: b, week: w, code: c, kg, bom: lock, src: 'Website', time: '', rinci: [], ek });
     else P.plan.delete(k);
-    queuePlan({ bulan: b, week: w, kode: c, kg: kg || '', bom: kg > 0 ? lock : '' });
+    queuePlan({ bulan: b, week: w, kode: c, kg: kg || '', bom: kg > 0 ? lock : '', ek: ekStr(ek) });
     // Perbarui sel, total, dan warna realisasi tanpa menggambar ulang tabel (fokus tetap di sel)
     const tr = inp.closest('tr'), sku = P.skus.get(c), td = inp.closest('td');
     const pcsRow = planUnit(c) === 'pcs';
@@ -3258,37 +3308,48 @@
     const k = `${b}|${w}|${c}`, p = P.plan.get(k), r = P.real.get(k), pcs = planUnit(c) === 'pcs', u = pcs ? 'pcs' : 'kg';
     const edit = P.edit && P.hasReal;
     const days = weekDays(wk);
-    const pMap = new Map((p ? p.rinci : []).map((x) => [x[0], x[1]])), rMap = new Map((r ? r.items : []).map((x) => [x[0], x[1]]));
+    // BOM week (dipakai tanggal yang belum punya pilihan sendiri)
+    const wBom = (p && p.bom) || (activeBom(c) || {}).id || '';
+    const wEk = (p && p.ek) || ekDefaults(activeBom(c, wBom), {});
+    const pMap = new Map((p ? p.rinci : []).map((x) => [x[0], x])), rMap = new Map((r ? r.items : []).map((x) => [x[0], x[1]]));
     [...pMap.keys(), ...rMap.keys()].forEach((d) => { if (!days.includes(d)) days.push(d); });
     days.sort();
     const today = todayStr(), name = (P.skus.get(c) || {}).name || ((MRP.master.get(c) || {}).name) || '';
     const inp = (cls, d, v) => `<input class="dd-in ${cls}" data-d="${d}" inputmode="decimal" value="${v ? v : ''}" aria-label="${cls === 'dd-p' ? 'Plan' : 'Real'} ${fmtDate(d)}">`;
-    const rowsHtml = days.map((d) => `<tr${d === today ? ' class="dd-today"' : ''}><td><b>${dayLbl(d).slice(0, 3)}</b> ${fmtDate(d)}${d < wk.start || d > wk.end ? ' <span class="muted">(di luar week)</span>' : ''}</td>
-      <td class="num">${edit ? inp('dd-p', d, pMap.get(d)) : fmtKg(pMap.get(d) || 0)}</td><td class="num">${edit ? inp('dd-r', d, rMap.get(d)) : fmtKg(rMap.get(d) || 0)}</td></tr>`).join('');
+    const rowsHtml = days.map((d) => {
+      const it = pMap.get(d), bom = (it && it[2]) || wBom, ek = Object.assign({}, wEk, it ? it[3] : {});
+      const bomCells = edit
+        ? `<td>${skuSelect(c, bom, true)}</td><td class="wb-ektd">${ekSelects(activeBom(c, bom), ek, true)}</td>`
+        : `<td>${it ? esc(partLabel(c, { bom, ek })) : '<span class="muted">–</span>'}</td>`;
+      return `<tr data-d="${d}"${d === today ? ' class="dd-today"' : ''}><td><b>${dayLbl(d).slice(0, 3)}</b> ${fmtDate(d)}${d < wk.start || d > wk.end ? ' <span class="muted">(di luar week)</span>' : ''}</td>
+        <td class="num">${edit ? inp('dd-p', d, it && it[1]) : fmtKg((it && it[1]) || 0)}</td>${bomCells}<td class="num">${edit ? inp('dd-r', d, rMap.get(d)) : fmtKg(rMap.get(d) || 0)}</td></tr>`;
+    }).join('');
+    const nCol = edit ? 5 : 4;
     openDialog({
-      title: `${c} · ${wLabel(wk)} ${wk.bulan.slice(0, 4)}`, ok: edit ? 'Simpan' : 'Tutup', cancel: edit,
-      body: `<p class="dlg-lead">${esc(name)} · ${fmtDate(wk.start)} – ${fmtDate(wk.end)} · satuan ${u}</p>
-        <div class="table-wrap"><table class="dd-table"><thead><tr><th>Tanggal</th><th class="num">Plan</th><th class="num">Real</th></tr></thead><tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td><b>Total week</b></td><td class="num"><b id="ddPT">${fmtKg(p ? p.kg : 0) || 0}</b></td><td class="num"><b id="ddRT">${fmtKg(r ? r.qty : 0) || 0}</b></td></tr></tfoot></table></div>
-        ${edit ? `<p class="hint">Isi qty pada tanggal produksinya; boleh lebih dari satu tanggal. Bila Plan per tanggal dikosongkan semua, Plan tetap memakai total per week (<b>${fmtKg(p ? p.kg : 0) || 0} ${u}</b>, dari upload / ketik di tabel).</p>` : (P.edit && !P.hasReal ? '<p class="hint pl-bad">Apps Script MRP perlu diperbarui supaya rincian per tanggal bisa disimpan.</p>' : (!P.edit ? '<p class="hint">Masuk mode edit untuk mengisi Plan dan Real per tanggal.</p>' : ''))}`,
+      title: `${c} · ${wLabel(wk)} ${wk.bulan.slice(0, 4)}`, ok: edit ? 'Simpan' : 'Tutup', cancel: edit, wide: true,
+      body: `<p class="dlg-lead">${esc(name)} · ${fmtDate(wk.start)} – ${fmtDate(wk.end)} · satuan ${u}${p ? ` · BOM week: ${esc(partLabel(c, { bom: wBom, ek: wEk }))}` : ''}</p>
+        <div class="table-wrap"><table class="dd-table"><thead><tr><th>Tanggal</th><th class="num">Plan</th>${edit ? '<th>BOM SKU</th><th>BOM ekstrak/bulk</th>' : '<th>BOM</th>'}<th class="num">Real</th></tr></thead><tbody>${rowsHtml}</tbody>
+        <tfoot><tr><td><b>Total week</b></td><td class="num"><b id="ddPT">${fmtKg(p ? p.kg : 0) || 0}</b></td><td colspan="${nCol - 3}"></td><td class="num"><b id="ddRT">${fmtKg(r ? r.qty : 0) || 0}</b></td></tr></tfoot></table></div>
+        ${edit ? `<p class="hint">Isi qty pada tanggal produksinya (boleh lebih dari satu tanggal) dan pilih BOM yang dipakai di tanggal itu. Bila Plan per tanggal dikosongkan semua, Plan tetap memakai total per week (<b>${fmtKg(p ? p.kg : 0) || 0} ${u}</b>) dengan BOM week.</p>` : (P.edit && !P.hasReal ? '<p class="hint pl-bad">Apps Script MRP perlu diperbarui supaya rincian per tanggal bisa disimpan.</p>' : (!P.edit ? '<p class="hint">Masuk mode edit untuk mengisi Plan, BOM, dan Real per tanggal.</p>' : ''))}`,
       onSubmit: edit ? async () => {
-        const body = $('dlgBody'), read = (cls) => {
-          const out = [];
-          body.querySelectorAll('.' + cls).forEach((x) => { const v = numIn(x.value); if (isNaN(v) || v < 0) throw new Error(`Qty ${fmtDate(x.dataset.d)} harus angka.`); if (v > 0) out.push([x.dataset.d, v]); });
-          return out;
-        };
-        const pI = read('dd-p'), rI = read('dd-r');
-        const same = (a, b2) => JSON.stringify(a) === JSON.stringify(b2);
+        const body = $('dlgBody'), pI = [], rI = [];
+        body.querySelectorAll('tr[data-d]').forEach((tr) => {
+          const d = tr.dataset.d, pv = numIn(tr.querySelector('.dd-p').value), rv = numIn(tr.querySelector('.dd-r').value);
+          if (isNaN(pv) || pv < 0 || isNaN(rv) || rv < 0) throw new Error(`Qty ${fmtDate(d)} harus angka.`);
+          if (pv > 0) { const v = readBomRow(tr, c, wBom); pI.push([d, pv, v.bom, v.ek]); }
+          if (rv > 0) rI.push([d, rv]);
+        });
+        const norm = (list) => JSON.stringify(list.map((x) => [x[0], x[1], x[2], ekStr(x[3])]));
         const pOld = p ? p.rinci : [], rOld = r ? r.items : [];
-        if (same(pI, pOld) && same(rI, rOld)) return 'Tidak ada perubahan.';
-        if (!same(pI, pOld)) {
+        const pChanged = norm(pI) !== norm(pOld.map((x) => [x[0], x[1], x[2] || wBom, Object.assign({}, wEk, x[3])])), rChanged = JSON.stringify(rI) !== JSON.stringify(rOld);
+        if (!pChanged && !rChanged) return 'Tidak ada perubahan.';
+        if (pChanged) {
           const kg = pI.length ? pI.reduce((t, x) => t + x[1], 0) : (p ? p.kg : 0);
-          const lock = (p && p.bom) || (activeBom(c) || {}).id || '';
-          await mrpApi('savePlan', { cells: [{ bulan: b, week: w, kode: c, kg: kg || '', bom: kg > 0 ? lock : '', rinci: pI }] });
-          if (kg > 0) P.plan.set(k, { bulan: b, week: w, code: c, kg, bom: lock, src: 'Website', time: '', rinci: pI });
+          await mrpApi('savePlan', { cells: [{ bulan: b, week: w, kode: c, kg: kg || '', bom: kg > 0 ? wBom : '', ek: kg > 0 ? ekStr(wEk) : '', rinci: pI.map((x) => [x[0], x[1], x[2], ekStr(x[3])]) }] });
+          if (kg > 0) P.plan.set(k, { bulan: b, week: w, code: c, kg, bom: wBom, src: 'Website', time: '', rinci: pI, ek: wEk });
           else P.plan.delete(k);
         }
-        if (!same(rI, rOld)) {
+        if (rChanged) {
           await mrpApi('saveReal', { cells: [{ bulan: b, week: w, kode: c, items: rI }] });
           if (rI.length) P.real.set(k, { bulan: b, week: w, code: c, qty: rI.reduce((t, x) => t + x[1], 0), items: rI, src: 'Website', time: '' });
           else P.real.delete(k);
@@ -3299,6 +3360,7 @@
     });
     if (edit) {
       const body = $('dlgBody');
+      wireBomRows(body, c);
       const sum = (cls) => [...body.querySelectorAll('.' + cls)].reduce((t, x) => t + (numIn(x.value) || 0), 0);
       body.addEventListener('input', () => {
         const ps = sum('dd-p');
@@ -3322,37 +3384,87 @@
     openWeekBom(td.closest('tr').dataset.code);
   });
   $('plTable').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('td.pl-click')) openWeekBom(e.target.closest('tr').dataset.code); });
-  // BOM per week: tiap week yang ada rencananya mengunci satu versi BOM
+  // Pilihan BOM: dropdown BOM SKU + dropdown BOM tiap ekstrak yang punya lebih dari 1 versi
+  const bomOpts = (code, sel) => (MRP.byProduct.get(code) || []).map((b) => `<option value="${esc(b.id)}"${b.id === sel ? ' selected' : ''}>${esc(refOf(b))} · ${esc(b.id)}${isMrpDefault(code, b.id) ? ' (default)' : ''}</option>`).join('');
+  function ekSelects(skuBom, ek, edit) {
+    const ch = ekChoices(skuBom, ek);
+    if (!ch.length) return '<span class="muted">–</span>';
+    return ch.map((e) => {
+      const cur = ek && ek[e] && bomById(e, ek[e]) ? ek[e] : (activeBom(e) || {}).id;
+      return edit
+        ? `<label class="wb-ekl" title="${esc((MRP.master.get(e) || {}).name || e)}"><span>${esc(ekShort(e))}${ekOff(e) ? ' <b class="pl-bad">(tidak dipakai)</b>' : ''}</span><select class="wb-ek" data-ek="${esc(e)}">${bomOpts(e, cur)}</select></label>`
+        : `<span class="wb-ekl"><span>${esc(ekShort(e))}</span> <b>${esc(refOf(bomById(e, cur)))}</b>${ekOff(e) ? ' <span class="pl-bad">(tidak dipakai)</span>' : ''}</span>`;
+    }).join('');
+  }
+  const skuSelect = (code, sel, edit) => {
+    const list = MRP.byProduct.get(code) || [], b = activeBom(code, sel);
+    return edit && list.length > 1 ? `<select class="wb-sel">${bomOpts(code, b ? b.id : '')}</select>` : `<b>${esc(refOf(b))}</b> <span class="muted">${esc(b ? b.id : '-')}</span>`;
+  };
+  // baca pilihan BOM dari satu baris (tr) dialog
+  const readBomRow = (tr, code, fallback) => {
+    const sel = tr.querySelector('.wb-sel'), bom = sel ? sel.value : fallback;
+    const ek = {}; tr.querySelectorAll('.wb-ek').forEach((x) => { ek[x.dataset.ek] = x.value; });
+    return { bom, ek };
+  };
+  // dropdown ekstrak menyesuaikan saat BOM SKU diganti
+  const wireBomRows = (box, code) => box.addEventListener('change', (e) => {
+    const sel = e.target.closest('.wb-sel'); if (!sel) return;
+    const tr = sel.closest('tr'), td = tr.querySelector('.wb-ektd');
+    if (td) td.innerHTML = ekSelects(activeBom(code, sel.value), readBomRow(tr, code).ek, true);
+  });
+
+  // BOM per week: tiap week yang ada rencananya mengunci versi BOM SKU + versi BOM ekstraknya
   function openWeekBom(code) {
     const weeks = hzWeeks(), list = MRP.byProduct.get(code) || [], sku = P.skus.get(code);
     const def = (sku && bomById(code, sku.bom)) || list[0];
     const rows = weeks.map((w) => ({ w, p: P.plan.get(`${w.bulan}|${w.week}|${code}`) })).filter((x) => x.p && x.p.kg > 0);
-    const canEdit = P.edit && rows.length && list.length > 1;
-    const opt = (sel) => list.map((b) => `<option value="${esc(b.id)}"${b.id === sel ? ' selected' : ''}>${esc(b.id)} · ${esc(b.ref || '-')} · ${b.comps.length} komponen</option>`).join('');
+    const canEdit = P.edit && rows.length && (list.length > 1 || rows.some(({ p }) => ekChoices(activeBom(code, p.bom), p.ek).length));
     openDialog({
       title: `BOM per week · ${code}`, ok: canEdit ? 'Simpan' : 'Tutup', cancel: !!canEdit, wide: true,
-      body: `<p class="dlg-lead">${esc((sku && sku.name) || ((list[0] || {}).name) || '')}. Setiap week yang ada rencananya mengunci satu versi BOM; versi itu yang dipakai untuk menghitung kebutuhan week tersebut. Rencana baru otomatis memakai BOM default${def ? ` (<b>${esc(def.id)}</b> · ${esc(def.ref || '-')})` : ''} dari Parameter SKU.</p>
-        ${!rows.length ? '<p class="muted">Belum ada rencana untuk SKU ini di rentang yang ditampilkan.</p>' : `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>Week</th><th>Tanggal</th><th class="num">Qty ${planUnit(code)}</th><th>BOM terkunci</th></tr></thead><tbody>
-        ${rows.map(({ w, p }) => { const b = activeBom(code, p.bom); return `<tr><td><b>${esc(wLabel(w))}</b> ${esc(w.bulan.slice(0, 4))}</td><td>${fmtDate(w.start)} – ${fmtDate(w.end)}</td><td class="num">${fmtKg(p.kg)}</td><td>${canEdit ? `<select class="wb-sel" data-k="${esc(w.bulan + '|' + w.week)}">${opt(b ? b.id : '')}</select>` : `${esc(b ? b.id : '-')} <span class="muted">${esc(b ? b.ref || '' : '')}</span>`}${p.bom && !bomById(code, p.bom) ? ' <span class="pl-bad">(BOM terkunci sebelumnya sudah tidak ada)</span>' : ''}</td></tr>`; }).join('')}
+      body: `<p class="dlg-lead">${esc((sku && sku.name) || ((list[0] || {}).name) || '')}. Setiap week yang ada rencananya mengunci versi BOM SKU dan versi BOM ekstrak/bulk di dalamnya; versi itu yang dipakai untuk menghitung kebutuhan. Rencana baru otomatis memakai default dari Parameter SKU${def ? ` (SKU: <b>${esc(def.id)}</b> · ${esc(def.ref || '-')})` : ''}.</p>
+        ${!rows.length ? '<p class="muted">Belum ada rencana untuk SKU ini di rentang yang ditampilkan.</p>' : `<div class="table-wrap"><table class="po-table pl-mini wb-table"><thead><tr><th>Week</th><th class="num">Qty ${planUnit(code)}</th><th>BOM SKU</th><th>BOM ekstrak/bulk</th></tr></thead><tbody>
+        ${rows.map(({ w, p }) => `<tr data-k="${esc(w.bulan + '|' + w.week)}"><td><b>${esc(wLabel(w))}</b> ${esc(w.bulan.slice(0, 4))}<div class="muted">${fmtDate(w.start)} – ${fmtDate(w.end)}</div>${p.rinci.length ? `<div class="pl-warn-t" title="BOM per tanggal diatur di rincian tanggal (klik tombol tanggal di sel)">dirinci ${p.rinci.length} tanggal</div>` : ''}</td><td class="num">${fmtKg(p.kg)}</td>
+          <td>${skuSelect(code, p.bom, canEdit)}${p.bom && !bomById(code, p.bom) ? ' <span class="pl-bad">(BOM terkunci sebelumnya sudah tidak ada)</span>' : ''}</td><td class="wb-ektd">${ekSelects(activeBom(code, p.bom), p.ek, canEdit)}</td></tr>`).join('')}
         </tbody></table></div>`}
-        ${!P.edit && rows.length && list.length > 1 ? '<p class="hint">Masuk mode edit untuk mengganti BOM per week.</p>' : ''}
-        ${canEdit ? '<p class="pj-actions"><button type="button" class="btn btn-sm btn-ghost" id="wbAll">Samakan semua ke BOM default</button></p>' : ''}`,
+        ${!P.edit && rows.length ? '<p class="hint">Masuk mode edit untuk mengganti BOM per week.</p>' : ''}
+        ${rows.some(({ p }) => p.rinci.length) ? '<p class="hint">Week yang dirinci per tanggal: pilihan di sini menjadi BOM week; BOM tiap tanggal diatur di rincian tanggal.</p>' : ''}
+        ${canEdit ? '<p class="pj-actions"><button type="button" class="btn btn-sm btn-ghost" id="wbAll">Samakan semua ke default</button></p>' : ''}`,
       onSubmit: canEdit ? async () => {
         const cells = [];
-        $('dlgBody').querySelectorAll('.wb-sel').forEach((sel) => {
-          const [bulan, week] = sel.dataset.k.split('|'), p = P.plan.get(`${bulan}|${week}|${code}`);
-          if (p && p.bom !== sel.value) cells.push({ bulan, week, kode: code, kg: p.kg, bom: sel.value });
+        $('dlgBody').querySelectorAll('tr[data-k]').forEach((tr) => {
+          const [bulan, week] = tr.dataset.k.split('|'), p = P.plan.get(`${bulan}|${week}|${code}`);
+          const v = readBomRow(tr, code, p.bom);
+          if (p && (p.bom !== v.bom || ekStr(p.ek) !== ekStr(v.ek))) cells.push({ bulan, week, kode: code, kg: p.kg, bom: v.bom, ek: ekStr(v.ek), _ek: v.ek });
         });
         if (!cells.length) return 'Tidak ada perubahan.';
-        await mrpApi('savePlan', { cells });
-        cells.forEach((c) => { P.plan.get(`${c.bulan}|${c.week}|${code}`).bom = c.bom; });
-        setTimeout(renderRencana, 0);
+        await mrpApi('savePlan', { cells: cells.map(({ _ek, ...c }) => c) });
+        cells.forEach((c) => { const p = P.plan.get(`${c.bulan}|${c.week}|${code}`); p.bom = c.bom; p.ek = c._ek; });
+        setTimeout(() => renderPlanView(state.routeKey), 0);
         return `BOM ${cells.length} week tersimpan.`;
       } : null,
     });
-    const all = $('dlgBody').querySelector('#wbAll');
-    if (all && def) all.addEventListener('click', () => $('dlgBody').querySelectorAll('.wb-sel').forEach((x) => { x.value = def.id; }));
+    const box = $('dlgBody');
+    if (canEdit) wireBomRows(box, code);
+    const all = box.querySelector('#wbAll');
+    if (all) all.addEventListener('click', () => box.querySelectorAll('tr[data-k]').forEach((tr) => {
+      const sel = tr.querySelector('.wb-sel'); if (sel && def) sel.value = def.id;
+      const td = tr.querySelector('.wb-ektd'); if (td) td.innerHTML = ekSelects(activeBom(code, sel ? sel.value : undefined), {}, true);
+    }));
   }
+  // Kunci BOM ekstrak semua sel rencana yang belum mengunci (rencana lama) ke default Parameter SKU
+  document.addEventListener('click', async (e) => {
+    if (e.target.id !== 'plLockEk') return;
+    const list = [...P.plan.values()].filter((p) => p.kg > 0 && !p.rinci.length && ekChoices(activeBom(p.code, p.bom), p.ek).some((x) => !(p.ek || {})[x]));
+    if (!list.length) return;
+    e.target.disabled = true; paintPlanSave('saving');
+    try {
+      const cells = list.map((p) => { const bom = p.bom || (activeBom(p.code) || {}).id || ''; return { p, bom, ek: ekDefaults(activeBom(p.code, bom), p.ek) }; });
+      const res = await mrpApi('savePlan', { cells: cells.map(({ p, bom, ek }) => ({ bulan: p.bulan, week: p.week, kode: p.code, kg: p.kg, bom, ek: ekStr(ek) })) });
+      cells.forEach(({ p, bom, ek }) => { p.bom = bom; p.ek = ek; });
+      paintPlanSave('ok', savedAt(res)); toast(`BOM ekstrak ${cells.length} sel dikunci ke default.`);
+      renderRencana();
+    } catch (err) { paintPlanSave('err', err.message); e.target.disabled = false; }
+  });
   document.addEventListener('click', (e) => { if (e.target.id === 'plRetry') { paintPlanSave('saving'); flushPlan(); } });
   $('plUpload').addEventListener('click', () => { location.hash = '#/mrp/update'; setTimeout(() => $('planFile').focus(), 100); });
   // Format upload kosong: baris 1 = judul week (kunci lookup), baris 2 = tanggal week
@@ -3383,11 +3495,12 @@
   $('plExport').addEventListener('click', () => {
     const weeks = hzWeeks();
     const data = planRowsList().map((c) => {
-      const o = { KODE: c, NAMA: (P.skus.get(c) || {}).name || '', SATUAN: planUnit(c), BOM: (activeBom(c) || {}).id || '' };
+      const o = { KODE: c, NAMA: (P.skus.get(c) || {}).name || '', SATUAN: planUnit(c), 'BOM DEFAULT': (activeBom(c) || {}).id || '' };
       weeks.forEach((w) => {
         const h = `${w.week} ${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`;
         const p = P.plan.get(`${w.bulan}|${w.week}|${c}`) || {}, r = P.real.get(`${w.bulan}|${w.week}|${c}`) || {};
-        o[`${h} PLAN`] = p.kg || 0; o[`${h} PLAN PER TGL`] = (p.rinci || []).map((x) => `${x[0]}=${x[1]}`).join('; ');
+        o[`${h} PLAN`] = p.kg || 0; o[`${h} BOM`] = p.kg ? [...new Set(planParts(p).map((pt) => partLabel(c, pt)))].join(' / ') : '';
+        o[`${h} PLAN PER TGL`] = (p.rinci || []).map((x) => `${x[0]}=${x[1]}`).join('; ');
         o[`${h} REAL`] = r.qty || 0; o[`${h} REAL PER TGL`] = (r.items || []).map((x) => `${x[0]}=${x[1]}`).join('; ');
       });
       return o;
@@ -3412,7 +3525,8 @@
     P.kbRows = rows;
     $('kbHead').innerHTML = weekHead(weeks, { lead: '<th class="pl-sticky pl-c1"></th><th></th>', tail: true }) +
       `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th>${weekTh(weeks)}<th class="num">Total</th></tr>`;
-    $('kbRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, `<span class="pl-kat">${esc(r.kat)}</span>`)}<td class="pl-uom">${esc(r.uom)}</td>${r.w.map((v, j) => `<td class="num${wCls(weeks, j)}">${v ? fq((v)) : ''}</td>`).join('')}<td class="num"><b>${fq((r.total))}</b></td></tr>`).join('')
+    const usedTxt = (code) => { const ids = R.madeUse.get(code); if (!ids || type !== 'made') return ''; const v = [...ids].map((id) => refOf(bomById(code, id))); return `<span class="pl-kat" title="${esc([...ids].join(', '))}">BOM ${esc(v.join(' + '))}</span>${ekOff(code) ? '<span class="pl-tmp">tidak dipakai</span>' : ''}`; };
+    $('kbRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, `<span class="pl-kat">${esc(r.kat)}</span>${usedTxt(r.code)}`)}<td class="pl-uom">${esc(r.uom)}</td>${r.w.map((v, j) => `<td class="num${wCls(weeks, j)}">${v ? fq((v)) : ''}</td>`).join('')}<td class="num"><b>${fq((r.total))}</b></td></tr>`).join('')
       || `<tr class="empty"><td colspan="${weeks.length + 3}">${P.plan.size ? 'Tidak ada kebutuhan di rentang ini.' : 'Belum ada rencana produksi.'}</td></tr>`;
     const byKat = {};
     [...src.values()].forEach((o) => { const k = (MRP.master.get(o.code) || {}).kat || 'Tanpa kategori'; byKat[k] = (byKat[k] || 0) + 1; });
@@ -3609,7 +3723,7 @@
         <td>${b ? `${esc(b.id)} <span class="muted">${esc(b.ref || '')}</span>` : `<span class="pl-bad">${k.bom ? esc(k.bom) + ' tidak ditemukan' : 'belum dipilih'}</span>`}${list.length > 1 ? ` <span class="muted">(${list.length} versi)</span>` : ''}</td>
         <td>${esc(k.batch.join(' · ')) || '<span class="muted">–</span>'}</td>
         <td>${subs.map((c) => `<span class="pl-chip" title="${esc((MRP.master.get(c) || {}).name || '')}">${esc(c)}</span>`).join(' ') || '<span class="muted">–</span>'}</td>
-        <td>${k.aktif ? 'Ya' : '<span class="muted">Tidak</span>'}</td><td>${esc(k.note || '')}</td><td class="muted">${esc(k.time || '')}</td></tr>`;
+        <td>${k.aktif ? 'Ya' : k.jenis === 'Ekstrak' ? '<span class="pl-bad">Tidak dipakai</span>' : '<span class="muted">Tidak</span>'}</td><td>${esc(k.note || '')}</td><td class="muted">${esc(k.time || '')}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="9">Tidak ada SKU yang cocok.</td></tr>';
     const nS = [...P.skus.values()].filter((k) => k.jenis !== 'Ekstrak' && k.aktif).length;
     $('skInfo').textContent = `${nf.format(nS)} SKU aktif · ${nf.format([...P.skus.values()].filter((k) => k.jenis === 'Ekstrak').length)} ekstrak/bulk · klik baris untuk mengubah (mode edit)`;
@@ -3627,22 +3741,44 @@
           ${isNew ? fld('kode', 'Kode produk *', '', { required: true, list: 'dlSkuProd' }) : fld('kode', 'Kode produk', k.code, { readonly: true })}
           <label class="field"><span>Jenis</span><select name="jenis"><option${!k || k.jenis !== 'Ekstrak' ? ' selected' : ''}>SKU</option><option${k && k.jenis === 'Ekstrak' ? ' selected' : ''}>Ekstrak</option></select></label>
           <label class="field span-2"><span>BOM default (dipakai untuk rencana baru)</span><select name="bom" id="skBomSel"></select></label>
-          ${!isNew && k.jenis !== 'Ekstrak' ? `<label class="field span-2 tb-check"><input type="checkbox" name="apply" value="1"> Kunci juga week yang belum lewat (mulai ${esc(fmtDate(todayStr()))}) ke BOM ini</label>` : ''}
+          ${!isNew ? `<label class="field span-2 tb-check"><input type="checkbox" name="apply" value="1"> ${k.jenis === 'Ekstrak' ? `Pakai juga di rencana yang belum lewat (mulai ${esc(fmtDate(todayStr()))}) yang memakai ekstrak ini` : `Kunci juga week yang belum lewat (mulai ${esc(fmtDate(todayStr()))}) ke BOM ini`}</label>` : ''}
           ${fld('batch', 'Ukuran batch (kg), pisahkan dengan ;', k ? k.batchText : '', { wide: true })}
-          <label class="field"><span>Aktif</span><select name="aktif"><option value="Y"${!k || k.aktif ? ' selected' : ''}>Ya, tampil di rencana</option><option value="N"${k && !k.aktif ? ' selected' : ''}>Tidak</option></select></label>
+          <label class="field"><span>Aktif</span><select name="aktif"><option value="Y"${!k || k.aktif ? ' selected' : ''}>Ya, tampil di rencana</option><option value="N"${k && !k.aktif ? ' selected' : ''}>Tidak (ekstrak: tidak dipakai lagi)</option></select></label>
           ${fld('catatan', 'Catatan', k ? k.note : '', { wide: true })}
         </div>${isNew ? `<datalist id="dlSkuProd">${prods.map((p) => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}</datalist>` : ''}
-        <p class="hint">Week yang sudah ada rencananya tetap memakai BOM yang terkunci, kecuali dicentang di atas atau diubah lewat klik SKU di Rencana Produksi. Jenis Ekstrak = versi BOM ekstrak/bulk yang dipakai saat dipecah dari SKU.</p>`,
+        <p class="hint">Week yang sudah ada rencananya tetap memakai BOM yang terkunci, kecuali dicentang di atas atau diubah lewat klik SKU di Rencana Produksi. Jenis Ekstrak = versi BOM ekstrak/bulk default untuk rencana baru; tiap week / tanggal rencana mengunci versinya sendiri. Ekstrak dengan Aktif = Tidak ditandai "ekstrak lama" bila masih dipakai rencana.</p>`,
       onSubmit: async (fd) => {
         const code = (fd.kode || '').trim();
         if (!MRP.byProduct.has(code)) throw new Error('Kode ini tidak punya BOM di DATABASE PPIC.');
         const p = MRP.products.find((x) => x.code === code);
         await saveSkuRow({ kode: code, nama: (k && k.name) || (p && p.name) || '', jenis: fd.jenis, bom: fd.bom, batch: fd.batch.trim(), aktif: fd.aktif, catatan: fd.catatan.trim() });
-        if (fd.apply) {
+        if (fd.apply && fd.jenis === 'Ekstrak') {
+          // ganti versi ekstrak ini di semua rencana yang belum lewat (kunci week & rincian tanggal mulai hari ini)
+          const today = todayStr(), cells = [];
+          P.plan.forEach((x) => {
+            const wk = P.weekBy.get(x.bulan + '|' + x.week);
+            if (!(x.kg > 0) || !wk || wk.end < today) return;
+            const uses = (bom, ek) => madeIn(activeBom(x.code, bom), ek).includes(code);
+            let changed = false;
+            const ek = Object.assign({}, x.ek);
+            if (uses(x.bom, x.ek) && ek[code] !== fd.bom) { ek[code] = fd.bom; changed = true; }
+            const rinci = x.rinci.map((it) => {
+              const iek = Object.assign({}, it[3]);
+              if (it[0] >= today && uses(it[2] || x.bom, Object.assign({}, x.ek, iek)) && (iek[code] || ek[code]) !== fd.bom) { iek[code] = fd.bom; changed = true; }
+              return [it[0], it[1], it[2], iek];
+            });
+            if (changed) cells.push({ x, ek, rinci });
+          });
+          if (cells.length) {
+            await mrpApi('savePlan', { cells: cells.map(({ x, ek, rinci }) => ({ bulan: x.bulan, week: x.week, kode: x.code, kg: x.kg, bom: x.bom, ek: ekStr(ek), rinci: rinci.map((it) => [it[0], it[1], it[2], ekStr(it[3])]) })) });
+            cells.forEach(({ x, ek, rinci }) => { x.ek = ek; x.rinci = rinci; });
+            toast(`${cells.length} sel rencana ikut memakai ${fd.bom}.`);
+          }
+        } else if (fd.apply) {
           const today = todayStr();
           const cells = [...P.plan.values()].filter((x) => x.code === code && x.kg > 0 && x.bom !== fd.bom && (P.weekBy.get(x.bulan + '|' + x.week) || {}).end >= today)
-            .map((x) => ({ bulan: x.bulan, week: x.week, kode: code, kg: x.kg, bom: fd.bom }));
-          if (cells.length) { await mrpApi('savePlan', { cells }); cells.forEach((c) => { P.plan.get(`${c.bulan}|${c.week}|${code}`).bom = fd.bom; }); toast(`${cells.length} week ikut dikunci ke ${fd.bom}.`); }
+            .map((x) => ({ bulan: x.bulan, week: x.week, kode: code, kg: x.kg, bom: fd.bom, ek: ekStr(ekDefaults(activeBom(code, fd.bom), x.ek)) }));
+          if (cells.length) { await mrpApi('savePlan', { cells }); cells.forEach((c) => { const x = P.plan.get(`${c.bulan}|${c.week}|${code}`); x.bom = fd.bom; x.ek = ekParse(c.ek); }); toast(`${cells.length} week ikut dikunci ke ${fd.bom}.`); }
         }
         renderSku();
       },
@@ -3810,7 +3946,11 @@
     const p = P.parsedPlan; if (!p) return;
     $('planSend').disabled = true; $('planResult').className = 'send-result'; $('planResult').textContent = 'Mengirim ke Google Sheet…';
     try {
-      const res = await mrpApi('replacePlan', { months: p.months, file: p.file, rows: p.cells.map((c) => [c.bulan, c.week, c.code, c.kg, ((P.plan.get(`${c.bulan}|${c.week}|${c.code}`) || {}).bom) || (activeBom(c.code) || {}).id || '']) });
+      const res = await mrpApi('replacePlan', { months: p.months, file: p.file, rows: p.cells.map((c) => {
+        // kunci BOM: pakai kunci lama di week itu, selain itu default Parameter SKU (SKU + ekstrak)
+        const old = P.plan.get(`${c.bulan}|${c.week}|${c.code}`) || {}, bom = old.bom || (activeBom(c.code) || {}).id || '';
+        return [c.bulan, c.week, c.code, c.kg, bom, ekStr(ekDefaults(activeBom(c.code, bom), old.ek))];
+      }) });
       $('planResult').className = 'send-result ok';
       $('planResult').textContent = `Tersimpan ${savedAt(res)}: ${nf.format(res.saved)} sel untuk ${p.months.map(monLabel).join(', ')}.`;
       P.parsedPlan = null; $('planFile').value = ''; $('planName').textContent = 'Belum ada file';
@@ -3831,6 +3971,18 @@
     });
     const skuBad = [...P.skus.values()].filter((k) => !k.bom || !bomById(k.code, k.bom));
     const lockGone = [...P.plan.values()].filter((p) => p.kg > 0 && (!p.bom || !bomById(p.code, p.bom)) && MRP.byProduct.has(p.code));
+    // BOM ekstrak: dipakai padahal "tidak dipakai lagi", kunci hilang, atau belum dikunci
+    const ekOffUse = [], ekGone = [], ekOpen = [];
+    P.plan.forEach((p) => {
+      if (!(p.kg > 0) || !MRP.byProduct.has(p.code)) return;
+      planParts(p).forEach((pt) => {
+        const b = activeBom(p.code, pt.bom); if (!b) return;
+        madeIn(b, pt.ek).filter(ekOff).forEach((e) => ekOffUse.push({ p, pt, e }));
+        Object.keys(pt.ek || {}).forEach((e) => { if (!bomById(e, pt.ek[e])) ekGone.push({ p, pt, e, id: pt.ek[e] }); });
+      });
+      if (!p.rinci.length && ekChoices(activeBom(p.code, p.bom), p.ek).some((e) => !(p.ek || {})[e])) ekOpen.push(p);
+    });
+    P.ekOpen = ekOpen;
     let noStock = [];
     if (MRP.loaded && P.weeks.length) {
       const J = computeProj();
@@ -3848,6 +4000,15 @@
       skuBad: { label: 'SKU: BOM default tidak valid', badge: true, rows: skuBad,
         desc: 'SKU di Parameter SKU yang BOM default-nya kosong atau sudah tidak ada. Hitungan memakai BOM pertama sampai diperbaiki.',
         head: ['Kode', 'Nama', 'Jenis', 'BOM tersimpan'], row: (k) => [k.code, k.name, k.jenis, k.bom || '(kosong)'], bom: (k) => k.code },
+      ekOffUse: { label: 'Rencana: memakai ekstrak lama', badge: true, rows: ekOffUse,
+        desc: 'Rencana yang BOM-nya masih memakai ekstrak yang ditandai tidak dipakai lagi (Parameter SKU, Aktif = Tidak). Ganti BOM SKU-nya lewat klik SKU di Rencana Produksi (mode edit), atau perbaiki BOM di Odoo.',
+        head: ['Bulan', 'Week', 'Tanggal', 'Kode SKU', 'BOM SKU', 'Ekstrak lama'], row: (x) => [monLabel(x.p.bulan), x.p.week, x.pt.tgl ? fmtDate(x.pt.tgl) : 'seluruh week', x.p.code, (activeBom(x.p.code, x.pt.bom) || {}).id || '-', `${x.e} ${ekShort(x.e)}`], bom: (x) => x.p.code },
+      ekGone: { label: 'Rencana: BOM ekstrak terkunci tidak ada', badge: true, rows: ekGone,
+        desc: 'Versi BOM ekstrak yang dikunci di rencana sudah tidak ada di DATABASE PPIC. Hitungan memakai BOM default ekstrak; kunci ulang lewat klik SKU di Rencana Produksi (mode edit).',
+        head: ['Bulan', 'Week', 'Kode SKU', 'Ekstrak', 'BOM terkunci'], row: (x) => [monLabel(x.p.bulan), x.p.week, x.p.code, `${x.e} ${ekShort(x.e)}`, x.id], bom: (x) => x.p.code },
+      ekOpen: { label: 'Rencana: BOM ekstrak belum dikunci', badge: false, rows: ekOpen,
+        desc: 'Sel rencana yang ekstraknya punya beberapa versi BOM tetapi versinya belum dikunci (rencana lama). Hitungan memakai default Parameter SKU. Kunci sekaligus lewat tombol "Kunci BOM ekstrak" di Rencana Produksi (mode edit).',
+        head: ['Bulan', 'Week', 'Kode SKU', 'Qty', 'Ekstrak'], row: (p) => [monLabel(p.bulan), p.week, p.code, fmtKg(p.kg), ekChoices(activeBom(p.code, p.bom), p.ek).filter((e) => !(p.ek || {})[e]).map((e) => `${e} ${ekShort(e)}`).join(', ')], bom: (p) => p.code },
       planBatch: { label: 'Rencana: bukan ukuran batch', badge: false, rows: planBatch,
         desc: 'Qty kg yang tidak bisa disusun dari ukuran batch SKU (Parameter SKU). Hanya peringatan; tetap dihitung.',
         head: ['Bulan', 'Week', 'Kode', 'Qty kg', 'Ukuran batch (kg)'], row: (x) => [monLabel(x.p.bulan), x.p.week, x.p.code, fmtKg(x.p.kg), x.sku.batch.join(', ')] },
@@ -3922,8 +4083,8 @@
         desc: 'Saldo proyeksi minus di salah satu week. Cek PO yang perlu dibuat atau dipercepat.', link: '#/mrp/proyeksi', linkLabel: 'Proyeksi Stok', keys: sh.map((r) => r.code + '|' + r.firstShort),
         items: sh.map((r) => `${r.code} · ${r.name} · kurang ${fmtQ(r.short)} ${r.uom} · mulai ${wLabel(J.weeks[r.firstShort])}`) });
       const ck = planChecks();
-      const bad = ['planNoBom', 'lockGone', 'skuBad'].flatMap((k) => (ck[k] ? ck[k].rows.map((x, i) => k + i) : []));
-      if (bad.length) T.push({ id: 'mrp-cek', proj: 'MRP', level: 'check', title: 'Data MRP perlu dirapikan', count: bad.length, unit: 'temuan', desc: 'Rencana tanpa BOM, BOM terkunci hilang, BOM default tidak valid, atau UoM PO beda master.', link: '#/mrp/cek', linkLabel: 'Pemeriksaan Data MRP', keys: bad, items: [] });
+      const bad = ['planNoBom', 'lockGone', 'skuBad', 'ekOffUse', 'ekGone'].flatMap((k) => (ck[k] ? ck[k].rows.map((x, i) => k + i) : []));
+      if (bad.length) T.push({ id: 'mrp-cek', proj: 'MRP', level: 'check', title: 'Data MRP perlu dirapikan', count: bad.length, unit: 'temuan', desc: 'Rencana tanpa BOM, BOM terkunci hilang, BOM default tidak valid, atau rencana memakai ekstrak lama / BOM ekstrak yang hilang.', link: '#/mrp/cek', linkLabel: 'Pemeriksaan Data MRP', keys: bad, items: [] });
     } catch (e) { /* abaikan */ }
     return T;
   }
