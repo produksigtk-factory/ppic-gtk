@@ -143,6 +143,7 @@
     'mrp/dipakai':       { view: 'view-mrp-dipakai',       crumb: 'MRP',                       title: 'Material Dipakai di Mana', actions: 'mrp' },
     'mrp/cek':           { view: 'view-mrp-cek',           crumb: 'MRP',                       title: 'Pemeriksaan Data MRP', actions: 'mrp' },
     'mrp/rencana':       { view: 'view-mrp-rencana',       crumb: 'MRP',                       title: 'Rencana Produksi', actions: 'mrp' },
+    'mrp/konfirmasi':    { view: 'view-mrp-konfirmasi',    crumb: 'MRP',                       title: 'Konfirmasi Produksi', actions: 'mrp' },
     'mrp/kebutuhan':     { view: 'view-mrp-kebutuhan',     crumb: 'MRP',                       title: 'Kebutuhan Material', actions: 'mrp' },
     'mrp/proyeksi':      { view: 'view-mrp-proyeksi',      crumb: 'MRP',                       title: 'Proyeksi Stok', actions: 'mrp' },
     'mrp/sku':           { view: 'view-mrp-sku',           crumb: 'MRP',                       title: 'Parameter SKU', actions: 'mrp' },
@@ -2820,7 +2821,7 @@
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
     parsedStock: null, parsedPlan: null,
   };
-  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update']);
+  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update']);
   const BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const monLabel = (b) => `${BULAN_PANJANG[Number(b.slice(5, 7)) - 1]} ${b.slice(0, 4)}`;
@@ -2851,6 +2852,11 @@
       o.qty += Number(r[3]) || 0; P.stock.set(r[1], o);
     });
     P.adj = (d.adj || []).map((r) => ({ id: r[0], date: r[1], code: r[2], qty: Number(r[3]) || 0, note: r[4], time: r[5] }));
+    // Konfirmasi Produksi (MO Odoo)
+    P.hasKonf = Array.isArray(d.konf);
+    P.konf = new Map((d.konf || []).map((r) => [r[0], { no: r[0], code: r[1], name: r[2], qty: Number(r[3]) || 0, uom: r[4], bom: r[5], kg: r[6] === '' ? '' : Number(r[6]) || 0,
+      bulan: r[7], week: r[8], ek: r[9], ekKg: r[10] === '' ? '' : Number(r[10]) || 0, moEk: r[11], note: r[12], time: r[13] }]));
+    P.kfDraft = new Map(); P.kfDel = new Set();
     P.inc = (d.inc || []).map((r) => ({ id: r[0], bulan: r[1], week: r[2], code: r[3], qty: Number(r[4]) || 0, note: r[5], time: r[6] }));
     P.weeks = (d.weeks || []).map((r) => ({ bulan: r[0], week: r[1], start: r[2], end: r[3] }));
     P.weekBy = new Map(P.weeks.map((w) => [w.bulan + '|' + w.week, w]));
@@ -3157,6 +3163,7 @@
     document.querySelectorAll('.mrp-old').forEach((x) => { x.hidden = P.ready; });
     if (!P.ready) return;
     if (key === 'mrp/rencana') renderRencana();
+    else if (key === 'mrp/konfirmasi') renderKonf();
     else if (key === 'mrp/kebutuhan') renderKebutuhan();
     else if (key === 'mrp/proyeksi') renderProyeksi();
     else if (key === 'mrp/sku') renderSku();
@@ -3332,6 +3339,206 @@
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'PLAN WEEKLY');
     XLSX.writeFile(wb, `Rencana_Produksi_${P.hz}_${todayStr()}.xlsx`);
+  });
+
+  /* ---------- Konfirmasi Produksi (LIST_MO Odoo) ---------- */
+  const kfIsEk = (code) => normU((MRP.master.get(code) || {}).kat) === 'ekstrak' || (P.skus.get(code) || {}).jenis === 'Ekstrak';
+  // Hitung BOM, konversi kg, dan kebutuhan ekstrak untuk 1 MO (BOM default Parameter SKU)
+  function kfCalc(code, qty, uom, bomId) {
+    const bom = activeBom(code, bomId);
+    const o = { bom: bom ? bom.id : '', kg: '', ek: '', ekKg: '', note: '' };
+    if (!bom) { o.note = 'Kode tidak punya BOM di DATABASE PPIC'; return o; }
+    if (kfIsEk(code)) { o.kg = normU(uom) === 'kg' ? qty : (normU(bom.uom) === 'kg' ? qty : ''); return o; }
+    if (planUnit(code) === 'pcs') { o.note = 'Banded/KIT: tidak dikonversi ke kg'; return o; }
+    const pcs = normU(uom) !== 'kg';
+    o.kg = pcs ? (bom.batch ? Math.round((qty * 1000 / bom.batch) * 100) / 100 : '') : qty;
+    const ekComps = bom.comps.filter((c) => MRP.byProduct.has(c.code) && !isFg(c.code));
+    if (ekComps.length) {
+      const c = ekComps[0];
+      o.ek = c.code;
+      // qty ekstrak di BOM = per batch BOM (batch dalam pcs untuk SKU)
+      o.ekKg = bom.batch ? Math.round(((pcs ? qty : (qty / 1000) * bom.batch) / bom.batch) * (Number(c.qty) || 0) * 100) / 100 : '';
+      if (ekComps.length > 1) o.note = `BOM memakai ${ekComps.length} ekstrak/bulk; yang dihitung ${c.code}`;
+    }
+    return o;
+  }
+  const kfRows = () => {
+    const m = new Map(P.konf); P.kfDraft.forEach((r, no) => m.set(no, r)); P.kfDel.forEach((no) => m.delete(no));
+    return [...m.values()];
+  };
+  const kfWeeks = () => { const cur = todayStr().slice(0, 7), lo = addMonth(cur, -2), hi = addMonth(cur, 4); return P.weeks.filter((w) => w.bulan >= lo && w.bulan <= hi); };
+  // Peringatan per MO SKU (sama dengan file Excel)
+  function kfWarn(r, all) {
+    if (!r.bom) return { lvl: 'bad', t: r.note || 'Kode tidak punya BOM' };
+    if (!r.ek) return r.week ? { lvl: 'ok', t: 'OK' } : { lvl: 'todo', t: 'Pilih Plotting Week' };
+    const eks = all.filter((x) => x.code === r.ek);
+    if (!r.moEk) return { lvl: 'todo', t: eks.length ? 'Pilih MO ekstrak' : `Belum ada MO ${ekShortK(r.ek)} di daftar` };
+    const mo = all.find((x) => x.no === r.moEk);
+    if (!mo) return { lvl: 'bad', t: `MO ${r.moEk} tidak ada di daftar` };
+    if (mo.code !== r.ek) return { lvl: 'bad', t: `MO ${r.moEk} bukan untuk ${ekShortK(r.ek)}` };
+    const cap = Number(mo.kg !== '' ? mo.kg : mo.qty) || 0;
+    if ((Number(r.ekKg) || 0) > cap + kfTol(cap)) return { lvl: 'bad', t: `Kebutuhan ${fmtKg(r.ekKg)} kg melebihi hasil MO ${fmtKg(cap)} kg` };
+    const tot = all.filter((x) => x.moEk === r.moEk).reduce((t, x) => t + (Number(x.ekKg) || 0), 0);
+    if (tot > cap + kfTol(cap)) return { lvl: 'bad', t: `Total pemakaian MO ${r.moEk} (${fmtKg(tot)} kg) melebihi hasilnya (${fmtKg(cap)} kg)` };
+    if (!r.week) return { lvl: 'todo', t: 'Pilih Plotting Week' };
+    return { lvl: 'ok', t: 'OK' };
+  }
+  const ekShortK = (code) => ((MRP.master.get(code) || {}).name || code);
+  // Toleransi selisih pembulatan: lebih sedikit dari hasil MO (≤ 1% atau ≤ 1 kg) dianggap aman
+  const kfTol = (cap) => Math.max(1, cap * 0.01);
+  function renderKonf() {
+    const all = kfRows(), edit = P.edit && P.hasKonf;
+    const q = $('kfQ').value.trim().toLowerCase(), show = $('kfShow').value;
+    const sku = all.filter((r) => !kfIsEk(r.code)), eks = all.filter((r) => kfIsEk(r.code));
+    const weeks = kfWeeks();
+    const wOpts = (r) => `<option value="">–</option>` + weeks.map((w) => `<option value="${w.bulan}|${w.week}"${r.bulan === w.bulan && r.week === w.week ? ' selected' : ''}>${esc(wLabel(w))} ${w.bulan.slice(0, 4)} · ${fmtDate(w.start).slice(0, 2)}–${fmtDate(w.end).slice(0, 6)}</option>`).join('')
+      + (r.week && !weeks.some((w) => w.bulan === r.bulan && w.week === r.week) ? `<option selected value="${r.bulan}|${r.week}">${esc(r.week)} ${esc(monLabel(r.bulan))}</option>` : '');
+    const wTxt = (r) => (r.week ? `${r.week} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '<span class="muted">–</span>');
+    let list = sku.map((r) => ({ r, w: kfWarn(r, all) }));
+    if (show === 'ek') list = [];
+    if (show === 'todo') list = list.filter((x) => x.w.lvl !== 'ok');
+    if (q) list = list.filter(({ r }) => (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q));
+    list.sort((a, b) => a.r.no.localeCompare(b.r.no, 'id', { numeric: true }));
+    $('kfRows').innerHTML = list.map(({ r, w }) => {
+      const b = bomById(r.code, r.bom), dirty = P.kfDraft.has(r.no) ? ' is-dirty' : '';
+      const moOpts = `<option value="">–</option>` + eks.filter((x) => x.code === r.ek).map((x) => `<option value="${esc(x.no)}"${x.no === r.moEk ? ' selected' : ''}>${esc(x.no)} · ${fmtKg(x.kg !== '' ? x.kg : x.qty)} kg</option>`).join('')
+        + (r.moEk && !eks.some((x) => x.no === r.moEk && x.code === r.ek) ? `<option selected value="${esc(r.moEk)}">${esc(r.moEk)}</option>` : '');
+      return `<tr class="kf-row${dirty}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b></td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name" title="${esc(r.name)}">${esc(r.name)}</span></td>
+        <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td>${b ? esc(refOf(b)) : (r.bom ? '<span class="pl-bad">versi dihapus</span>' : '<span class="muted">–</span>')}</td>
+        <td class="num">${r.kg !== '' ? `<b>${fmtKg(r.kg)}</b>` : '<span class="muted">pcs</span>'}</td>
+        <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}</td>
+        <td>${r.ek ? `${esc(r.ek)} <span class="muted">${esc(ekShortK(r.ek))}</span>` : '<span class="muted">Tidak perlu</span>'}</td>
+        <td class="num">${r.ek ? fmtKg(r.ekKg) : ''}</td>
+        <td>${r.ek ? (edit ? `<select class="kf-moek">${moOpts}</select>` : (r.moEk ? `<b>${esc(r.moEk)}</b>` : '<span class="muted">–</span>')) : ''}</td>
+        <td><span class="kf-w kf-${w.lvl}">${esc(w.t)}</span>${r.note && r.bom ? `<small class="muted kf-note">${esc(r.note)}</small>` : ''}</td>
+        <td>${edit ? `<button type="button" class="btn-link danger kf-del" title="Hapus MO ini dari daftar">Hapus</button>` : ''}</td></tr>`;
+    }).join('') || `<tr class="empty"><td colspan="11">${all.length ? 'Tidak ada MO yang cocok.' : 'Belum ada data. Upload file LIST_MO dari Odoo.'}</td></tr>`;
+    // MO ekstrak
+    $('kfEkRows').innerHTML = (show === 'sku' ? [] : eks).filter((r) => !q || (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q)).sort((a, b) => a.no.localeCompare(b.no)).map((r) => {
+      const users = sku.filter((x) => x.moEk === r.no), used = users.reduce((t, x) => t + (Number(x.ekKg) || 0), 0), cap = Number(r.kg !== '' ? r.kg : r.qty) || 0, sisa = cap - used;
+      const st = !users.length ? '<span class="kf-w kf-todo">Belum dipakai</span>' : sisa < -kfTol(cap) ? `<span class="kf-w kf-bad">Melebihi hasil (kurang ${fmtKg(-sisa)} kg)</span>` : '<span class="kf-w kf-ok">OK</span>';
+      return `<tr class="kf-row${P.kfDraft.has(r.no) ? ' is-dirty' : ''}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b></td><td>${esc(r.code)} <span class="muted">${esc(r.name)}</span></td><td class="num">${fmtKg(cap)}</td>
+        <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}</td><td class="num">${fmtKg(used) || 0}</td><td class="num${sisa < -kfTol(cap) ? ' pl-bad' : ''}">${fmtKg(sisa) || 0}</td>
+        <td>${users.map((x) => `${esc(x.no)} <span class="muted">${esc(x.code)}</span>`).join(', ') || '<span class="muted">–</span>'}</td><td>${st}${edit ? ` <button type="button" class="btn-link danger kf-del">Hapus</button>` : ''}</td></tr>`;
+    }).join('') || '<tr class="empty"><td colspan="8">Belum ada MO ekstrak.</td></tr>';
+    const ws = sku.map((r) => kfWarn(r, all));
+    const nBad = ws.filter((w) => w.lvl === 'bad').length, nTodo = ws.filter((w) => w.lvl === 'todo').length;
+    const kgTot = sku.reduce((t, r) => t + (Number(r.kg) || 0), 0);
+    $('kfKpi').innerHTML = kpis([{ num: nf.format(sku.length), lbl: 'MO SKU' }, { num: nf.format(eks.length), lbl: 'MO ekstrak' }, { num: fmtKg(kgTot) || '0', lbl: 'kg total (konversi)' },
+      { num: nf.format(nTodo), lbl: 'perlu dilengkapi', tone: nTodo ? 'warn' : '' }, { num: nf.format(nBad), lbl: 'peringatan', tone: nBad ? 'bad' : 'ok' }]);
+    const nDirty = P.kfDraft.size + P.kfDel.size;
+    $('kfInfo').innerHTML = `${nf.format(list.length)} MO SKU ditampilkan` + (nDirty ? ` · <b class="pl-warn-t">${nf.format(nDirty)} perubahan belum disimpan</b>` : '')
+      + (!P.hasKonf ? ' · <span class="pl-bad">Apps Script MRP perlu diperbarui supaya Konfirmasi Produksi bisa disimpan</span>' : (!P.edit ? ' · masuk mode edit untuk memilih week & MO ekstrak' : ''));
+    $('kfSaveBtn').hidden = !(P.edit && P.hasKonf);
+    $('kfSaveBtn').disabled = !nDirty;
+    $('kfSaveBtn').textContent = nDirty ? `Simpan perubahan (${nDirty})` : 'Simpan perubahan';
+  }
+  ['kfQ', 'kfShow'].forEach((id) => $(id).addEventListener(id === 'kfQ' ? 'input' : 'change', renderKonf));
+  const kfGet = (no) => P.kfDraft.get(no) || P.konf.get(no);
+  const kfTouch = (no, patch) => { const r = Object.assign({}, kfGet(no), patch); P.kfDraft.set(no, r); };
+  ['kfRows', 'kfEkRows'].forEach((id) => {
+    $(id).addEventListener('change', (e) => {
+      const tr = e.target.closest('tr[data-no]'); if (!tr) return;
+      const no = tr.dataset.no;
+      if (e.target.matches('.kf-week')) { const [bulan, week] = (e.target.value || '|').split('|'); kfTouch(no, { bulan: bulan || '', week: week || '' }); }
+      if (e.target.matches('.kf-moek')) kfTouch(no, { moEk: e.target.value });
+      renderKonf();
+    });
+    $(id).addEventListener('click', (e) => {
+      const b = e.target.closest('.kf-del'); if (!b) return;
+      const no = b.closest('tr[data-no]').dataset.no;
+      if (P.konf.has(no)) P.kfDel.add(no);
+      P.kfDraft.delete(no);
+      // MO SKU yang memakai MO ekstrak ini dikosongkan pilihannya
+      kfRows().filter((x) => x.moEk === no).forEach((x) => kfTouch(x.no, { moEk: '' }));
+      renderKonf();
+    });
+  });
+  $('kfSaveBtn').addEventListener('click', () => needEdit(async () => {
+    const rows = [...P.kfDraft.values()].map((r) => [r.no, r.code, r.name, r.qty, r.uom, r.bom, r.kg, r.bulan || '', r.week || '', r.ek || '', r.ekKg, r.moEk || '', r.note || '']);
+    const del = [...P.kfDel];
+    if (!rows.length && !del.length) return;
+    $('kfSaveBtn').disabled = true; paintKf('saving');
+    try {
+      const res = await mrpApi('saveKonf', { rows, del, file: P.kfFile || '' });
+      P.konf = new Map((res.konf || []).map((r) => [r[0], { no: r[0], code: r[1], name: r[2], qty: Number(r[3]) || 0, uom: r[4], bom: r[5], kg: r[6] === '' ? '' : Number(r[6]) || 0,
+        bulan: r[7], week: r[8], ek: r[9], ekKg: r[10] === '' ? '' : Number(r[10]) || 0, moEk: r[11], note: r[12], time: r[13] }]));
+      P.kfDraft.clear(); P.kfDel.clear(); P.kfFile = '';
+      paintKf('ok', `${res.added} MO baru, ${res.updated} diubah${res.deleted ? ', ' + res.deleted + ' dihapus' : ''}`);
+      toast('Konfirmasi produksi tersimpan.');
+    } catch (err) { paintKf('err', err.message); }
+    renderKonf();
+  }));
+  function paintKf(s, info) {
+    const el = $('kfSave'); if (!el) return;
+    el.className = 'pl-save is-' + s;
+    el.innerHTML = s === 'saving' ? '<span class="spin" aria-hidden="true"></span> Menyimpan ke Google Sheet…' : s === 'ok' ? `Tersimpan: ${esc(info)}` : `Gagal menyimpan: ${esc(info)}`;
+  }
+  // Upload LIST_MO (Odoo) atau file Konfirmasi Produksi yang sudah diisi
+  const KF_NO = /^(reference|no\.? ?mo|nomor mo|mo)$/i, KF_PROD = /^(product|produk)$/i, KF_CODE = /^(kode|kode produk|code)$/i, KF_NAME = /^(nama produk|nama)$/i;
+  const KF_QTY = /^(product quantity|qty|quantity|jumlah)$/i, KF_UOM = /^(product unit of measure|uom|unit of measure|satuan)$/i, KF_WEEK = /^(plotting week|week)$/i, KF_MOEK = /^(mo ekstrak dipakai|mo ekstrak)$/i;
+  function parseKonf(wb) {
+    for (const sn of wb.SheetNames) {
+      const a = sheetRows(wb, sn);
+      for (let h = 0; h < Math.min(a.length, 10); h++) {
+        const head = a[h].map((x) => txt(x));
+        const f = (re) => head.findIndex((x) => re.test(x));
+        const iNo = f(KF_NO), iP = f(KF_PROD), iC = f(KF_CODE), iN = f(KF_NAME), iQ = f(KF_QTY), iU = f(KF_UOM), iW = f(KF_WEEK), iM = f(KF_MOEK);
+        if (iNo < 0 || iQ < 0 || (iP < 0 && iC < 0)) continue;
+        const out = [];
+        a.slice(h + 1).forEach((r) => {
+          const no = txt(r[iNo]); if (!no) return;
+          let code = iC >= 0 ? normCode(r[iC]) : '', name = iN >= 0 ? txt(r[iN]) : '';
+          if (!code && iP >= 0) { const p = txt(r[iP]); const m = p.match(/^\[([^\]]+)\]\s*(.*)$/); if (m) { code = m[1].trim(); name = name || m[2]; } else code = p; }
+          let bulan = '', week = '';
+          if (iW >= 0) { const m = txt(r[iW]).match(/^(W[1-5])\s+([A-Za-z]+)\s+(\d{4})/i); if (m) { const mi = MON_MAP[m[2].toUpperCase()]; if (mi) { week = m[1].toUpperCase(); bulan = `${m[3]}-${String(mi).padStart(2, '0')}`; } } }
+          out.push({ no, code, name, qty: Number(String(r[iQ]).replace(',', '.')) || 0, uom: iU >= 0 ? txt(r[iU]) : '', bulan, week, moEk: iM >= 0 ? txt(r[iM]) : '' });
+        });
+        return { sheet: sn, rows: out };
+      }
+    }
+    throw new Error('Kolom tidak dikenali. Pakai export LIST_MO dari Odoo (Reference, Product, Product Quantity, Product Unit of Measure).');
+  }
+  $('kfFile').addEventListener('change', async () => {
+    const file = $('kfFile').files[0]; if (!file) return;
+    $('kfCheck').className = 'check'; $('kfCheck').textContent = '';
+    try {
+      if (!MRP.loaded || !P.ready) throw new Error('Data BOM belum termuat. Tunggu sebentar lalu coba lagi.');
+      const p = parseKonf(await readBook(file));
+      let nNew = 0, nUpd = 0, nSame = 0;
+      const noBom = [];
+      p.rows.forEach((x) => {
+        const old = kfGet(x.no);
+        if (old && P.kfDel.has(x.no)) P.kfDel.delete(x.no);
+        const keepBom = old && old.code === x.code ? old.bom : '';
+        const c = kfCalc(x.code, x.qty, x.uom, keepBom);
+        if (!c.bom) noBom.push(x.code);
+        const row = { no: x.no, code: x.code, name: x.name || (MRP.master.get(x.code) || {}).name || '', qty: x.qty, uom: x.uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: c.note,
+          bulan: x.week ? x.bulan : (old ? old.bulan : ''), week: x.week || (old ? old.week : ''), moEk: x.moEk || (old ? old.moEk : '') };
+        if (!old) { P.kfDraft.set(x.no, row); nNew++; return; }
+        const same = ['code', 'qty', 'uom', 'bulan', 'week', 'moEk'].every((k) => String(old[k] ?? '') === String(row[k] ?? ''));
+        if (same) { nSame++; return; }
+        P.kfDraft.set(x.no, Object.assign({}, old, row)); nUpd++;
+      });
+      P.kfFile = file.name;
+      $('kfCheck').className = 'check ok';
+      $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${nf.format(nNew)} baru, ${nf.format(nUpd)} berubah, ${nf.format(nSame)} sama dengan yang tersimpan.`
+        + (noBom.length ? `<br><span class="pl-warn-t">${noBom.length} kode tidak punya BOM:</span> ${esc([...new Set(noBom)].join(', '))}` : '')
+        + `<br>${P.edit ? 'Lengkapi Plotting Week & MO Ekstrak, lalu klik <b>Simpan perubahan</b>.' : 'Masuk <b>Mode edit</b> untuk melengkapi dan menyimpan.'}`;
+    } catch (err) { $('kfCheck').className = 'check err'; $('kfCheck').textContent = err.message; }
+    $('kfFile').value = '';
+    renderKonf();
+  });
+  $('kfExport').addEventListener('click', () => {
+    const all = kfRows();
+    const data = all.sort((a, b) => kfIsEk(a.code) - kfIsEk(b.code) || a.no.localeCompare(b.no, 'id', { numeric: true })).map((r) => {
+      const b = bomById(r.code, r.bom), w = kfIsEk(r.code) ? null : kfWarn(r, all);
+      return { 'No. MO': r.no, Kode: r.code, 'Nama Produk': r.name, Qty: r.qty, UoM: r.uom, 'BOM (Reference)': b ? refOf(b) : '', 'Konversi kg': r.kg, 'Plotting Week': r.week ? `${r.week} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '',
+        'Kode Ekstrak': r.ek || '', 'Kebutuhan Ekstrak (kg)': r.ek ? r.ekKg : '', 'MO Ekstrak dipakai': r.moEk || '', Peringatan: w ? w.t : (kfIsEk(r.code) ? 'MO ekstrak' : '') };
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'KONFIRMASI PRODUKSI');
+    XLSX.writeFile(wb, `Konfirmasi_Produksi_${todayStr()}.xlsx`);
   });
 
   /* ---------- Kebutuhan Material ---------- */

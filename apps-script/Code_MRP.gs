@@ -4,7 +4,7 @@
  * Dipasang di: MRP PPIC GTK → Extensions → Apps Script (terpisah dari Apps Script MONITORING PO).
  * - doGet  : website membaca BOM, master material, dan PEMBAGIAN_WEEK dari DATABASE PPIC GTK,
  *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, STOK, STOK_KOREKSI,
- *            INCOMING_MANUAL, LOG_MRP).
+ *            INCOMING_MANUAL, KONFIRMASI_PRODUKSI, LOG_MRP).
  * - doPost : simpan rencana produksi, parameter SKU, upload stok, koreksi stok, dan incoming manual
  *            dari website. Semua dilindungi PIN.
  *
@@ -27,6 +27,7 @@ const MRP_CONFIG = {
   ADJ_SHEET: 'STOK_KOREKSI',
   INC_SHEET: 'INCOMING_MANUAL',
   LOG_SHEET: 'LOG_MRP',
+  KONF_SHEET: 'KONFIRMASI_PRODUKSI',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -37,6 +38,8 @@ const MRP_HEAD = {
   STOK_KOREKSI: { head: ['ID', 'TANGGAL', 'KODE', 'QTY (+/-)', 'ALASAN', 'DIBUAT'], text: [1, 2, 3, 5, 6] },
   INCOMING_MANUAL: { head: ['ID', 'BULAN', 'WEEK', 'KODE', 'QTY (+/-)', 'KETERANGAN', 'DIBUAT'], text: [1, 2, 3, 4, 6, 7] },
   LOG_MRP: { head: ['WAKTU', 'AKSI', 'RINGKASAN'], text: [1, 2, 3] },
+  // Konfirmasi Produksi: satu baris = satu MO Odoo (dari LIST_MO). BOM ID & konversi kg dikunci saat disimpan.
+  KONFIRMASI_PRODUKSI: { head: ['NO MO', 'KODE', 'NAMA PRODUK', 'QTY', 'UoM', 'BOM ID', 'KONVERSI KG', 'BULAN', 'WEEK', 'KODE EKSTRAK', 'KEBUTUHAN EKSTRAK KG', 'MO EKSTRAK', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 14] },
 };
 
 /* ================= Baca data ================= */
@@ -64,7 +67,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, adj, inc, log,
+      ok: true, master, boms, details, weeks, skus, plan, stock, adj, inc, log, konf: readKonf_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -141,6 +144,7 @@ function doPost(e) {
     const action = body.action || '';
     let res;
     if (action === 'verify') return json_({ ok: true });
+    else if (action === 'saveKonf') res = saveKonf_(ss, body.rows || [], body.del || [], body.file || '', now);
     else if (action === 'savePlan') res = savePlan_(ss, body.cells || [], now);
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
@@ -253,6 +257,37 @@ function addInc_(ss, b, now) {
   sh.getRange(sh.getLastRow() + 1, 1, 1, 7).setValues([[id, s_(b.bulan), s_(b.week), kode, qty, s_(b.ket), now]]);
   log_(ss, now, 'Incoming manual', `${kode} ${qty > 0 ? '+' : ''}${qty} · ${s_(b.bulan)} ${s_(b.week)} · ${s_(b.ket)}`);
   return { id };
+}
+
+/* ================= Konfirmasi Produksi ================= */
+const KONF_COLS = 14;
+// konf: [noMo, kode, nama, qty, uom, bomId, konversiKg, bulan, week, kodeEkstrak, kebutuhanEkstrakKg, moEkstrak, catatan, diubah]
+function readKonf_(ss, tz) {
+  return rows_(ss.getSheetByName(MRP_CONFIG.KONF_SHEET), KONF_COLS).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]),
+    d_(r[7], tz, 'yyyy-MM'), s_(r[8]), s_(r[9]), n_(r[10]), s_(r[11]), s_(r[12]), d_(r[13], tz, 'yyyy-MM-dd HH:mm')]);
+}
+// rows: baris lengkap (tanpa DIUBAH) — ditambah / diganti per NO MO; del: daftar NO MO yang dihapus
+function saveKonf_(ss, rows, del, file, now) {
+  const sh = sheet_(ss, MRP_CONFIG.KONF_SHEET);
+  const tz = ss.getSpreadsheetTimeZone();
+  const map = new Map(readKonf_(ss, tz).map(r => [r[0], r]));
+  let nAdd = 0, nUpd = 0, nDel = 0;
+  (del || []).forEach(no => { if (map.delete(s_(no))) nDel++; });
+  rows.forEach(r => {
+    const no = s_(r[0]); if (!no || !s_(r[1])) return;
+    const bulan = s_(r[7]), week = s_(r[8]);
+    if (bulan && !/^\d{4}-\d{2}$/.test(bulan)) throw new Error('Bulan tidak dikenal untuk MO ' + no + ': ' + bulan);
+    if (week && !/^W[1-5]$/.test(week)) throw new Error('Week tidak dikenal untuk MO ' + no + ': ' + week);
+    if (map.has(no)) nUpd++; else nAdd++;
+    map.set(no, [no, s_(r[1]), s_(r[2]), Number(r[3]) || 0, s_(r[4]), s_(r[5]), r[6] === '' || r[6] === null ? '' : Number(r[6]) || 0,
+      bulan, week, s_(r[9]), r[10] === '' || r[10] === null ? '' : Number(r[10]) || 0, s_(r[11]), s_(r[12]), now]);
+  });
+  const all = [...map.values()];
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, KONF_COLS).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, KONF_COLS).setValues(all);
+  log_(ss, now, 'Konfirmasi produksi', `${file ? file + ' · ' : ''}${nAdd} MO baru, ${nUpd} diubah${nDel ? ', ' + nDel + ' dihapus' : ''}`);
+  return { added: nAdd, updated: nUpd, deleted: nDel, konf: readKonf_(ss, tz) };
 }
 
 function delRow_(ss, kind, id, now) {

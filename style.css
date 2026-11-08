@@ -1248,3 +1248,17 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .mon-chk { display: flex; align-items: center; gap: 6px; padding: 4px 2px; font-size: 13.5px; cursor: pointer; }
 .mon-chk.is-now { font-weight: 600; color: var(--brand-dark); }
 .mon-chk small { font-weight: 400; color: var(--muted); }
+/* Konfirmasi Produksi */
+.kf-table td { vertical-align: top; }
+.kf-table .pl-code { display: block; font-weight: 600; }
+.kf-table .pl-name { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); }
+.kf-table select { font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 190px; }
+.kf-table td:nth-child(7) { min-width: 120px; }
+.kf-table tr.is-dirty td { background: #fffbea; }
+.kf-w { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: normal; }
+.kf-ok { background: #dcefe2; color: #1f6b3d; }
+.kf-todo { background: #ffe8c2; color: #8a5200; }
+.kf-bad { background: #f8d7d3; color: #a12a1f; }
+.kf-note { display: block; font-size: 11px; margin-top: 2px; }
+.kf-h { font-size: 15px; margin: 18px 0 8px; color: var(--brand-dark); }
+.kf-up { cursor: pointer; }
