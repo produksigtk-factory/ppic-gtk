@@ -1335,3 +1335,6 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .pj-table th.pj-pol small, .pj-table th.pj-pon small { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }
 .pj-table th.pj-spo, .pj-table td.pj-spo { background: #f6f3fb; color: #5b3f8c; }
 .pj-detail tr.pj-porow td, .pj-detail tr.pj-porow th { color: #5b3f8c; }
+.pj-table th.pj-poa, .pj-table td.pj-poa { background: #f6f3fb; color: #5b3f8c; border-left: 2px solid #9fb8a8; min-width: 86px; }
+.pj-table th.pj-poa small { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.pj-golink { font-family: inherit; }
