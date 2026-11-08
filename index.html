@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=0b3d3e6c">
+<link rel="stylesheet" href="style.css?v=ed32e65b">
 </head>
 <body>
 <div class="shell">
@@ -598,17 +598,24 @@
           <button type="button" class="pl-hz pl-hzbtn" id="pjHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
+          <label class="tb-field"><span class="sr">Tampilan</span><select id="pjView"><option value="det">Rinci: Plan · Dependents · Consume · Saldo</option><option value="saldo">Ringkas: saldo saja</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
           <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="pjExport">Unduh Excel</button></div>
         </div>
         <div class="warn-box pj-nostock" id="pjNoStock" hidden><div><b>Belum ada data stok RM/PM.</b> Upload export stok Odoo supaya saldo dan kekurangan dihitung dari stok sebenarnya.</div><a class="btn btn-sm" href="#/mrp/update">Upload stok</a></div>
         <div class="pl-kpis" id="pjKpi"></div>
         <p class="pj-note" id="pjNote"></p>
+        <div class="pj-legend" aria-label="Keterangan kolom">
+          <div class="pj-lg"><span class="pj-chip pj-s-plan">Plan</span><p>Kebutuhan material dari <b>hitungan BOM</b> Rencana Produksi, untuk batch yang belum punya MO di Odoo.</p></div>
+          <div class="pj-lg"><span class="pj-chip pj-s-dep">Dependents</span><p><b>Products to Consume</b> MO Odoo: sudah dialokasikan, belum diambil dari stok. Mengurangi saldo. Kolom <em>bulan sebelumnya</em> = MO lama / MO yang No. MO-nya belum dicatat di Rencana.</p></div>
+          <div class="pj-lg"><span class="pj-chip pj-s-cons">Consume</span><p><b>Consumed Products</b> MO Odoo: sudah terpakai. Hanya informasi, karena stok Odoo sudah berkurang.</p></div>
+          <div class="pj-lg"><span class="pj-chip pj-s-saldo">Saldo</span><p>Saldo akhir week = saldo sebelumnya + incoming manual − Plan − Dependents. <span class="pl-legend pj-negl">Merah</span> = minus (kurang).</p></div>
+        </div>
         <p class="mrp-count" id="pjInfo"></p>
         <div class="table-wrap pl-wrap">
-          <table class="po-table pl-table pj-table"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
+          <table class="po-table pl-table pj-table" id="pjTable"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
         </div>
-        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus.</p>
+        
       </section>
 
       <!-- ================= MRP: PARAMETER SKU ================= -->
@@ -1128,7 +1135,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=fc601966"></script>
+<script src="app.js?v=59b5317c"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
 <script src="help.js?v=a2e9f7b3"></script>
 <script src="tasks.js?v=4755b43f"></script>

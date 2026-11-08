@@ -3816,21 +3816,34 @@
     $('pjNote').innerHTML = note + moTxt;
     // hanya week di bulan yang dicentang yang ditampilkan; saldo tetap dihitung lewat bulan di antaranya
     const ms = new Set(selMonths()), vis = weeks.map((w, j) => j).filter((j) => ms.has(weeks[j].bulan)), VW = vis.map((j) => weeks[j]);
-    $('pjHead').innerHTML = weekHead(VW, { lead: '<th class="pl-sticky pl-c1"></th><th colspan="3"></th>', tail: true, tailN: 2 }) +
-      `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th><th class="num">Stok awal</th><th class="num" title="Products to Consume dari MO bulan sebelumnya / MO yang belum dicatat di Rencana Produksi">Dependents<br><small>bulan sebelumnya</small></th>${weekTh(VW, (k) => (vis[k] < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
+    // Tampilan rinci: tiap week = Plan | Dependents | Consume | Saldo. Ringkas: saldo saja (angka kecil di bawahnya)
+    const det = $('pjView').value !== 'saldo';
+    const SUB = det ? [['plan', 'Plan', 'Kebutuhan hasil hitungan BOM dari Rencana Produksi (batch yang belum punya MO)'], ['dep', 'Dependents', 'Products to Consume: material MO yang belum diambil dari stok'], ['cons', 'Consume', 'Consumed Products: material MO yang sudah terpakai (stok Odoo sudah berkurang, hanya informasi)'], ['saldo', 'Saldo', 'Saldo akhir week = saldo sebelumnya + incoming − Plan − Dependents']] : [['saldo', 'Saldo', 'Saldo akhir week']];
+    const nS = SUB.length;
+    const months = []; VW.forEach((w) => { const l = months[months.length - 1]; if (l && l.b === w.bulan) l.n++; else months.push({ b: w.bulan, n: 1 }); });
+    $('pjTable').classList.toggle('pj-det', det);
+    $('pjHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th><th colspan="3"></th>${months.map((m) => `<th colspan="${m.n * nS}" class="pl-month">${monLabel(m.b)}</th>`).join('')}<th colspan="2"></th></tr>`
+      + `<tr class="pl-whead"><th class="pl-sticky pl-c1" rowspan="2">Material</th><th rowspan="2">UoM</th><th class="num" rowspan="2" title="Stok per tanggal upload + koreksi stok">Stok awal</th><th class="num pj-h-dep" rowspan="2" title="Products to Consume dari MO bulan sebelumnya / MO yang belum dicatat No. MO-nya di Rencana Produksi. Mengurangi stok awal.">Dependents<br><small>bulan sebelumnya</small></th>`
+      + `${VW.map((w, k) => `<th colspan="${nS}" class="pl-w pl-wgrp${wCls(VW, k)}${vis[k] < s ? ' is-past' : ''}" title="${esc(wTitle(w))}">${w.week}<small>${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}</small></th>`).join('')}<th rowspan="2">Mulai kurang</th><th class="num" rowspan="2">Kurang</th></tr>`
+      + `<tr class="pl-shead">${VW.map((w, k) => SUB.map(([key, lbl, tip], si) => `<th class="num pj-s-${key}${si === 0 ? wCls(VW, k) : ''}" title="${esc(tip)}">${lbl}</th>`).join('')).join('')}</tr>`;
+    const cellsOf = (r, j, k) => {
+      if (j < s) return SUB.map((x, si) => `<td class="num is-past${si === 0 ? wCls(VW, k) : ''}"></td>`).join('');
+      const v = r.saldo[j], neg = v < -1e-9, mc = wCls(VW, k);
+      if (!det) {
+        const sub = (r.inW[j] ? `<span class="pj-in">+${fq((r.inW[j]))}</span>` : '') + (r.plan[j] ? `<span class="pj-out" title="Plan (hitungan BOM)">−${fq((r.plan[j]))}</span>` : '')
+          + (r.dep[j] ? `<span class="pj-dep" title="Dependents (Products to Consume)">−${fq((r.dep[j]))}</span>` : '') + (r.cons[j] ? `<span class="pj-cons" title="Consume (Consumed Products)">✓${fq((r.cons[j]))}</span>` : '');
+        return `<td class="num pj-cell${neg ? ' is-neg' : ''}${mc}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
+      }
+      return `<td class="num pj-s-plan${mc}">${r.plan[j] ? fq(r.plan[j]) : ''}</td><td class="num pj-s-dep">${r.dep[j] ? fq(r.dep[j]) : ''}</td><td class="num pj-s-cons">${r.cons[j] ? fq(r.cons[j]) : ''}</td>`
+        + `<td class="num pj-s-saldo${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${r.inW[j] ? `<small class="pj-in" title="Incoming manual">+${fq(r.inW[j])} masuk</small>` : ''}</td>`;
+    };
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, '')}<td class="pl-uom">${esc(r.uom)}</td>
       <td class="num">${r.hasStock || r.adj ? fq((r.start)) : '<span class="muted">0</span>'}</td>
-      <td class="num">${r.depPrev ? `<span class="pj-dep">−${fq(r.depPrev)}</span>` : ''}${r.consPrev ? `<small class="pj-cons" title="Consumed Products MO bulan sebelumnya (sudah mengurangi stok Odoo)">✓${fq(r.consPrev)}</small>` : ''}</td>
-      ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past${wCls(VW, k)}"></td>`;
-        const v = r.saldo[j], neg = v < -1e-9;
-        const sub = (r.inW[j] ? `<span class="pj-in">+${fq((r.inW[j]))}</span>` : '') + (r.plan[j] ? `<span class="pj-out" title="Plan (hitungan BOM)">−${fq((r.plan[j]))}</span>` : '')
-          + (r.dep[j] ? `<span class="pj-dep" title="Dependents: Products to Consume MO">−${fq((r.dep[j]))}</span>` : '') + (r.cons[j] ? `<span class="pj-cons" title="Consume: Consumed Products MO (sudah mengurangi stok)">✓${fq((r.cons[j]))}</span>` : '');
-        return `<td class="num pj-cell${neg ? ' is-neg' : ''}${wCls(VW, k)}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
-      }).join('')}
+      <td class="num pj-s-dep">${r.depPrev ? fq(r.depPrev) : ''}${r.consPrev ? `<small class="pj-cons" title="Consumed Products MO bulan sebelumnya (sudah mengurangi stok Odoo)">✓ terpakai ${fq(r.consPrev)}</small>` : ''}</td>
+      ${vis.map((j, k) => cellsOf(r, j, k)).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length + 6}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * nS + 6}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     const firstW = J.rows.filter((r) => r.firstShort === s).length;
     const nNoSt = P.stockDate ? J.rows.filter((r) => !r.hasStock).length : 0;
     $('pjKpi').innerHTML = kpis([
@@ -3841,6 +3854,8 @@
     $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok`;
   }
   ['pjQ', 'pjMode', 'pjKat'].forEach((id) => $(id).addEventListener(id === 'pjQ' ? 'input' : 'change', renderProyeksi));
+  try { const v = localStorage.getItem('ppic-pj-view'); if (v) $('pjView').value = v; } catch (e) { /* abaikan */ }
+  $('pjView').addEventListener('change', () => { try { localStorage.setItem('ppic-pj-view', $('pjView').value); } catch (e) { /* abaikan */ } renderProyeksi(); });
   $('pjRows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
   $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter') return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
   function openProjDetail(code) {
