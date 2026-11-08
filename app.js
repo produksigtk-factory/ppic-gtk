@@ -3210,15 +3210,18 @@
     else if (key === 'mrp/sku') renderSku();
     else if (key === 'mrp/update') renderMrpUpdate();
   }
-  function weekHead(weeks, opts = {}) {
+  // Header tabel per week yang seragam (seperti Rencana Produksi): baris bulan → baris week + rentang tanggal → baris sub-kolom
+  // lead/tail: [{ html, cls, title }] (rowspan 2); subs: [{ label, cls, title }]; cellCls(i): kelas tambahan per week
+  function gridHead(weeks, { lead = [], subs, tail = [], cellCls = () => '' }) {
     const months = [];
     weeks.forEach((w) => { const l = months[months.length - 1]; if (l && l.b === w.bulan) l.n++; else months.push({ b: w.bulan, n: 1 }); });
-    const lead = opts.lead || '', tail = opts.tail || '';
-    return `<tr class="pl-mhead">${lead}${months.map((m) => `<th colspan="${m.n}" class="pl-month">${monLabel(m.b)}</th>`).join('')}${tail ? `<th colspan="${opts.tailN || 1}"></th>` : ''}</tr>`;
+    const n = subs.length, at = (o) => `${o.cls ? ` class="${o.cls}"` : ''}${o.title ? ` title="${esc(o.title)}"` : ''}`;
+    return `<tr class="pl-mhead">${lead.map((l, i) => `<th${i === 0 ? ' class="pl-sticky pl-c1"' : ''}></th>`).join('')}${months.map((m) => `<th colspan="${m.n * n}" class="pl-month">${monLabel(m.b)}</th>`).join('')}${tail.length ? `<th colspan="${tail.length}"></th>` : ''}</tr>`
+      + `<tr class="pl-whead">${lead.map((l) => `<th rowspan="2"${at(l)}>${l.html}</th>`).join('')}${weeks.map((w, i) => `<th colspan="${n}" class="pl-w pl-wgrp w-start${wCls(weeks, i)}${cellCls(i)}" title="${esc(wTitle(w))}">${w.week}<small>${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}</small></th>`).join('')}${tail.map((t) => `<th rowspan="2"${at(t)}>${t.html}</th>`).join('')}</tr>`
+      + `<tr class="pl-shead">${weeks.map((w, i) => subs.map((sb, j) => `<th class="num wsub${n > 1 ? ' wsub-m' : ''}${sb.cls ? ' ' + sb.cls : ''}${j === 0 ? ' w-start' + wCls(weeks, i) : ''}${cellCls(i)}"${sb.title ? ` title="${esc(sb.title)}"` : ''}>${sb.label}</th>`).join('')).join('')}</tr>`;
   }
   const matCell = (code, name, extra = '') => `<td class="pl-sticky pl-c1"><span class="pl-code">${esc(code)}</span>${extra}<span class="pl-name" title="${esc(name)}">${esc(name)}</span></td>`;
   const kpis = (list) => list.map((k) => `<div class="pk${k.tone ? ' is-' + k.tone : ''}"${k.title ? ` title="${esc(k.title)}"` : ''}><span class="pk-num">${k.num}</span><span class="pk-lbl">${k.lbl}</span></div>`).join('');
-  const weekTh = (weeks, extra = () => '') => weeks.map((w, i) => `<th class="num pl-w${wCls(weeks, i)}${extra(i)}" title="${esc(wTitle(w))}">${w.week}<small>${fmtDate(w.start).slice(0, 6)}</small></th>`).join('');
   const wCls = (weeks, i) => (i === 0 || weeks[i - 1].bulan !== weeks[i].bulan ? ' m-start' : '');
 
   /* ---------- Rencana Produksi ---------- */
@@ -3756,9 +3759,9 @@
     rows = rows.filter((r) => (!q || (r.code + ' ' + r.name).toLowerCase().includes(q)) && (!kat || r.kat === kat))
       .sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }));
     P.kbRows = rows;
-    $('kbHead').innerHTML = weekHead(weeks, { lead: '<th class="pl-sticky pl-c1"></th><th></th>', tail: true }) +
-      `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th>${weekTh(weeks)}<th class="num">Total</th></tr>`;
-    $('kbRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, `<span class="pl-kat">${esc(r.kat)}</span>`)}<td class="pl-uom">${esc(r.uom)}</td>${r.w.map((v, j) => `<td class="num${wCls(weeks, j)}">${v ? fq((v)) : ''}</td>`).join('')}<td class="num"><b>${fq((r.total))}</b></td></tr>`).join('')
+    $('kbHead').innerHTML = gridHead(weeks, { lead: [{ html: 'Material', cls: 'pl-sticky pl-c1' }, { html: 'UoM' }],
+      subs: [{ label: 'Kebutuhan', title: 'Kebutuhan material di week ini' }], tail: [{ html: 'Total', cls: 'num' }] });
+    $('kbRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, `<span class="pl-kat">${esc(r.kat)}</span>`)}<td class="pl-uom">${esc(r.uom)}</td>${r.w.map((v, j) => `<td class="num w-start${wCls(weeks, j)}">${v ? fq((v)) : ''}</td>`).join('')}<td class="num"><b>${fq((r.total))}</b></td></tr>`).join('')
       || `<tr class="empty"><td colspan="${weeks.length + 3}">${P.plan.size ? 'Tidak ada kebutuhan di rentang ini.' : 'Belum ada rencana produksi.'}</td></tr>`;
     const byKat = {};
     [...src.values()].forEach((o) => { const k = (MRP.master.get(o.code) || {}).kat || 'Tanpa kategori'; byKat[k] = (byKat[k] || 0) + 1; });
@@ -3827,14 +3830,14 @@
     // hanya week di bulan yang dicentang yang ditampilkan; saldo tetap dihitung lewat bulan di antaranya
     const ms = new Set(selMonths()), vis = weeks.map((w, j) => j).filter((j) => ms.has(weeks[j].bulan)), VW = vis.map((j) => weeks[j]);
     if (J.moMode) return renderProyeksiMo(J, rows, vis, VW, mode);
-    $('pjHead').innerHTML = weekHead(VW, { lead: '<th class="pl-sticky pl-c1"></th><th></th>', tail: true, tailN: 2 }) +
-      `<tr><th class="pl-sticky pl-c1">Material</th>${PJ_STK_TH}${weekTh(VW, (k) => (vis[k] < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
+    $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: PJ_TAIL, cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
+      subs: [{ label: 'Saldo', title: 'Saldo akhir week (tebal); di bawahnya +incoming / −kebutuhan' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past${wCls(VW, k)}"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
         const sub = (r.inW[j] ? `<span class="pj-in">+${fq((r.inW[j]))}</span>` : '') + (r.need[j] ? `<span class="pj-out">−${fq((r.need[j]))}</span>` : '');
-        return `<td class="num pj-cell${neg ? ' is-neg' : ''}${wCls(VW, k)}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
+        return `<td class="num pj-cell w-start${neg ? ' is-neg' : ''}${wCls(VW, k)}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
@@ -3853,21 +3856,21 @@
     $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok`;
   }
   // Kolom kiri Proyeksi yang ringkas: material (+UoM) dan stok tersedia (awal − gantung di bawahnya)
-  const PJ_STK_TH = '<th class="num pj-stk" title="Stok Tersedia = Stok Awal (stok upload + koreksi) − Stok Gantung; dipakai sebagai saldo awal">Stok tersedia<small>awal − gantung</small></th>';
+  const PJ_LEAD = [{ html: 'Material', cls: 'pl-sticky pl-c1' }, { html: 'Stok tersedia<small>awal − gantung</small>', cls: 'num pj-stk', title: 'Stok Tersedia = Stok Awal (stok upload + koreksi) − Stok Gantung; dipakai sebagai saldo awal' }];
+  const PJ_TAIL = [{ html: 'Mulai kurang' }, { html: 'Kurang', cls: 'num' }];
   const pjLead = (r) => matCell(r.code, r.name, r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '')
     + `<td class="num pj-stk"><b class="${r.start < -1e-9 ? 'pl-bad' : ''}">${fq(r.start)}</b>${r.gant ? `<small>${fq(r.awal)} − <span class="pj-gtx">${fq(r.gant)}</span></small>` : ''}</td>`;
   // Mode PC + CP: tiap week Plan | PC | CP | Saldo
   function renderProyeksiMo(J, rows, vis, VW, mode) {
     const s = J.s, weeks = J.weeks, q0 = (v) => (Math.abs(v) > 1e-12 ? fq(v) : '');
-    $('pjHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th><th></th>${VW.map((w, k) => `<th colspan="4" class="pj-wk${wCls(VW, k)}${vis[k] < s ? ' is-past' : ''}" title="${esc(wTitle(w))}">${esc(wLabel(w))} ${w.bulan.slice(0, 4)} <small>${fmtDate(w.start).slice(0, 6)}</small></th>`).join('')}<th colspan="2"></th></tr>`
-      + `<tr><th class="pl-sticky pl-c1">Material</th>${PJ_STK_TH}`
-      + VW.map((w, k) => `<th class="num pj-sp${wCls(VW, k)}" title="Kebutuhan MPS (pembanding)">Plan</th><th class="num pj-spc" title="Products to Consume: belum dikonsumsi">PC</th><th class="num pj-scp" title="Consumed Products: sudah dikonsumsi">CP</th><th class="num" title="Stok tersedia − (PC + CP) berjalan">Saldo</th>`).join('')
-      + '<th>Mulai kurang</th><th class="num">Kurang</th></tr>';
+    $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: PJ_TAIL, cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
+      subs: [{ label: 'Plan', cls: 'pj-sp', title: 'Kebutuhan MPS (pembanding)' }, { label: 'PC', cls: 'pj-spc', title: 'Products to Consume: belum dikonsumsi' },
+        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia − (PC + CP) berjalan' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
-        return `<td class="num pj-sp${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td>`
+        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td>`
           + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq(v)}</b>${r.inW[j] ? `<small><span class="pj-in">+${fq(r.inW[j])}</span></small>` : ''}</td>`;
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
