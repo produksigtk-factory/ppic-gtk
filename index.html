@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=33f68fe4">
+<link rel="stylesheet" href="style.css?v=2ef66a35">
 </head>
 <body>
 <div class="shell">
@@ -48,6 +48,7 @@
           <a class="menu-item sub" href="#/mrp/kebutuhan" data-route="mrp/kebutuhan">Kebutuhan Material</a>
           <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
           <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
+          <a class="menu-item sub" href="#/mrp/bomdefault" data-route="mrp/bomdefault">Default BOM Bulanan</a>
           <a class="menu-item sub" href="#/mrp/update" data-route="mrp/update">Update Data MRP</a>
           <a class="menu-item sub" href="#/mrp/bom" data-route="mrp/bom">Bill of Material</a>
           <a class="menu-item sub" href="#/mrp/material" data-route="mrp/material">Daftar Material</a>
@@ -555,7 +556,7 @@
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru di Google Sheet MRP PPIC GTK lalu Deploy → Manage deployments → Edit → New version → Deploy.</div>
         <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Ketik total Plan per week langsung di sel, atau klik tombol tanggal di bawahnya / sel Real untuk mengisi Plan dan Real per tanggal; tersimpan otomatis ke Google Sheet MRP PPIC GTK. Enter / panah atas-bawah untuk pindah baris.</p><span class="pl-save" id="plSave"></span></div>
         <div class="toolbar mrp-toolbar">
-          <span class="pl-hz" id="plHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
+          <button type="button" class="pl-hz pl-hzbtn" id="plHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="plQ" placeholder="Cari kode atau nama SKU"></label>
           <label class="tb-check"><input type="checkbox" id="plOnly" checked> Hanya yang ada rencana</label>
           <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="plTpl" title="File Excel kosong dengan kolom week 3 bulan ini, untuk diisi / di-lookup dari MPS">Unduh format upload</button><button class="btn btn-ghost btn-sm" id="plUpload">Upload rencana</button><button class="btn btn-ghost btn-sm" id="plExport" title="Rencana yang tersimpan sekarang">Unduh rencana</button></div>
@@ -565,7 +566,7 @@
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table" id="plTable"><thead id="plHead"></thead><tbody id="plRows"></tbody><tfoot id="plFoot"></tfoot></table>
         </div>
-        <p class="hint">Plan = rencana kg per SKU per week (seperti <em>Minimum Kg Batch Size</em> di MPS), Real = hasil produksi; tanggal produksi di bawah angka (bisa lebih dari satu). Klik sel untuk melihat rincian per tanggal. Real <span class="pl-legend pl-lg-met">hijau</span> = sesuai/melebihi plan, <span class="pl-legend pl-lg-under">oranye</span> = kurang dari plan, <span class="pl-legend pl-lg-miss">merah muda</span> = week sudah lewat tapi realisasi belum diisi. Realisasi belum dipakai di hitungan kebutuhan material. <span class="pl-legend pl-warn">kuning</span> = kg tidak bisa disusun dari ukuran batch SKU. Kecil di bawah Plan = BOM yang dipakai (BOM SKU + versi ekstrak/bulk), terkunci per week atau per tanggal; klik nama SKU untuk menggantinya per week, atau tombol tanggal untuk per tanggal. Default rencana baru diatur di Parameter SKU.</p>
+        <p class="hint">Plan = rencana kg per SKU per week (seperti <em>Minimum Kg Batch Size</em> di MPS), Real = hasil produksi; tanggal produksi di bawah angka (bisa lebih dari satu). Klik sel untuk melihat rincian per tanggal. Real <span class="pl-legend pl-lg-met">hijau</span> = sesuai/melebihi plan, <span class="pl-legend pl-lg-under">oranye</span> = kurang dari plan, <span class="pl-legend pl-lg-miss">merah muda</span> = week sudah lewat tapi realisasi belum diisi. Realisasi belum dipakai di hitungan kebutuhan material. <span class="pl-legend pl-warn">kuning</span> = kg tidak bisa disusun dari ukuran batch SKU. Kecil di bawah Plan = BOM yang dipakai (BOM SKU + versi ekstrak/bulk), terkunci per week atau per tanggal; klik nama SKU untuk menggantinya per week, atau tombol tanggal untuk per tanggal. Default rencana baru diatur di Default BOM Bulanan (bila kosong: Parameter SKU). Klik tombol bulan di kiri atas untuk memilih bulan yang ditampilkan.</p>
       </section>
 
       <!-- ================= MRP: KEBUTUHAN MATERIAL ================= -->
@@ -573,7 +574,7 @@
         <div class="mrp-loading" data-mrp-loading>Menghitung kebutuhan material…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
         <div class="toolbar mrp-toolbar">
-          <span class="pl-hz" id="kbHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
+          <button type="button" class="pl-hz pl-hzbtn" id="kbHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="kbQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="kbKat"><option value="">Semua kategori</option></select></label>
           <label class="tb-field"><span class="sr">Jenis kebutuhan</span><select id="kbType"><option value="buy">Material dibeli (RM/PM)</option><option value="made">Ekstrak/bulk (diproduksi)</option><option value="fg">FG untuk rakitan/bonus</option></select></label>
@@ -593,7 +594,7 @@
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
         <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik sebuah material untuk menambah incoming manual atau koreksi stok.</p></div>
         <div class="toolbar mrp-toolbar">
-          <span class="pl-hz" id="pjHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
+          <button type="button" class="pl-hz pl-hzbtn" id="pjHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
@@ -623,6 +624,24 @@
         <div class="table-wrap mrp-wrap">
           <table class="po-table mrp-table sk-table"><thead><tr><th>Kode</th><th>Nama</th><th>Jenis</th><th>BOM default</th><th>Ukuran batch (kg)</th><th>Ekstrak/bulk di BOM</th><th>Aktif</th><th>Catatan</th><th>Diubah</th></tr></thead><tbody id="skRows"></tbody></table>
         </div>
+      </section>
+
+      <!-- ================= MRP: DEFAULT BOM BULANAN ================= -->
+      <section id="view-mrp-bomdefault" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat default BOM…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Pilih Reference di sel bulan; tersimpan langsung ke Google Sheet MRP PPIC GTK. Pilihan "ikut bulan sebelumnya" menghapus default bulan itu.</p></div>
+        <div class="toolbar mrp-toolbar">
+          <button type="button" class="pl-hz pl-hzbtn" id="bmHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="bmQ" placeholder="Cari kode atau nama SKU / ekstrak"></label>
+          <label class="tb-field"><span class="sr">Jenis</span><select id="bmJenis"><option value="">SKU dan ekstrak</option><option value="SKU">SKU</option><option value="Ekstrak">Ekstrak/bulk</option></select></label>
+          <label class="tb-check"><input type="checkbox" id="bmMulti" checked> Hanya yang punya lebih dari 1 versi</label>
+        </div>
+        <p class="mrp-count" id="bmInfo"></p>
+        <div class="table-wrap pl-wrap">
+          <table class="po-table pl-table bm-table" id="bmTable"><thead id="bmHead"></thead><tbody id="bmRows"></tbody></table>
+        </div>
+        <p class="hint">Default dipakai saat rencana baru diisi di bulan tersebut (BOM SKU dan versi ekstrak/bulk di dalamnya). <b>Tebal</b> = diatur di bulan itu; abu-abu = ikut bulan sebelumnya, atau Parameter SKU bila belum pernah diatur. Rencana yang sudah ada tetap memakai BOM yang terkunci, kecuali Anda memilih menerapkannya saat mengubah default.</p>
       </section>
 
       <!-- ================= MRP: UPDATE DATA ================= -->
@@ -1082,9 +1101,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=a2fa193f"></script>
+<script src="app.js?v=949b53d9"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=80e5e0eb"></script>
+<script src="help.js?v=56c601de"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>

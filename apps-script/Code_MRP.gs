@@ -5,7 +5,7 @@
  * - doGet  : website membaca BOM, master material, dan PEMBAGIAN_WEEK dari DATABASE PPIC GTK,
  *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, REALISASI_PRODUKSI, STOK,
  *            STOK_KOREKSI, INCOMING_MANUAL, LOG_MRP).
- * - doPost : simpan rencana produksi (plan & rincian per tanggal), realisasi produksi, parameter SKU, upload stok, koreksi stok, dan incoming manual
+ * - doPost : simpan rencana produksi (plan & rincian per tanggal), realisasi produksi, default BOM bulanan, parameter SKU, upload stok, koreksi stok, dan incoming manual
  *            dari website. Semua dilindungi PIN.
  *
  * PIN diatur di: Project Settings → Script Properties → UPLOAD_PIN (boleh sama dengan PIN MONITORING PO).
@@ -24,6 +24,7 @@ const MRP_CONFIG = {
   SKU_SHEET: 'SKU_MRP',
   PLAN_SHEET: 'RENCANA_PRODUKSI',
   REAL_SHEET: 'REALISASI_PRODUKSI',
+  BOMMON_SHEET: 'BOM_DEFAULT_BULANAN',
   STOCK_SHEET: 'STOK',
   ADJ_SHEET: 'STOK_KOREKSI',
   INC_SHEET: 'INCOMING_MANUAL',
@@ -38,6 +39,8 @@ const MRP_HEAD = {
   //                (kosong = hanya total per week; BOM kosong di rincian = ikut BOM week)
   // BOM EKSTRAK  : BOM ekstrak/bulk yang dikunci untuk week ini, mis. "14291:BOM-0015,14265:BOM-0005"
   RENCANA_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'QTY KG', 'BOM ID', 'SUMBER', 'DIUBAH', 'RINCIAN PLAN (TGL=QTY|BOM|EKSTRAK)', 'BOM EKSTRAK'], text: [1, 2, 3, 5, 6, 7, 8, 9] },
+  // Default BOM per bulan (SKU & ekstrak). Bulan tanpa baris = ikut bulan sebelumnya, lalu Parameter SKU.
+  BOM_DEFAULT_BULANAN: { head: ['BULAN', 'KODE', 'BOM ID', 'REFERENCE', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
   // Satu baris = realisasi satu SKU pada satu tanggal (week = week rencana yang dibandingkan)
   REALISASI_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'TANGGAL', 'QTY REALISASI', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 4, 6, 7] },
   STOK: { head: ['TANGGAL STOK', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
@@ -71,11 +74,14 @@ function doGet(e) {
       .map(r => [s_(r[0]), d_(r[1], tz, 'yyyy-MM-dd'), s_(r[2]), n_(r[3]), s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd HH:mm')]);
     const inc = rows_(ss.getSheetByName(MRP_CONFIG.INC_SHEET), 7)
       .map(r => [s_(r[0]), d_(r[1], tz, 'yyyy-MM'), s_(r[2]), s_(r[3]), n_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')]);
+    // bomMon: [bulan, kode, bomId, reference, diubah]
+    const bomMon = rows_(ss.getSheetByName(MRP_CONFIG.BOMMON_SHEET), 5)
+      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), s_(r[3]), d_(r[4], tz, 'yyyy-MM-dd HH:mm')]);
     const log = rows_(ss.getSheetByName(MRP_CONFIG.LOG_SHEET), 3)
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, version: 4, master, boms, details, weeks, skus, plan, real, stock, adj, inc, log,
+      ok: true, version: 5, master, boms, details, weeks, skus, plan, real, bomMon, stock, adj, inc, log,
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -153,6 +159,7 @@ function doPost(e) {
     let res;
     if (action === 'verify') return json_({ ok: true });
     else if (action === 'savePlan') res = savePlan_(ss, body.cells || [], now);
+    else if (action === 'saveBomMon') res = saveBomMon_(ss, body.cells || [], now);
     else if (action === 'saveReal') res = saveReal_(ss, body.cells || [], now);
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
@@ -264,6 +271,27 @@ function saveReal_(ss, cells, now) {
   if (all.length) sh.getRange(2, 1, all.length, 7).setValues(all);
   log_(ss, now, 'Edit realisasi', notes.length === 1 ? notes[0] : `${notes.length} sel diubah`);
   return { saved: touched.size };
+}
+// Default BOM per bulan: cells [{bulan, kode, bom, ref}] — bom kosong = baris dihapus (ikut bulan sebelumnya)
+function saveBomMon_(ss, cells, now) {
+  const sh = sheet_(ss, MRP_CONFIG.BOMMON_SHEET);
+  const tz = ss.getSpreadsheetTimeZone();
+  const last = sh.getLastRow();
+  const cur = last > 1 ? sh.getRange(2, 1, last - 1, 5).getValues()
+    .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), s_(r[3]), d_(r[4], tz, 'yyyy-MM-dd HH:mm')]).filter(r => r[0]) : [];
+  const map = new Map(cur.map(r => [r[0] + '|' + r[1], r]));
+  const notes = [];
+  cells.forEach(c => {
+    const bulan = s_(c.bulan), kode = s_(c.kode), bom = s_(c.bom);
+    if (!/^\d{4}-\d{2}$/.test(bulan) || !kode) return;
+    if (bom) map.set(bulan + '|' + kode, [bulan, kode, bom, s_(c.ref), now]); else map.delete(bulan + '|' + kode);
+    notes.push(`${kode} ${bulan}: ${bom ? (s_(c.ref) || bom) : 'ikut bulan sebelumnya'}`);
+  });
+  const all = [...map.values()].sort((a, b) => (a[0] + a[1]).localeCompare(b[0] + b[1]));
+  if (last > 1) sh.getRange(2, 1, last - 1, 5).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
+  if (notes.length) log_(ss, now, 'Default BOM bulanan', notes.length === 1 ? notes[0] : `${notes.length} perubahan`);
+  return { saved: notes.length };
 }
 // Rincian per tanggal: [[tgl, qty], ...] atau teks "tgl=qty;tgl=qty" → [[tgl, qty]] terurut, qty > 0
 function rinciParse_(v) {

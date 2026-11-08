@@ -1281,3 +1281,19 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 .dd-table td, .dd-table th { padding: 6px 8px; }
 span.wb-ekl { display: inline; margin-right: 10px; color: inherit; }
 .dd-table td { vertical-align: middle; }
+/* Pilihan bulan (centang) */
+.pl-hzbtn { cursor: pointer; font: inherit; font-size: 13.5px; font-weight: 600; }
+.pl-hzbtn::after { content: ''; width: 7px; height: 7px; margin-left: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.pl-hzbtn:hover, .pl-hzbtn:focus-visible { border-color: var(--brand); background: #e8f2eb; }
+.mon-year { border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px 10px; margin: 0 0 10px; }
+.mon-year legend { font-weight: 700; color: var(--brand-dark); padding: 0 4px; }
+.mon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px 12px; }
+.mon-chk { display: flex; align-items: center; gap: 6px; padding: 4px 2px; font-size: 13.5px; cursor: pointer; }
+.mon-chk.is-now { font-weight: 600; color: var(--brand-dark); }
+.mon-chk small { font-weight: 400; color: var(--muted); }
+/* Default BOM Bulanan */
+.bm-table .bm-m { text-align: left; min-width: 150px; }
+.bm-table td.bm-cell { vertical-align: top; }
+.bm-table td.bm-cell.is-set { background: #eef6f0; }
+.bm-table td.bm-cell small { display: block; font-size: 10.5px; }
+.bm-table .bm-sel { max-width: 200px; font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
