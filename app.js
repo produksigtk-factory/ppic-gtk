@@ -3874,7 +3874,7 @@
         return `<td class="num pj-spo w-start${wCls(VW, k)}">${r.po ? poQ(r.po.w[j]) : ''}</td><td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
       }).join('')}
       <td class="num pj-poa">${poQ(AF.qty(r))}</td>
-      <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
+      <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
       || `<tr class="empty"><td colspan="${VW.length * 2 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
@@ -3927,7 +3927,7 @@
           + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq(v)}</b>${r.inW[j] ? `<small><span class="pj-in">+${fq(r.inW[j])}</span></small>` : ''}</td>`;
       }).join('')}
       <td class="num pj-poa">${poQ(AF.qty(r))}</td>
-      <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
+      <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq(r.short)}</b>` : ''}</td></tr>`).join('')
       || `<tr class="empty"><td colspan="${VW.length * 5 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
@@ -4495,6 +4495,111 @@
   const tasksRefresh = () => { if (window.TASKS) window.TASKS.refresh(); };
 
   // Dipakai modul lain (csl.js)
+  /* ---------- Menu MRP: klik judul kolom untuk mengurutkan (semua tabel; urutan tidak diingat) ----------
+     Klik 1×: terbanyak di atas (kolom teks A→Z; Saldo & Mulai kurang: paling minus / paling awal di atas), 2×: kebalikannya, 3×: urutan awal.
+     Bekerja di DOM: baris yang sudah digambar diurutkan ulang, jadi klik baris & rincian tetap jalan. Sel kosong selalu di bawah. */
+  const MS = { state: new Map(), busy: false };
+  function msGrid(thead) {
+    const rows = [...thead.rows], occ = [], cells = [];
+    rows.forEach((tr, ri) => {
+      occ[ri] = occ[ri] || [];
+      let c = 0;
+      [...tr.cells].forEach((th) => {
+        while (occ[ri][c]) c++;
+        const cs = th.colSpan || 1, rs = th.rowSpan || 1;
+        for (let r = 0; r < rs; r++) { occ[ri + r] = occ[ri + r] || []; for (let k = 0; k < cs; k++) occ[ri + r][c + k] = th; }
+        cells.push({ th, col: c, span: cs, bottom: ri + rs === rows.length });
+        c += cs;
+      });
+    });
+    return { occ, cells };
+  }
+  const msSig = (occ, col) => [...new Set(occ.map((r) => r[col]).filter(Boolean))].map((th) => th.textContent.trim()).join('|');
+  function msCell(tr, col) {
+    let c = 0;
+    for (const td of tr.cells) { if (col < c + (td.colSpan || 1)) return col === c ? td : null; c += td.colSpan || 1; }
+    return null;
+  }
+  function msVal(td, num) {
+    if (!td) return null;
+    if (td.dataset.v !== undefined && td.dataset.v !== '') return Number(td.dataset.v);
+    const el = td.querySelector('b') || td;
+    const cut = el.matches('.num-cut') ? el : el.querySelector('.num-cut');
+    const t = (cut && cut.title ? cut.title : el.textContent).replace(/−/g, '-').trim();
+    if (!t || t === '–' || t === '-') return null;
+    if (!num) return t.toLowerCase();
+    const m = t.match(/-?\d[\d.]*(?:,\d+)?/);
+    return m ? Number(m[0].replace(/\./g, '').replace(',', '.')) : null;
+  }
+  // kolom angka: judul ber-class num, sel ber-data-v, atau ≥ 80% sel berisi angka saja
+  function msIsNum(table, th, col) {
+    if (th.classList.contains('num')) return true;
+    const rows = [...table.tBodies[0].rows].filter((tr) => !tr.classList.contains('empty'));
+    let n = 0, ok = 0;
+    rows.forEach((tr) => { const td = msCell(tr, col); if (!td) return; if (td.dataset.v !== undefined) { n++; ok++; return; } const t = td.textContent.replace(/\u2212/g, '-').trim(); if (!t || t === '–') return; n++; if (/^-?\d/.test(t)) ok++; });
+    return n > 0 && ok / n >= 0.8;
+  }
+  const msAscFirst = (th) => /^(saldo|mulai kurang)/i.test(th.textContent.trim()) || th.classList.contains('pj-ssal');
+  const msOk = (table) => table && table.tHead && table.tBodies[0] && !table.querySelector('th[data-sk]') && !table.classList.contains('mrp-tree');
+  function msDecorate(table) {
+    const { cells } = msGrid(table.tHead);
+    cells.forEach(({ th, span, bottom }) => {
+      if (th.dataset.msort || span !== 1 || !bottom || !th.textContent.trim()) return;
+      th.dataset.msort = '1'; th.tabIndex = 0; th.classList.add('ms-th');
+      th.title = (th.title ? th.title + ' · ' : '') + 'Klik untuk mengurutkan';
+      th.insertAdjacentHTML('beforeend', '<span class="sort-ind" aria-hidden="true"></span>');
+    });
+  }
+  function msApply(table) {
+    const st = MS.state.get(table), tb = table.tBodies[0];
+    const rows = [...tb.rows].filter((tr) => !tr.classList.contains('empty'));
+    if (rows.some((tr) => tr.dataset.o0 === undefined)) rows.forEach((tr, i) => { tr.dataset.o0 = i; });
+    const { occ, cells } = msGrid(table.tHead);
+    let col = -1, th = null;
+    if (st) { const hit = cells.find((c) => c.th.dataset.msort && msSig(occ, c.col) === st.sig); if (hit) { col = hit.col; th = hit.th; } }
+    table.tHead.querySelectorAll('th[data-msort]').forEach((h) => {
+      h.classList.toggle('is-sorted', h === th);
+      if (h === th) h.setAttribute('aria-sort', st.dir === 'asc' ? 'ascending' : 'descending'); else h.removeAttribute('aria-sort');
+    });
+    let order;
+    if (col < 0) order = rows.slice().sort((a, b) => a.dataset.o0 - b.dataset.o0);
+    else {
+      const num = msIsNum(table, th, col);
+      const k = rows.map((tr) => ({ tr, v: msVal(msCell(tr, col), num), o: Number(tr.dataset.o0) }));
+      const sg = st.dir === 'asc' ? 1 : -1;
+      k.sort((a, b) => (a.v === null) - (b.v === null) || (a.v === null ? a.o - b.o : (a.v < b.v ? -sg : a.v > b.v ? sg : a.o - b.o)));
+      order = k.map((x) => x.tr);
+    }
+    if (order.every((tr, i) => rows[i] === tr)) return;
+    const frag = document.createDocumentFragment(); order.forEach((tr) => frag.appendChild(tr));
+    tb.insertBefore(frag, tb.firstChild);
+  }
+  document.querySelectorAll('[id^="view-mrp-"]').forEach((sec) => {
+    let q = false;
+    const scan = () => { sec.querySelectorAll('table').forEach((t) => { if (!msOk(t)) return; msDecorate(t); msApply(t); }); };
+    const mo = new MutationObserver(() => {
+      if (MS.busy || q) return; q = true;
+      Promise.resolve().then(() => { q = false; MS.busy = true; try { scan(); } finally { mo.takeRecords(); MS.busy = false; } });
+    });
+    mo.observe(sec, { childList: true, subtree: true });
+    const click = (e) => {
+      const th = e.target.closest('th[data-msort]'); if (!th || !sec.contains(th)) return;
+      if (e.target.closest('button, a, input, select')) return;
+      const table = th.closest('table'); if (!msOk(table)) return;
+      const { occ, cells } = msGrid(table.tHead), c = cells.find((x) => x.th === th); if (!c) return;
+      const isId = /^(kode|no\.?|sku|material)/i.test(th.textContent.trim());
+      const sig = msSig(occ, c.col), cur = MS.state.get(table), first = msAscFirst(th) || isId ? 'asc' : (msIsNum(table, th, c.col) ? 'desc' : 'asc');
+      if (!cur || cur.sig !== sig) MS.state.set(table, { sig, dir: first });
+      else if (cur.dir === first) MS.state.set(table, { sig, dir: first === 'asc' ? 'desc' : 'asc' });
+      else MS.state.delete(table);
+      MS.busy = true; try { msApply(table); } finally { mo.takeRecords(); MS.busy = false; }
+    };
+    sec.addEventListener('click', click);
+    sec.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('th[data-msort]')) { e.preventDefault(); click(e); } });
+  });
+  // urutan tidak diingat: pindah halaman → kembali ke urutan awal
+  window.addEventListener('hashchange', () => { [...MS.state.keys()].forEach((t) => { MS.state.delete(t); if (t.isConnected) msApply(t); }); });
+
   window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld, workdaysSince };
   route();
   loadData();
