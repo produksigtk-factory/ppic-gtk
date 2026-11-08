@@ -43,7 +43,7 @@
     ['Purchase Order', 'MoQ', 'Minimum Order Quantity', 'Jumlah pesan terkecil ke supplier. Dihitung otomatis dari histori PO: qty terkecil dalam satu PO untuk material + supplier tersebut, bukan diketik.', 'po/supplier|Supplier & MoQ'],
     ['Purchase Order', 'Lead time', '', 'Rata-rata hari dari tanggal PO sampai barang datang, dihitung dari histori PO per material + supplier.', 'po/supplier|Supplier & MoQ'],
     // ---------- MRP ----------
-    ['MRP', 'MRP', 'Material Requirements Planning', 'Perhitungan kebutuhan material: rencana produksi → dipecah lewat BOM → dibandingkan dengan stok dan kedatangan PO per week → terlihat kapan material kurang.', 'mrp/proyeksi|Proyeksi Stok'],
+    ['MRP', 'MRP', 'Material Requirements Planning', 'Perhitungan kebutuhan material: rencana produksi → dipecah lewat BOM → dibandingkan dengan stok dan incoming per week → terlihat kapan material kurang.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'BOM', 'Bill of Material', 'Resep produk: daftar material beserta qty untuk sejumlah batch tertentu (qty batch BOM).', 'mrp/bom|Bill of Material'],
     ['MRP', 'BOM ID / Reference', 'Versi BOM', 'Satu produk bisa punya beberapa versi BOM (Reference 00, 01, …). Versi aktif diatur per SKU dan bisa dikunci per week.', 'mrp/sku|Parameter SKU'],
     ['MRP', 'Qty batch BOM', '', 'Jumlah hasil yang menjadi dasar BOM. Untuk SKU = pcs per 1.000 kg; kebutuhan material = qty material ÷ qty batch BOM × pcs rencana.', ''],
@@ -53,6 +53,8 @@
     ['MRP', 'Rakitan', 'Banded, 2in1, KIT', 'Produk yang BOM-nya hanya berisi FG + bahan kemas (tanpa RM/ekstrak). Direncanakan dalam pcs; komponen FG-nya tidak dipecah lagi, tampil sebagai "FG untuk rakitan/bonus". Perlakuan per jenis masih menunggu keputusan.', 'mrp/kebutuhan|Kebutuhan Material'],
     ['MRP', 'Ekstrak / bulk dipecah', '', 'Ekstrak dan bulk yang punya BOM sendiri dipecah terus sampai bahan baku, dengan kebutuhan pas (tanpa pembulatan batch).', ''],
     ['MRP', 'Kebutuhan', '', 'Qty material yang dibutuhkan untuk rencana produksi pada week tersebut.', 'mrp/kebutuhan|Kebutuhan Material'],
+    ['MRP', 'Realisasi produksi', 'Real', 'Qty yang benar-benar diproduksi per SKU per week (satuan sama dengan Plan), dicatat per tanggal produksi. Dibandingkan dengan Plan untuk melihat pencapaian; belum dipakai di hitungan kebutuhan material.', 'mrp/rencana|Rencana Produksi'],
+    ['MRP', 'Rincian per tanggal', '', 'Plan dan Real satu SKU dalam satu week bisa dibagi ke beberapa tanggal produksi (mis. Sen 300 kg, Rab 200 kg). Total week = jumlah rinciannya.', 'mrp/rencana|Rencana Produksi'],
     ['MRP', 'Incoming', '', 'Barang yang akan datang dan ditambahkan ke saldo stok per week, dicatat lewat Incoming manual.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Saldo / Proyeksi stok', '', 'Stok awal + incoming − kebutuhan, dibawa dari week ke week. Saldo minus (merah) = material akan kurang.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Stok koreksi', '', 'Penyesuaian manual (+/−) atas stok hasil export Odoo, berlaku sejak tanggalnya.', ''],

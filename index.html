@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7dfb3fee">
+<link rel="stylesheet" href="style.css?v=039db6d5">
 </head>
 <body>
 <div class="shell">
@@ -553,7 +553,7 @@
       <section id="view-mrp-rencana" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat rencana produksi…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru di Google Sheet MRP PPIC GTK lalu Deploy → Manage deployments → Edit → New version → Deploy.</div>
-        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Ketik kg langsung di sel; tersimpan otomatis ke Google Sheet MRP PPIC GTK. Enter / panah atas-bawah untuk pindah baris.</p><span class="pl-save" id="plSave"></span></div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Ketik total Plan per week langsung di sel, atau klik tombol tanggal di bawahnya / sel Real untuk mengisi Plan dan Real per tanggal; tersimpan otomatis ke Google Sheet MRP PPIC GTK. Enter / panah atas-bawah untuk pindah baris.</p><span class="pl-save" id="plSave"></span></div>
         <div class="toolbar mrp-toolbar">
           <span class="pl-hz" id="plHz" title="Rentang otomatis: bulan berjalan + 2 bulan berikutnya"></span>
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="plQ" placeholder="Cari kode atau nama SKU"></label>
@@ -565,7 +565,7 @@
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table" id="plTable"><thead id="plHead"></thead><tbody id="plRows"></tbody><tfoot id="plFoot"></tfoot></table>
         </div>
-        <p class="hint">Kg per SKU per week (seperti <em>Minimum Kg Batch Size</em> di MPS). <span class="pl-legend pl-warn">kuning</span> = kg tidak bisa disusun dari ukuran batch SKU. Versi BOM yang dipilih di sini hanya untuk hitungan sementara; versi tetap diatur di Parameter SKU.</p>
+        <p class="hint">Plan = rencana kg per SKU per week (seperti <em>Minimum Kg Batch Size</em> di MPS), Real = hasil produksi; tanggal produksi di bawah angka (bisa lebih dari satu). Klik sel untuk melihat rincian per tanggal. Real <span class="pl-legend pl-lg-met">hijau</span> = sesuai/melebihi plan, <span class="pl-legend pl-lg-under">oranye</span> = kurang dari plan, <span class="pl-legend pl-lg-miss">merah muda</span> = week sudah lewat tapi realisasi belum diisi. Realisasi belum dipakai di hitungan kebutuhan material. <span class="pl-legend pl-warn">kuning</span> = kg tidak bisa disusun dari ukuran batch SKU. Versi BOM yang dipilih di sini hanya untuk hitungan sementara; versi tetap diatur di Parameter SKU.</p>
       </section>
 
       <!-- ================= MRP: KEBUTUHAN MATERIAL ================= -->
@@ -1082,9 +1082,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=e09a4db4"></script>
+<script src="app.js?v=d9255f42"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=4ad13669"></script>
+<script src="help.js?v=9a9d6d87"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
