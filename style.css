@@ -1427,3 +1427,26 @@ label.is-disabled { opacity: .5; pointer-events: none; }
 .pr-rekap td:nth-child(15) { min-width: 170px; }
 .pr-rekap th { white-space: nowrap; }
 .pr-rekap td.date, .pr-rekap td:nth-child(6) { white-space: nowrap; }
+/* Lampiran PR */
+.pr-lampbtn { display: block; margin-top: 4px; border: 1px dashed #b7a6d6; background: #faf8fd; color: #5b3f8c; border-radius: 5px; padding: 1px 7px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.pr-lampbtn.has { border-style: solid; background: #f1ecf9; }
+.pr-lampbtn:hover { background: #ece4f8; }
+.pl-paste { border: 2px dashed #9fb8a8; border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); background: #f7faf8; cursor: text; margin-bottom: 12px; }
+.pl-paste:focus { outline: none; border-color: var(--brand-dark); background: #eef6f0; color: var(--ink); }
+.pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.pl-fig { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--surface); }
+.pl-fig.is-new { border-color: #9fb8a8; background: #f4fbf6; }
+.pl-fig img { width: 100%; height: 150px; object-fit: contain; background: #f4f5f7; border-radius: 4px; display: block; }
+.pl-fig img.is-err { height: auto; padding: 10px; font-size: 12px; color: var(--late); }
+.pl-fig figcaption { font-size: 12px; margin-top: 6px; }
+.pl-fig figcaption small { display: block; }
+.pl-fig figcaption input { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; font: inherit; margin-bottom: 3px; }
+.pl-calc { margin: 0 0 8px; }
+.pr-flamp { width: 1120px; max-width: 100%; margin: 14px auto 0; }
+.pr-flamp-h { margin-bottom: 8px; font-size: 13.5px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.pr-lamp-page { display: none; }
+@media print {
+  body.printing-pr #prPrintRoot .pr-lamp-page { display: block; page-break-before: always; break-before: page; font-family: "Times New Roman", Times, serif; }
+  #prPrintRoot .pr-lamp-h { font-size: 13px; margin-bottom: 8px; }
+  #prPrintRoot .pr-lamp-page img { max-width: 100%; max-height: 175mm; object-fit: contain; display: block; margin: 0 auto; }
+}

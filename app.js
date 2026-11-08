@@ -330,6 +330,8 @@
     state.readAt = data.readAt || '';
     state.noPrScript = !Array.isArray(data.pr);
     setPrData(data.pr || []);
+    state.noLampScript = !Array.isArray(data.prLamp);
+    setPrLamp(data.prLamp || []);
   }
   async function loadData(fresh) {
     if (!CFG.APPS_SCRIPT_URL) { showSetup(); return; }
@@ -4662,7 +4664,7 @@
       const first = r.kodePr !== prev; prev = r.kodePr;
       const s = prStatus(r), pq = prPoQty(r), unk = pq ? r.pos.filter((po) => !pq.found.has(po)) : [];
       return `<tr class="row${r.status === 'Batal' ? ' is-takeout' : ''}${first ? ' pr-first' : ''}">
-        <td class="pr-kc"><button type="button" class="btn-link" data-openpr="${esc(r.kodePr)}" title="Buka formulir PR ini">${esc(r.kodePr)}</button>${ed && first ? ` <button type="button" class="btn-link" data-editpr="${esc(r.kodePr)}">Ubah</button>` : ''}</td>
+        <td class="pr-kc"><button type="button" class="btn-link" data-openpr="${esc(r.kodePr)}" title="Buka formulir PR ini">${esc(r.kodePr)}</button>${ed && first ? ` <button type="button" class="btn-link" data-editpr="${esc(r.kodePr)}">Ubah</button>` : ''}${first ? (() => { const n = prLampOf(r.kodePr).length; return `<button type="button" class="pr-lampbtn${n ? ' has' : ''}" data-lamppr="${esc(r.kodePr)}" title="Lampiran PR (perhitungan & gambar)">${n ? `📎 ${n} lampiran` : 'Sertakan lampiran'}</button>`; })() : ''}</td>
         <td class="date">${esc(prDateTxt(r.tanggal))}</td><td class="num">${r.no}</td>
         <td class="mono">${esc(r.kode)}</td><td>${esc(r.nama)}</td><td>${esc(r.jenis)}</td><td>${esc(r.note)}</td>
         ${PR_NUM.map((k) => `<td class="num">${prNumTxt(r[k], '')}</td>`).join('')}
@@ -4732,10 +4734,11 @@
       },
     });
     paint();
-    const body = $('dlgBody');
+    const body = $('dlgBody'), seq = dlgSeq;
     body.querySelector('[name=tanggal]').addEventListener('change', (e) => { D.tanggal = e.target.value; if (!kodePr) body.querySelector('.pr-ed-head input[readonly]').value = prDefKode(D.tanggal) + ' (otomatis)'; });
     body.querySelector('#prEdAdd').addEventListener('click', () => { D.rows.push(prBlank()); paint(); });
     body.addEventListener('input', (e) => {
+      if (seq !== dlgSeq) return;
       const inp = e.target.closest('#prEdRows [data-k]'); if (!inp) return;
       const i = Number(inp.closest('tr').dataset.i), k = inp.dataset.k, r = D.rows[i];
       if (k === 'pos') r.pos = splitPo(inp.value); else r[k] = inp.value;
@@ -4744,8 +4747,8 @@
         if (m) { r.nama = m.name || ''; r.jenis = m.kat || ''; const tr = inp.closest('tr'); tr.querySelector('[data-k=nama]').value = r.nama; tr.querySelector('[data-k=jenis]').value = r.jenis; tr.querySelector('datalist').innerHTML = prPoSuggest(m.code, D.tanggal); }
       }
     });
-    body.addEventListener('change', (e) => { const sl = e.target.closest('#prEdRows select[data-k]'); if (sl) D.rows[Number(sl.closest('tr').dataset.i)].status = sl.value; });
-    body.addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (!b) return; D.rows.splice(Number(b.dataset.rm), 1); if (!D.rows.length) D.rows.push(prBlank()); paint(); });
+    body.addEventListener('change', (e) => { if (seq !== dlgSeq) return; const sl = e.target.closest('#prEdRows select[data-k]'); if (sl) D.rows[Number(sl.closest('tr').dataset.i)].status = sl.value; });
+    body.addEventListener('click', (e) => { if (seq !== dlgSeq) return; const b = e.target.closest('[data-rm]'); if (!b) return; D.rows.splice(Number(b.dataset.rm), 1); if (!D.rows.length) D.rows.push(prBlank()); paint(); });
   }
   // Saran No PO: PO di Monitoring PO dengan kode material sama, tgl order ≥ tgl PR (terbaru di atas)
   function prPoSuggest(kode, tanggal) {
@@ -4820,6 +4823,109 @@
     XLSX.writeFile(wb, `Rekap_PR_${todayStr()}.xlsx`);
   });
 
+  /* ---------- Lampiran PR (per Kode PR): gambar ditempel (Ctrl+V), disimpan di Google Drive lewat Apps Script ---------- */
+  function setPrLamp(list) {
+    state.prLamp = (list || []).map((r) => ({ kodePr: r[0], id: r[1], jenis: r[2], fileId: r[3], name: r[4], caption: r[5], time: r[6], by: r[7] }));
+  }
+  const prLampOf = (kodePr) => (state.prLamp || []).filter((x) => x.kodePr === kodePr);
+  const LAMP_IMG = new Map();   // id → data URL (sekali ambil per sesi)
+  async function prLampImg(id) {
+    if (LAMP_IMG.has(id)) return LAMP_IMG.get(id);
+    const res = await fetch(CFG.APPS_SCRIPT_URL + '?view=prlamp&id=' + encodeURIComponent(id));
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Gambar tidak bisa dimuat.');
+    const url = `data:${d.mime};base64,${d.data}`;
+    LAMP_IMG.set(id, url); return url;
+  }
+  function prLampFill(root) {
+    root.querySelectorAll('img[data-lampid]').forEach((img) => {
+      if (img.src) return;
+      prLampImg(img.dataset.lampid).then((u) => { img.src = u; }).catch((err) => { img.alt = 'Gagal memuat: ' + err.message; img.classList.add('is-err'); });
+    });
+  }
+  // Gambar tempelan → base64; diperkecil bila lebar > 2000 px, JPEG bila file besar
+  function prLampEncode(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onerror = () => reject(new Error('Gambar tidak bisa dibaca.'));
+      fr.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Gambar tidak bisa dibaca.'));
+        img.onload = () => {
+          const big = file.size > 1200000, scale = Math.min(1, 2000 / img.width);
+          if (!big && scale === 1) { resolve({ mime: file.type || 'image/png', url: fr.result }); return; }
+          const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+          const mime = big ? 'image/jpeg' : 'image/png';
+          resolve({ mime, url: c.toDataURL(mime, 0.85) });
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  function prLampDialog(kodePr) {
+    const ed = state.edit.on, pend = [];
+    const list = () => prLampOf(kodePr);
+    const paint = () => {
+      const L = list(), b = $('dlgBody');
+      b.querySelector('#plSaved').innerHTML = L.length ? L.map((x, i) => `<figure class="pl-fig"><img data-lampid="${esc(x.id)}" alt="Lampiran ${i + 1}">
+          <figcaption><b>Lampiran ${i + 1}</b>${x.caption ? ' · ' + esc(x.caption) : ''}<small class="muted">${esc(x.time)} · ${esc(x.by)}</small>${ed ? ` <button type="button" class="btn-link danger" data-lampdel="${esc(x.id)}">Hapus</button>` : ''}</figcaption></figure>`).join('')
+        : '<p class="muted">Belum ada gambar lampiran.</p>';
+      b.querySelector('#plPend').innerHTML = pend.map((x, i) => `<figure class="pl-fig is-new"><img src="${x.url}" alt="Gambar baru ${i + 1}">
+          <figcaption><input data-cap="${i}" value="${esc(x.caption)}" placeholder="Keterangan (opsional)"> <button type="button" class="btn-link danger" data-pendrm="${i}">Buang</button></figcaption></figure>`).join('');
+      $('dlgOk').textContent = pend.length ? `Simpan ${pend.length} gambar` : 'Tutup';
+      prLampFill(b);
+    };
+    openDialog({
+      title: `Lampiran ${kodePr}`, ok: 'Tutup', wide: true, cancel: false,
+      body: `<h3 class="pj-h">Perhitungan</h3><p class="muted pl-calc">Tempat perhitungan PR. Isi dan aturannya menyusul.</p>
+        <h3 class="pj-h">Gambar</h3>
+        ${ed ? '<div class="pl-paste" id="plPaste" tabindex="0" role="button" aria-label="Tempel gambar">Klik kotak ini lalu tekan <b>Ctrl+V</b> untuk menempel screenshot. Bisa berkali-kali.</div>' : (state.noLampScript ? '<p class="pl-bad">Apps Script MONITORING PO perlu diperbarui (versi dengan lampiran PR).</p>' : '<p class="muted">Masuk Mode edit untuk menambah atau menghapus gambar.</p>')}
+        <div class="pl-grid" id="plPend"></div><div class="pl-grid" id="plSaved"></div>
+        <p class="hint">Gambar disimpan di Google Drive (folder "Lampiran PR - PPIC GTK", tidak dibagikan publik) dan ikut tercetak di halaman setelah formulir PR.</p>`,
+      onSubmit: async () => {
+        if (!pend.length) return '';
+        for (const x of pend.splice(0)) {
+          const res = await api('addPrLamp', { data: { kodePr, mime: x.mime, data: x.url.split(',')[1], caption: x.caption } });
+          setPrLamp(res.prLamp);
+        }
+        renderPrViews();
+        return 'Lampiran tersimpan.';
+      },
+    });
+    const seq = dlgSeq, b = $('dlgBody');
+    paint();
+    const zone = b.querySelector('#plPaste'); if (zone) zone.focus();
+    const onPaste = async (e) => {
+      if (seq !== dlgSeq || !$('dlg').open) return;
+      const files = [...(e.clipboardData ? e.clipboardData.items : [])].filter((it) => it.kind === 'file' && /^image\//.test(it.type)).map((it) => it.getAsFile());
+      if (!files.length) { if (zone) { toast('Clipboard tidak berisi gambar. Salin screenshot dulu.'); } return; }
+      e.preventDefault();
+      if (state.noLampScript) { toast('Apps Script MONITORING PO perlu diperbarui dulu.'); return; }
+      for (const f of files) { try { const x = await prLampEncode(f); pend.push(Object.assign(x, { caption: '' })); } catch (err) { toast(err.message); } }
+      paint();
+    };
+    if (ed) b.addEventListener('paste', onPaste);
+    b.addEventListener('input', (e) => { if (seq !== dlgSeq) return; const c = e.target.closest('[data-cap]'); if (c) pend[Number(c.dataset.cap)].caption = c.value; });
+    b.addEventListener('click', async (e) => {
+      if (seq !== dlgSeq) return;
+      const rm = e.target.closest('[data-pendrm]'); if (rm) { pend.splice(Number(rm.dataset.pendrm), 1); paint(); return; }
+      const del = e.target.closest('[data-lampdel]'); if (!del) return;
+      del.disabled = true; del.textContent = 'Menghapus…';
+      try { const res = await api('delPrLamp', { data: { id: del.dataset.lampdel } }); setPrLamp(res.prLamp); paint(); renderPrViews(); toast('Lampiran dihapus.'); }
+      catch (err) { del.disabled = false; del.textContent = 'Hapus'; toast('Gagal: ' + err.message); }
+    });
+  }
+  document.addEventListener('click', (e) => { const l = e.target.closest('[data-lamppr]'); if (l) prLampDialog(l.dataset.lamppr); });
+  // Halaman lampiran untuk cetak (setelah formulir)
+  async function prLampPrintHtml(kodePr) {
+    const L = prLampOf(kodePr);
+    const urls = await Promise.all(L.map((x) => prLampImg(x.id).catch(() => '')));
+    return L.map((x, i) => `<section class="pr-lamp-page"><div class="pr-lamp-h"><b>Lampiran ${i + 1}</b> · ${esc(kodePr)}${x.caption ? ' · ' + esc(x.caption) : ''}</div>
+      ${urls[i] ? `<img src="${urls[i]}" alt="Lampiran ${i + 1}">` : '<p>Gambar tidak bisa dimuat.</p>'}</section>`).join('');
+  }
+
   /* ---------- Formulir PR (tarik data dari Rekap per Kode PR, cetak PDF) ---------- */
   const PRF = { kode: '' };
   function prSheet(g) {
@@ -4855,21 +4961,28 @@
     $('prPaper').innerHTML = prSheet(g && !g.batal ? g : null);
     $('prPrint').disabled = !(g && !g.batal);
     const pos = g ? [...new Set(g.rows.filter((r) => r.status !== 'Batal').flatMap((r) => r.pos))] : [];
+    const L = g && !g.batal ? prLampOf(g.kodePr) : [];
+    $('prFormLamp').innerHTML = g && !g.batal ? `<div class="pr-flamp-h"><b>Lampiran (${L.length})</b> <span class="muted">ikut tercetak di halaman setelah formulir</span> <button type="button" class="btn-link" data-lamppr="${esc(g.kodePr)}">${L.length ? 'Lihat / ubah lampiran' : 'Sertakan lampiran'}</button></div>`
+      + (L.length ? `<div class="pl-grid">${L.map((x, i) => `<figure class="pl-fig"><img data-lampid="${esc(x.id)}" alt="Lampiran ${i + 1}"><figcaption><b>Lampiran ${i + 1}</b>${x.caption ? ' · ' + esc(x.caption) : ''}</figcaption></figure>`).join('')}</div>` : '') : '';
+    prLampFill($('prFormLamp'));
     $('prFormPo').innerHTML = g && !g.batal ? `No PO terbit dari PR ini: ${pos.length ? g.rows.filter((r) => r.status !== 'Batal' && r.pos.length).map((r) => `<span class="pr-pochip"><span class="mono">${esc(r.kode)}</span> ${prPoLinks(r)}</span>`).join(' ') : '<span class="muted">belum ada</span>'}` : '';
   }
   $('prKode').addEventListener('input', () => { PRF.kode = $('prKode').value.trim(); prRenderForm(); });
-  $('prPrint').addEventListener('click', () => {
+  $('prPrint').addEventListener('click', async () => {
     const g = prGroups().find((x) => x.kodePr === PRF.kode); if (!g || g.batal) return;
     let root = document.getElementById('prPrintRoot');
     if (!root) { root = document.createElement('div'); root.id = 'prPrintRoot'; document.body.appendChild(root); }
-    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g)}</div>`;
+    $('prPrint').disabled = true; const lbl = $('prPrint').textContent; $('prPrint').textContent = 'Menyiapkan lampiran…';
+    let lampHtml = '';
+    try { lampHtml = await prLampPrintHtml(g.kodePr); } finally { $('prPrint').disabled = false; $('prPrint').textContent = lbl; }
+    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g)}</div>${lampHtml}`;
     document.body.classList.add('printing-pr');
     const t0 = document.title; document.title = g.kodePr.replace(/\//g, '-');   // nama file PDF bawaan
     const done = () => { document.body.classList.remove('printing-pr'); document.title = t0; window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
-    const img = root.querySelector('img');
-    const go = () => { window.print(); setTimeout(done, 1000); };
-    if (img && !img.complete) img.addEventListener('load', go, { once: true }); else go();
+    const imgs = [...root.querySelectorAll('img')].filter((im) => !im.complete);
+    Promise.all(imgs.map((im) => new Promise((ok) => { im.addEventListener('load', ok, { once: true }); im.addEventListener('error', ok, { once: true }); })))
+      .then(() => { window.print(); setTimeout(done, 1000); });
   });
   function renderPrViews() { if (state.routeKey === 'pr/rekap') renderPrRekap(); if (state.routeKey === 'pr/form') prEnter(); }
 

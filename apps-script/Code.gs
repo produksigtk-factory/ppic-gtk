@@ -27,6 +27,8 @@ const CONFIG = {
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
   MONITOR_SHEET: 'MONITORING_PO',  // tampilan di Google Sheet: diisi Apps Script sebagai tabel biasa (tanpa rumus berat)
   PR_SHEET: 'REKAP_PR',            // Purchase Request: satu baris = satu material di satu PR (tidak tersentuh upload Odoo)
+  PR_LAMP_SHEET: 'LAMPIRAN_PR',    // daftar lampiran per Kode PR; file gambar disimpan di Google Drive (folder PR_LAMP_FOLDER)
+  PR_LAMP_FOLDER: 'Lampiran PR - PPIC GTK',   // dibuat otomatis di folder yang sama dengan Sheet MONITORING PO (tidak dibagikan publik)
 };
 const MONITOR_VERSION = '2';      // naikkan bila susunan tab MONITORING_PO berubah
 const LINE_COLS = 13;   // A–M PO_LINE
@@ -40,6 +42,10 @@ function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = ss.getSpreadsheetTimeZone();
   const p = (e && e.parameter) || {};
+  if (p.view === 'prlamp') {   // isi satu gambar lampiran PR (base64) supaya website bisa menampilkan tanpa membagikan file
+    try { return json_(prLampFile_(ss, String(p.id || ''))); }
+    catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
+  }
   if (p.view === 'supplier') {
     try { return json_(supplierView_(ss, tz, p.rebuild === '1')); }
     catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
@@ -67,6 +73,7 @@ function doGet(e) {
     changes: readChanges_(ss, 4000),
     lastUpload: lastUpload_(ss, tz),
     pr: readPr_(ss, tz),
+    prLamp: readPrLamp_(ss, tz),
     readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
   };
   putBig_(cache, 'po_main', out, 300);
@@ -147,6 +154,10 @@ function doPost(e) {
       return json_({ ok: true, time: stamp, followups: readFollowups_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
     }
 
+    if (action === 'addPrLamp' || action === 'delPrLamp') {
+      if (action === 'addPrLamp') addPrLamp_(ss, body.data || {}, user, stamp); else delPrLamp_(ss, body.data || {}, user, stamp);
+      return json_({ ok: true, time: stamp, prLamp: readPrLamp_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
+    }
     if (action === 'savePr' || action === 'uploadPr') {
       const codes = action === 'savePr' ? [savePr_(ss, body.data || {}, user, stamp, tz)] : uploadPr_(ss, body.data || {}, user, stamp, tz);
       return json_({ ok: true, time: stamp, codes, pr: readPr_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
@@ -714,6 +725,63 @@ function uploadPr_(ss, d, user, stamp, tz) {
   log.push([stamp, user, 'Upload PR', '', '', 'File', '', String(d.file || '') + ' · ' + codes.length + ' PR']);
   logEdit_(ss, log);
   return codes;
+}
+
+/* ---------- Lampiran PR (gambar di Google Drive, daftar di tab LAMPIRAN_PR) ---------- */
+const LAMP_HEAD = ['KODE PR', 'ID', 'JENIS', 'FILE ID', 'NAMA FILE', 'KETERANGAN', 'DIBUAT', 'OLEH'];
+function prLampSheet_(ss) {
+  let sh = ss.getSheetByName(CONFIG.PR_LAMP_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.PR_LAMP_SHEET);
+    sh.getRange(1, 1, 1, LAMP_HEAD.length).setValues([LAMP_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange('A:H').setNumberFormat('@');
+  }
+  return sh;
+}
+// [kodePr, id, jenis, fileId, nama, keterangan, dibuat, oleh]
+function readPrLamp_(ss, tz) {
+  const sh = ss.getSheetByName(CONFIG.PR_LAMP_SHEET);
+  if (!sh) return [];
+  return readRows_(sh, LAMP_HEAD.length).map(r => [str_(r[0]), str_(r[1]), str_(r[2]), str_(r[3]), String(r[4] || ''), String(r[5] || ''), show_(r[6], tz), String(r[7] || '')]);
+}
+function prLampFolder_(ss) {
+  const parents = DriveApp.getFileById(ss.getId()).getParents();
+  const base = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  const it = base.getFoldersByName(CONFIG.PR_LAMP_FOLDER);
+  return it.hasNext() ? it.next() : base.createFolder(CONFIG.PR_LAMP_FOLDER);
+}
+function addPrLamp_(ss, d, user, stamp) {
+  const kode = str_(d.kodePr);
+  if (!kode) throw new Error('Kode PR wajib ada.');
+  if (!readPr_(ss, ss.getSpreadsheetTimeZone()).some(r => r[0] === kode)) throw new Error('Kode PR ' + kode + ' tidak ada di Rekap PR.');
+  const mime = /^image\/(png|jpeg|webp|gif)$/.test(String(d.mime || '')) ? d.mime : '';
+  if (!mime || !d.data) throw new Error('Lampiran harus berupa gambar.');
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
+  const sh = prLampSheet_(ss);
+  const n = readRows_(sh, 2).filter(r => str_(r[0]) === kode).length + 1;
+  const name = kode.replace(/\//g, '-') + ' - lampiran ' + n + '.' + ext;
+  const file = prLampFolder_(ss).createFile(Utilities.newBlob(Utilities.base64Decode(d.data), mime, name));
+  file.setDescription(kode + (d.caption ? ' · ' + d.caption : ''));
+  const id = 'L' + Date.now() + Math.floor(Math.random() * 1000);
+  sh.getRange(sh.getLastRow() + 1, 1, 1, LAMP_HEAD.length).setNumberFormat('@').setValues([[kode, id, 'Gambar', file.getId(), name, String(d.caption || ''), stamp, user]]);
+  logEdit_(ss, [[stamp, user, 'Lampiran PR', kode, '', 'Tambah gambar', '', name]]);
+}
+function delPrLamp_(ss, d, user, stamp) {
+  const sh = prLampSheet_(ss);
+  const t = readRowsIdx_(sh, LAMP_HEAD.length);
+  const i = t.rows.findIndex(r => str_(r[1]) === str_(d.id));
+  if (i < 0) throw new Error('Lampiran tidak ditemukan. Muat ulang data lalu coba lagi.');
+  const r = t.rows[i];
+  try { DriveApp.getFileById(str_(r[3])).setTrashed(true); } catch (err) { /* file sudah tidak ada */ }   // masuk Sampah Drive, masih bisa dipulihkan
+  sh.deleteRow(t.rowNo[i]);
+  logEdit_(ss, [[stamp, user, 'Lampiran PR', str_(r[0]), '', 'Hapus gambar', String(r[4] || ''), '']]);
+}
+function prLampFile_(ss, id) {
+  const r = readPrLamp_(ss, ss.getSpreadsheetTimeZone()).find(x => x[1] === id);
+  if (!r) throw new Error('Lampiran tidak ditemukan.');
+  const blob = DriveApp.getFileById(r[3]).getBlob();
+  return { ok: true, mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
 }
 
 /* ================= Supplier & MoQ per material ================= */
