@@ -1297,3 +1297,15 @@ span.wb-ekl { display: inline; margin-right: 10px; color: inherit; }
 .bm-table td.bm-cell.is-set { background: #eef6f0; }
 .bm-table td.bm-cell small { display: block; font-size: 10.5px; }
 .bm-table .bm-sel { max-width: 200px; font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+/* Rincian batch (Plan / Real) */
+.bt-table th.bt-grp { text-align: center; font-size: 12px; color: var(--brand-dark); }
+.bt-table .bt-real { background: #f8faf9; }
+.bt-table input.bt-batch { width: 110px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.bt-table select.bt-tp, .bt-table select.bt-tr { font-size: 12.5px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.bt-table .bt-ekb { width: 130px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; }
+.bt-table td { white-space: nowrap; }
+/* Proyeksi: Dependents / Consume MO */
+.pj-dep { color: #9a4d00; }
+.pj-cons { color: #3f7d55; }
+.pj-cell small { flex-wrap: wrap; max-width: 150px; margin-left: auto; }
+td.num > .pj-cons { display: block; font-size: 10.5px; }

@@ -5,7 +5,7 @@
  * - doGet  : website membaca BOM, master material, dan PEMBAGIAN_WEEK dari DATABASE PPIC GTK,
  *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, REALISASI_PRODUKSI, STOK,
  *            STOK_KOREKSI, INCOMING_MANUAL, LOG_MRP).
- * - doPost : simpan rencana produksi (plan & rincian per tanggal), realisasi produksi, default BOM bulanan, parameter SKU, upload stok, koreksi stok, dan incoming manual
+ * - doPost : simpan rencana produksi (plan & batch/MO per tanggal), realisasi, batch ekstrak, upload material MO (PC/CP), default BOM bulanan, parameter SKU, upload stok, koreksi stok, dan incoming manual
  *            dari website. Semua dilindungi PIN.
  *
  * PIN diatur di: Project Settings → Script Properties → UPLOAD_PIN (boleh sama dengan PIN MONITORING PO).
@@ -25,6 +25,8 @@ const MRP_CONFIG = {
   PLAN_SHEET: 'RENCANA_PRODUKSI',
   REAL_SHEET: 'REALISASI_PRODUKSI',
   BOMMON_SHEET: 'BOM_DEFAULT_BULANAN',
+  EKB_SHEET: 'PRODUKSI_EKSTRAK',
+  MO_SHEET: 'MO_MATERIAL',
   STOCK_SHEET: 'STOK',
   ADJ_SHEET: 'STOK_KOREKSI',
   INC_SHEET: 'INCOMING_MANUAL',
@@ -35,14 +37,20 @@ const MRP_CONFIG = {
 const MRP_HEAD = {
   SKU_MRP: { head: ['KODE', 'NAMA', 'JENIS', 'BOM ID AKTIF', 'UKURAN BATCH (KG)', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6, 7, 8] },
   // BOM ID       : BOM SKU yang dikunci untuk week ini
-  // RINCIAN PLAN : qty per tanggal + BOM-nya, mis. "2026-11-03=300|BOM-0161|14291:BOM-0015;2026-11-05=200|BOM-0161|14291:BOM-0013"
+  // RINCIAN PLAN : satu entri per batch: "tgl=qty|BOM SKU|ekstrak|no batch", mis. "2026-11-03=300|BOM-0161|14291:BOM-0015|B2611-01"
   //                (kosong = hanya total per week; BOM kosong di rincian = ikut BOM week)
   // BOM EKSTRAK  : BOM ekstrak/bulk yang dikunci untuk week ini, mis. "14291:BOM-0015,14265:BOM-0005"
-  RENCANA_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'QTY KG', 'BOM ID', 'SUMBER', 'DIUBAH', 'RINCIAN PLAN (TGL=QTY|BOM|EKSTRAK)', 'BOM EKSTRAK'], text: [1, 2, 3, 5, 6, 7, 8, 9] },
+  RENCANA_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'QTY KG', 'BOM ID', 'SUMBER', 'DIUBAH', 'RINCIAN PLAN (TGL=QTY|BOM|EKSTRAK|BATCH)', 'BOM EKSTRAK'], text: [1, 2, 3, 5, 6, 7, 8, 9] },
   // Default BOM per bulan (SKU & ekstrak). Bulan tanpa baris = ikut bulan sebelumnya, lalu Parameter SKU.
   BOM_DEFAULT_BULANAN: { head: ['BULAN', 'KODE', 'BOM ID', 'REFERENCE', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
   // Satu baris = realisasi satu SKU pada satu tanggal (week = week rencana yang dibandingkan)
-  REALISASI_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'TANGGAL', 'QTY REALISASI', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 4, 6, 7] },
+  // NO BATCH = nomor batch produksi SKU; BATCH EKSTRAK = batch ekstrak yang dipakai, mis. "14291:E2611-01+E2611-02,14265:F-07"
+  REALISASI_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'TANGGAL', 'QTY REALISASI', 'SUMBER', 'DIUBAH', 'NO BATCH', 'BATCH EKSTRAK'], text: [1, 2, 3, 4, 6, 7, 8, 9] },
+  // Material MO dari export Odoo: JENIS PC = Products to Consume (belum diambil), CP = Consumed Products (sudah terpakai).
+  // Tiap upload = potret terbaru: baris jenis yang di-upload diganti seluruhnya.
+  MO_MATERIAL: { head: ['NO MO', 'KODE PRODUK', 'NAMA PRODUK', 'JENIS', 'KODE MATERIAL', 'NAMA MATERIAL', 'QTY', 'UoM', 'DIUPLOAD'], text: [1, 2, 3, 4, 5, 6, 8, 9] },
+  // Daftar batch produksi ekstrak/bulk (dipilih saat mengisi realisasi batch SKU)
+  PRODUKSI_EKSTRAK: { head: ['NO BATCH', 'KODE', 'TANGGAL', 'QTY KG', 'BOM ID', 'REFERENCE', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 5, 6, 7, 8] },
   STOK: { head: ['TANGGAL STOK', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
   STOK_KOREKSI: { head: ['ID', 'TANGGAL', 'KODE', 'QTY (+/-)', 'ALASAN', 'DIBUAT'], text: [1, 2, 3, 5, 6] },
   INCOMING_MANUAL: { head: ['ID', 'BULAN', 'WEEK', 'KODE', 'QTY (+/-)', 'KETERANGAN', 'DIBUAT'], text: [1, 2, 3, 4, 6, 7] },
@@ -65,9 +73,17 @@ function doGet(e) {
     // plan: [bulan, week, kode, qty, bomId, sumber, diubah, rincianPlan, bomEkstrak]
     const plan = rows_(ss.getSheetByName(MRP_CONFIG.PLAN_SHEET), 9)
       .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm'), s_(r[7]), s_(r[8])]);
-    // real: [bulan, week, kode, tanggal, qty, sumber, diubah]
-    const real = rows_(ss.getSheetByName(MRP_CONFIG.REAL_SHEET), 7)
-      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), d_(r[3], tz, 'yyyy-MM-dd'), n_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')]);
+    // real: [bulan, week, kode, tanggal, qty, sumber, diubah, noBatch, batchEkstrak]
+    const real = rows_(ss.getSheetByName(MRP_CONFIG.REAL_SHEET), 9)
+      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), d_(r[3], tz, 'yyyy-MM-dd'), n_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm'), s_(r[7]), s_(r[8])]);
+    // mo: [noMo, kodeProduk, namaProduk, jenis PC/CP, kodeMaterial, namaMaterial, qty, uom]
+    const moSh = ss.getSheetByName(MRP_CONFIG.MO_SHEET);
+    const mo = rows_(moSh, 8).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]), s_(r[7])]);
+    const moAt = {};
+    if (moSh && moSh.getLastRow() > 1) moSh.getRange(2, 4, moSh.getLastRow() - 1, 6).getValues().forEach(r => { const j = s_(r[0]); if (j && !moAt[j]) moAt[j] = d_(r[5], tz, 'yyyy-MM-dd HH:mm'); });
+    // ekb: [noBatch, kode, tanggal, qty, bomId, reference, catatan, diubah]
+    const ekb = rows_(ss.getSheetByName(MRP_CONFIG.EKB_SHEET), 8)
+      .map(r => [s_(r[0]), s_(r[1]), d_(r[2], tz, 'yyyy-MM-dd'), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), d_(r[7], tz, 'yyyy-MM-dd HH:mm')]);
     const stock = rows_(ss.getSheetByName(MRP_CONFIG.STOCK_SHEET), 7)
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6])]);
     const adj = rows_(ss.getSheetByName(MRP_CONFIG.ADJ_SHEET), 6)
@@ -81,7 +97,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, version: 5, master, boms, details, weeks, skus, plan, real, bomMon, stock, adj, inc, log,
+      ok: true, version: 7, master, boms, details, weeks, skus, plan, real, ekb, mo, moAt, bomMon, stock, adj, inc, log,
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -159,6 +175,8 @@ function doPost(e) {
     let res;
     if (action === 'verify') return json_({ ok: true });
     else if (action === 'savePlan') res = savePlan_(ss, body.cells || [], now);
+    else if (action === 'uploadMo') res = uploadMo_(ss, body.kind, body.rows || [], body.file || '', now);
+    else if (action === 'saveEkBatch') res = saveEkBatch_(ss, body.cells || [], now);
     else if (action === 'saveBomMon') res = saveBomMon_(ss, body.cells || [], now);
     else if (action === 'saveReal') res = saveReal_(ss, body.cells || [], now);
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
@@ -251,24 +269,25 @@ function saveReal_(ss, cells, now) {
   const sh = sheet_(ss, MRP_CONFIG.REAL_SHEET);
   const tz = ss.getSpreadsheetTimeZone();
   const last = sh.getLastRow();
-  const cur = last > 1 ? sh.getRange(2, 1, last - 1, 7).getValues()
-    .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), d_(r[3], tz, 'yyyy-MM-dd'), r[4], s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')])
+  const cur = last > 1 ? sh.getRange(2, 1, last - 1, 9).getValues()
+    .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), d_(r[3], tz, 'yyyy-MM-dd'), r[4], s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm'), s_(r[7]), s_(r[8])])
     .filter(r => r[0]) : [];
   const touched = new Set(), add = [];
   const notes = [];
   cells.forEach(c => {
     const bulan = s_(c.bulan), week = s_(c.week), kode = s_(c.kode);
     if (!/^\d{4}-\d{2}$/.test(bulan) || !/^W[1-5]$/.test(week) || !kode) return;
-    const items = rinciParse_(c.items || []);
+    // items: [[tanggal, qty, noBatch, batchEkstrak], …] — satu entri = satu batch
+    const items = realParse_(c.items || []);
     touched.add(bulan + '|' + week + '|' + kode);
-    items.forEach(x => add.push([bulan, week, kode, x[0], x[1], 'Website', now]));
-    notes.push(`${kode} ${bulan} ${week}: ${rinciText_(items) || 'dikosongkan'}`);
+    items.forEach(x => add.push([bulan, week, kode, x[0], x[1], 'Website', now, x[2], x[3]]));
+    notes.push(`${kode} ${bulan} ${week}: ${items.map(x => (x[2] ? x[2] + ' ' : '') + x[0] + '=' + x[1]).join('; ') || 'dikosongkan'}`);
   });
   if (!touched.size) return { saved: 0 };
   const all = cur.filter(r => !touched.has(r[0] + '|' + r[1] + '|' + r[2])).concat(add);
-  all.sort((a, b) => (a[0] + a[1] + a[2] + a[3]).localeCompare(b[0] + b[1] + b[2] + b[3]));
-  if (last > 1) sh.getRange(2, 1, last - 1, 7).clearContent();
-  if (all.length) sh.getRange(2, 1, all.length, 7).setValues(all);
+  all.sort((a, b) => (a[0] + a[1] + a[2] + a[3] + a[7]).localeCompare(b[0] + b[1] + b[2] + b[3] + b[7]));
+  if (last > 1) sh.getRange(2, 1, last - 1, 9).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 9).setValues(all);
   log_(ss, now, 'Edit realisasi', notes.length === 1 ? notes[0] : `${notes.length} sel diubah`);
   return { saved: touched.size };
 }
@@ -319,7 +338,7 @@ function ekText_(v) {
 // Rincian plan: [[tgl, qty, bomSku, ek], ...] atau teks "tgl=qty|BOM|ek;..." → [[tgl, qty, bom, ekText]] terurut, qty > 0
 function planRinciParse_(v) {
   const list = Array.isArray(v) ? v : s_(v).split(';').filter(Boolean).map(x => {
-    const [a, bom, ek] = x.split('|'); const [t, q] = a.split('='); return [t, q, bom, ek];
+    const [a, bom, ek, batch] = x.split('|'); const [t, q] = a.split('='); return [t, q, bom, ek, batch];
   });
   const m = new Map();
   list.forEach(x => {
@@ -327,11 +346,75 @@ function planRinciParse_(v) {
     if (!tgl && !qty) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Format tanggal tidak dikenal: ' + tgl);
     if (isNaN(qty) || qty < 0) throw new Error('Qty harus angka: ' + x[1]);
-    if (qty > 0) m.set(tgl, [tgl, qty, s_(x[2]), ekText_(x[3] || '')]);
+    const batch = batch_(x[4]);
+    if (qty > 0) m.set(tgl + '|' + (batch || m.size), [tgl, qty, s_(x[2]), ekText_(x[3] || ''), batch]);
   });
-  return [...m.values()].sort((a, b) => a[0].localeCompare(b[0]));
+  return [...m.values()].sort((a, b) => (a[0] + a[4]).localeCompare(b[0] + b[4]));
 }
-function planRinciText_(items) { return items.map(x => x[0] + '=' + x[1] + (x[2] || x[3] ? '|' + (x[2] || '') + '|' + (x[3] || '') : '')).join(';'); }
+function planRinciText_(items) { return items.map(x => x[0] + '=' + x[1] + (x[2] || x[3] || x[4] ? '|' + (x[2] || '') + '|' + (x[3] || '') + '|' + (x[4] || '') : '')).join(';'); }
+// Nomor batch: tanpa karakter pemisah data
+function batch_(v) { return s_(v).replace(/[|;=,:+]/g, '-').slice(0, 40); }
+// Batch ekstrak terpakai: {kode: [batch, …]} / teks "kode:b1+b2,kode:b3" → teks terurut
+function ekBatchText_(v) {
+  let list;
+  if (v && typeof v === 'object' && !Array.isArray(v)) list = Object.keys(v).map(k => [k, [].concat(v[k])]);
+  else list = s_(v).split(',').filter(Boolean).map(x => { const [k, b] = x.split(':'); return [k, s_(b).split('+')]; });
+  return list.map(x => [s_(x[0]), x[1].map(batch_).filter(Boolean)]).filter(x => x[0] && x[1].length)
+    .sort((a, b) => a[0].localeCompare(b[0])).map(x => x[0] + ':' + x[1].join('+')).join(',');
+}
+// Realisasi: [[tgl, qty, noBatch, batchEkstrak], …] → qty > 0
+function realParse_(list) {
+  return list.map(x => {
+    const tgl = s_(x[0]), qty = Number(String(x[1] === undefined ? '' : x[1]).replace(',', '.'));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Format tanggal realisasi tidak dikenal: ' + tgl);
+    if (isNaN(qty) || qty < 0) throw new Error('Qty realisasi harus angka: ' + x[1]);
+    return [tgl, qty, batch_(x[2]), ekBatchText_(x[3] || '')];
+  }).filter(x => x[1] > 0);
+}
+// Upload material MO (export Odoo): kind PC / CP, rows [[noMo, kodeProduk, namaProduk, kodeMaterial, namaMaterial, qty, uom]]
+function uploadMo_(ss, kind, rows, file, now) {
+  const k = s_(kind).toUpperCase();
+  if (k !== 'PC' && k !== 'CP') throw new Error('Jenis file tidak dikenal (harus Products to Consume atau Consumed Products).');
+  const sh = sheet_(ss, MRP_CONFIG.MO_SHEET);
+  const last = sh.getLastRow();
+  const keep = last > 1 ? sh.getRange(2, 1, last - 1, 9).getValues().filter(r => s_(r[0]) && s_(r[3]) !== k) : [];
+  const fresh = rows.map(r => [s_(r[0]), s_(r[1]), s_(r[2]), k, s_(r[3]), s_(r[4]), Number(r[5]) || 0, s_(r[6]), now])
+    .filter(r => r[0] && r[4]);
+  const all = keep.concat(fresh);
+  if (last > 1) sh.getRange(2, 1, last - 1, 9).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 9).setValues(all);
+  const nMo = new Set(fresh.map(r => r[0])).size;
+  log_(ss, now, 'Upload MO ' + k, `${file || 'file'} · ${nMo} MO · ${fresh.length} baris material`);
+  return { saved: fresh.length, mo: nMo };
+}
+// Daftar batch ekstrak: cells [{batch, kode, tgl, qty, bom, ref, note, old, del}] — kunci = kode + no batch
+function saveEkBatch_(ss, cells, now) {
+  const sh = sheet_(ss, MRP_CONFIG.EKB_SHEET);
+  const tz = ss.getSpreadsheetTimeZone();
+  const last = sh.getLastRow();
+  const cur = last > 1 ? sh.getRange(2, 1, last - 1, 8).getValues()
+    .map(r => [s_(r[0]), s_(r[1]), d_(r[2], tz, 'yyyy-MM-dd'), r[3], s_(r[4]), s_(r[5]), s_(r[6]), d_(r[7], tz, 'yyyy-MM-dd HH:mm')]).filter(r => r[0]) : [];
+  const map = new Map(cur.map(r => [r[1] + '|' + r[0], r]));
+  const notes = [];
+  cells.forEach(c => {
+    const kode = s_(c.kode), b = batch_(c.batch), old = batch_(c.old || c.batch);
+    if (!kode || !b) throw new Error('Kode ekstrak dan nomor batch wajib diisi.');
+    if (c.del) { map.delete(kode + '|' + old); notes.push(`hapus ${kode} ${old}`); return; }
+    const tgl = s_(c.tgl), qty = c.qty === '' || c.qty === undefined ? '' : Number(c.qty);
+    if (tgl && !/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Format tanggal tidak dikenal: ' + tgl);
+    if (qty !== '' && (isNaN(qty) || qty < 0)) throw new Error('Qty harus angka.');
+    if (old !== b && map.has(kode + '|' + b)) throw new Error(`Batch ${b} untuk ${kode} sudah ada.`);
+    if (!c.old && map.has(kode + '|' + b)) throw new Error(`Batch ${b} untuk ${kode} sudah ada.`);
+    map.delete(kode + '|' + old);
+    map.set(kode + '|' + b, [b, kode, tgl, qty, s_(c.bom), s_(c.ref), s_(c.note), now]);
+    notes.push(`${kode} ${b}${qty !== '' ? ' ' + qty + ' kg' : ''}`);
+  });
+  const all = [...map.values()].sort((a, b) => (a[2] + a[1] + a[0]).localeCompare(b[2] + b[1] + b[0]));
+  if (last > 1) sh.getRange(2, 1, last - 1, 8).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 8).setValues(all);
+  if (notes.length) log_(ss, now, 'Batch ekstrak', notes.length === 1 ? notes[0] : `${notes.length} perubahan`);
+  return { saved: notes.length };
+}
 
 function saveSku_(ss, k, now) {
   const kode = s_(k.kode);

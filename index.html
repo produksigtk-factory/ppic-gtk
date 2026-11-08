@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2ef66a35">
+<link rel="stylesheet" href="style.css?v=0b3d3e6c">
 </head>
 <body>
 <div class="shell">
@@ -49,6 +49,7 @@
           <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
           <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
           <a class="menu-item sub" href="#/mrp/bomdefault" data-route="mrp/bomdefault">Default BOM Bulanan</a>
+          <a class="menu-item sub" href="#/mrp/ekbatch" data-route="mrp/ekbatch">Batch Ekstrak</a>
           <a class="menu-item sub" href="#/mrp/update" data-route="mrp/update">Update Data MRP</a>
           <a class="menu-item sub" href="#/mrp/bom" data-route="mrp/bom">Bill of Material</a>
           <a class="menu-item sub" href="#/mrp/material" data-route="mrp/material">Daftar Material</a>
@@ -644,6 +645,24 @@
         <p class="hint">Default dipakai saat rencana baru diisi di bulan tersebut (BOM SKU dan versi ekstrak/bulk di dalamnya). <b>Tebal</b> = diatur di bulan itu; abu-abu = ikut bulan sebelumnya, atau Parameter SKU bila belum pernah diatur. Rencana yang sudah ada tetap memakai BOM yang terkunci, kecuali Anda memilih menerapkannya saat mengubah default.</p>
       </section>
 
+      <!-- ================= MRP: BATCH EKSTRAK ================= -->
+      <section id="view-mrp-ekbatch" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat batch ekstrak…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Tambah batch ekstrak/bulk yang diproduksi, atau klik baris untuk mengubah / menghapus.</p></div>
+        <div class="toolbar mrp-toolbar">
+          <button type="button" class="pl-hz pl-hzbtn" id="ebHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="ebQ" placeholder="Cari no. batch, kode, atau catatan"></label>
+          <label class="tb-field"><span class="sr">Ekstrak</span><select id="ebKode"><option value="">Semua ekstrak/bulk</option></select></label>
+          <div class="tb-actions"><button class="btn btn-sm" id="ebAdd">Tambah batch ekstrak</button></div>
+        </div>
+        <p class="mrp-count" id="ebInfo"></p>
+        <div class="table-wrap mrp-wrap">
+          <table class="po-table mrp-table"><thead><tr><th>No. batch</th><th>Ekstrak / bulk</th><th>Tanggal</th><th class="num">Qty (kg)</th><th>BOM (Reference)</th><th>Dipakai di batch SKU</th><th>Catatan</th><th>Diubah</th></tr></thead><tbody id="ebRows"></tbody></table>
+        </div>
+        <p class="hint">Batch ekstrak yang terdaftar di sini bisa dipilih saat mengisi Real batch SKU di Rencana Produksi, sehingga dari nomor batch SKU bisa ditelusuri ekstrak (dan material) yang dipakai. Batch tanpa tanggal selalu tampil.</p>
+      </section>
+
       <!-- ================= MRP: UPDATE DATA ================= -->
       <section id="view-mrp-update" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat…</div>
@@ -665,6 +684,14 @@
           <label class="file-drop" for="planFile"><input type="file" id="planFile" accept=".xls,.xlsx,.xlsm"><span class="file-btn">Pilih file rencana</span><span class="file-name" id="planName">Belum ada file</span></label>
           <p class="check" id="planCheck"></p>
           <div class="send-row"><button class="btn" id="planSend" disabled>Simpan rencana ke Google Sheet</button><p class="send-result" id="planResult" aria-live="polite"></p></div>
+        </div>
+        <div class="update-card">
+          <h2>Upload material MO Odoo</h2>
+          <p class="lead">Export Manufacturing Order dari Odoo: <b>Products to Consume</b> (PC) dan <b>Consumed Products</b> (CP), upload satu per satu. Jenis file dikenali otomatis dari kolomnya. Tiap upload = potret terbaru: data jenis yang sama diganti seluruhnya. Lihat <button class="btn-link" id="moTpl">format upload</button> untuk kolom yang perlu di-export.</p>
+          <p class="up-now" id="upMoNow"></p>
+          <label class="file-drop" for="moFile"><input type="file" id="moFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file PC / CP</span><span class="file-name" id="moName">Belum ada file</span></label>
+          <p class="check" id="moCheck"></p>
+          <div class="send-row"><button class="btn" id="moSend" disabled>Simpan data MO ke Google Sheet</button><p class="send-result" id="moResult" aria-live="polite"></p></div>
         </div>
         </div>
         <div class="update-card">
@@ -1101,9 +1128,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=949b53d9"></script>
+<script src="app.js?v=4718b5d8"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=56c601de"></script>
+<script src="help.js?v=a2e9f7b3"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
