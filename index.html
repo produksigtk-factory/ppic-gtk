@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=a9c1fda2">
+<link rel="stylesheet" href="style.css?v=71147ea1">
 </head>
 <body>
 <div class="shell">
@@ -668,6 +668,15 @@
           <div class="send-row"><button class="btn" id="stockSend" disabled>Simpan stok ke Google Sheet</button><p class="send-result" id="stockResult" aria-live="polite"></p></div>
         </div>
         <div class="update-card">
+          <h2>Upload stok gantung</h2>
+          <p class="lead">Stok yang ada tetapi tidak bisa dipakai. Pakai <button class="btn-link" id="gantTpl">format stok gantung</button> (daftar RM &amp; PM, kolom QTY kosong) atau file sendiri dengan kolom kode dan qty. Isi lama diganti seluruhnya. Di Proyeksi Stok: <b>Stok Tersedia = Stok Awal − Stok Gantung</b>.</p>
+          <p class="up-now" id="upGantNow"></p>
+          <label class="file-drop" for="gantFile"><input type="file" id="gantFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file stok gantung</span><span class="file-name" id="gantName">Belum ada file</span></label>
+          <label class="field up-date"><span>Tanggal *</span><input type="date" id="gantDate"></label>
+          <p class="check" id="gantCheck"></p>
+          <div class="send-row"><button class="btn" id="gantSend" disabled>Simpan stok gantung ke Google Sheet</button><p class="send-result" id="gantResult" aria-live="polite"></p></div>
+        </div>
+        <div class="update-card">
           <h2>Upload rencana produksi</h2>
           <p class="lead">Pakai <button class="btn-link" id="upTpl">format upload</button> (kolom KODE + week "W1 NOVEMBER 2026"), sheet <em>PLAN WEEKLY</em> dari template, atau file <em>Unduh rencana</em>. Bulan yang ada di file diganti seluruhnya; bulan lain tidak berubah. Kode yang tidak ada di DATABASE tetap disimpan tetapi diberi peringatan.</p>
           <p class="up-now" id="upPlanNow"></p>
@@ -1110,9 +1119,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=faee5b6a"></script>
+<script src="app.js?v=fd299c04"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=577d421f"></script>
+<script src="help.js?v=de9b1be7"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>

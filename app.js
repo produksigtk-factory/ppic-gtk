@@ -2851,6 +2851,13 @@
       const o = P.stock.get(r[1]) || { qty: 0, uom: r[4], name: r[2] };
       o.qty += Number(r[3]) || 0; P.stock.set(r[1], o);
     });
+    // Stok Gantung (upload sendiri): Stok Tersedia = Stok Awal − Stok Gantung
+    P.hasGantung = Array.isArray(d.gantung);
+    const gt = d.gantung || [];
+    P.gantungDate = gt.reduce((m, r) => (r[0] > m ? r[0] : m), '');
+    P.gantungSrc = (gt[0] || [])[5] || '';
+    P.gantung = new Map();
+    gt.forEach((r) => { P.gantung.set(r[1], (P.gantung.get(r[1]) || 0) + (Number(r[3]) || 0)); });
     P.adj = (d.adj || []).map((r) => ({ id: r[0], date: r[1], code: r[2], qty: Number(r[3]) || 0, note: r[4], time: r[5] }));
     // Konfirmasi Produksi (MO Odoo)
     P.hasKonf = Array.isArray(d.konf);
@@ -3062,7 +3069,8 @@
       const m = MRP.master.get(code) || {};
       const st = P.stock.get(code);
       const adj = P.adj.filter((a) => a.code === code && (!P.stockDate || a.date >= P.stockDate)).reduce((t, a) => t + a.qty, 0);
-      const start = (st ? st.qty : 0) + adj;
+      const awal = (st ? st.qty : 0) + adj, gant = (P.gantung && P.gantung.get(code)) || 0;
+      const start = awal - gant;   // Stok Tersedia = Stok Awal − Stok Gantung → dipakai untuk saldo
       const man = manual.get(code);
       const saldo = new Array(n).fill(null), inW = new Array(n).fill(0);
       let run = start, firstShort = -1, minS = Infinity;
@@ -3074,7 +3082,7 @@
         if (run < minS) minS = run;
       }
       rows.push({
-        code, name: m.name || code, uom: m.uom || '', kat: m.kat || '', start, hasStock: !!st, adj,
+        code, name: m.name || code, uom: m.uom || '', kat: m.kat || '', start, awal, gant, hasStock: !!st, adj,
         need: q.w, inW, saldo, firstShort, short: minS < 0 ? -minS : 0, total: q.total, src: q.src, man,
       });
     });
@@ -3678,14 +3686,16 @@
     if (!P.stockDate) note = 'Saldo dihitung dari stok 0, jadi hampir semua material terlihat kurang.';
     else if (J.stockNote === 'after') note = `Stok per ${fmtDate(P.stockDate)} lebih baru dari rentang ini. Geser rentang ke bulan stok.`;
     else if (J.stockNote === 'before') note = `Stok per <b>${fmtDate(P.stockDate)}</b> lebih awal dari rentang ini; kebutuhan antara tanggal stok dan awal rentang tidak ikut dihitung.`;
-    else note = `Stok awal = stok per <b>${fmtDate(P.stockDate)}</b> (${esc(P.stockSrc || 'upload')}) + koreksi. Perhitungan mulai ${esc(wLabel(weeks[s]))}; week sebelumnya diabaikan.`;
+    else note = `Stok awal = stok per <b>${fmtDate(P.stockDate)}</b> (${esc(P.stockSrc || 'upload')}) + koreksi; stok tersedia = stok awal − stok gantung${P.gantungDate ? ` (per ${fmtDate(P.gantungDate)})` : ' (belum ada stok gantung)'}. Perhitungan mulai ${esc(wLabel(weeks[s]))}; week sebelumnya diabaikan.`;
     $('pjNote').innerHTML = note;
     // hanya week di bulan yang dicentang yang ditampilkan; saldo tetap dihitung lewat bulan di antaranya
     const ms = new Set(selMonths()), vis = weeks.map((w, j) => j).filter((j) => ms.has(weeks[j].bulan)), VW = vis.map((j) => weeks[j]);
-    $('pjHead').innerHTML = weekHead(VW, { lead: '<th class="pl-sticky pl-c1"></th><th colspan="2"></th>', tail: true, tailN: 2 }) +
-      `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th><th class="num">Stok awal</th>${weekTh(VW, (k) => (vis[k] < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
+    $('pjHead').innerHTML = weekHead(VW, { lead: '<th class="pl-sticky pl-c1"></th><th colspan="4"></th>', tail: true, tailN: 2 }) +
+      `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th><th class="num" title="Stok per tanggal upload + koreksi stok">Stok awal</th><th class="num pj-gt" title="Stok yang tidak bisa dipakai (upload Stok Gantung)">Stok gantung</th><th class="num pj-ts" title="Stok Awal − Stok Gantung; dipakai sebagai saldo awal">Stok tersedia</th>${weekTh(VW, (k) => (vis[k] < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, '')}<td class="pl-uom">${esc(r.uom)}</td>
-      <td class="num">${r.hasStock || r.adj ? fq((r.start)) : '<span class="muted">0</span>'}</td>
+      <td class="num">${r.hasStock || r.adj ? fq((r.awal)) : '<span class="muted">0</span>'}</td>
+      <td class="num pj-gt">${r.gant ? fq(r.gant) : ''}</td>
+      <td class="num pj-ts${r.start < -1e-9 ? ' pl-bad' : ''}"><b>${fq(r.start)}</b></td>
       ${vis.map((j, k) => {
         if (j < s) return `<td class="num is-past${wCls(VW, k)}"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
@@ -3694,7 +3704,7 @@
       }).join('')}
       <td>${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length + 5}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     const firstW = J.rows.filter((r) => r.firstShort === s).length;
     const nNoSt = P.stockDate ? J.rows.filter((r) => !r.hasStock).length : 0;
     $('pjKpi').innerHTML = kpis([
@@ -3717,7 +3727,7 @@
     const srcList = [...r.src.entries()].map(([sku, arr]) => [sku, arr.reduce((a, b) => a + b, 0)]).sort((a, b) => b[1] - a[1]);
     openDialog({
       title: `${r.code} · ${r.name}`, ok: 'Tutup', wide: true, cancel: false, onSubmit: null,
-      body: `<p class="dlg-lead">UoM ${esc(r.uom || '-')} · stok awal <b>${fq((r.start))}</b>${P.stockDate ? ` (stok per ${fmtDate(P.stockDate)}${r.adj ? `, koreksi ${r.adj > 0 ? '+' : ''}${fq((r.adj))}` : ''})` : ' (belum ada data stok)'}</p>
+      body: `<p class="dlg-lead">UoM ${esc(r.uom || '-')} · stok awal <b>${fq((r.awal))}</b>${P.stockDate ? ` (stok per ${fmtDate(P.stockDate)}${r.adj ? `, koreksi ${r.adj > 0 ? '+' : ''}${fq((r.adj))}` : ''})` : ' (belum ada data stok)'} − stok gantung <b>${fq(r.gant)}</b> = stok tersedia <b>${fq(r.start)}</b></p>
         <div class="table-wrap"><table class="po-table pl-mini pj-detail"><thead><tr><th></th>${vis.map((i) => `<th class="num" title="${esc(wTitle(weeks[i]))}">${esc(wLabel(weeks[i]))}</th>`).join('')}</tr></thead><tbody>
           ${row('Incoming manual', (i) => q4(r.man ? r.man[i] : 0))}
           ${row('Kebutuhan', (i) => q4(r.need[i]))}
@@ -3788,7 +3798,7 @@
   $('pjExport').addEventListener('click', () => {
     const J = P.proj; if (!J) return;
     const data = (P.pjRows || []).map((r) => {
-      const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'STOK AWAL': round4(r.start) };
+      const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'STOK AWAL': round4(r.awal), 'STOK GANTUNG': round4(r.gant), 'STOK TERSEDIA': round4(r.start) };
       J.weeks.forEach((w, i) => {
         if (i < J.s) return;
         const k = wLabel(w) + ' ' + w.bulan.slice(0, 4);
@@ -3871,6 +3881,10 @@
 
   /* ---------- Update Data MRP: upload stok & rencana ---------- */
   function renderMrpUpdate() {
+    const nG = P.gantung ? [...P.gantung.values()].filter((v) => v).length : 0;
+    $('upGantNow').className = 'up-now' + (nG ? '' : ' is-empty');
+    $('upGantNow').innerHTML = !P.hasGantung ? '<b>Apps Script MRP perlu diperbarui</b> supaya stok gantung bisa disimpan.'
+      : nG ? `Tersimpan sekarang: ${nf.format(nG)} material stok gantung per <b>${fmtDate(P.gantungDate)}</b> · ${esc(P.gantungSrc)}` : 'Belum ada stok gantung (Stok Tersedia = Stok Awal).';
     $('upStockNow').innerHTML = P.stockDate ? `Tersimpan sekarang: stok per <b>${fmtDate(P.stockDate)}</b> · ${nf.format(P.stock.size)} material · ${esc(P.stockSrc)}` : '<b>Belum ada stok tersimpan.</b> Proyeksi Stok menghitung dari stok 0.';
     $('upStockNow').className = 'up-now' + (P.stockDate ? '' : ' is-empty');
     const lastPlan = [...P.plan.values()].reduce((m, p) => (p.time > m ? p.time : m), '');
@@ -3918,7 +3932,8 @@
     throw new Error('Kolom kode/produk dan qty tidak ditemukan. Pastikan file punya judul kolom seperti "Product" / "Internal Reference" dan "Quantity" / "On Hand".');
   }
   // Format stok awal: semua material RM & PM di master, QTY kosong (diisi lalu di-upload di kartu ini)
-  $('stockTpl').addEventListener('click', () => {
+  function stockTemplate(kind) {
+    const gant = kind === 'gantung';
     if (!MRP.loaded) { toast('Data master material belum termuat. Tunggu sebentar lalu coba lagi.'); return; }
     const isRM = (k) => /raw|\brm\b/i.test(k || ''), isPM = (k) => /pack|\bpm\b/i.test(k || '');
     const list = [...MRP.master.values()].filter((m) => isRM(m.kat) || isPM(m.kat))
@@ -3931,19 +3946,21 @@
     list.forEach((m, i) => { const c = ws['A' + (i + 2)]; if (c) { c.t = 's'; c.v = String(m.code); } });
     const nRM = list.filter((m) => isRM(m.kat)).length;
     const info = XLSX.utils.aoa_to_sheet([
-      ['Format stok awal RM & PM (MRP PPIC GTK)'], [''],
-      ['1. Isi kolom QTY dengan stok fisik / stok Odoo dalam satuan UoM di sebelahnya. Jangan ubah kolom KODE.'],
+      [gant ? 'Format stok gantung RM & PM (MRP PPIC GTK)' : 'Format stok awal RM & PM (MRP PPIC GTK)'], [''],
+      [gant ? '1. Isi kolom QTY dengan stok yang tidak bisa dipakai (stok gantung) dalam satuan UoM di sebelahnya. Jangan ubah kolom KODE.' : '1. Isi kolom QTY dengan stok fisik / stok Odoo dalam satuan UoM di sebelahnya. Jangan ubah kolom KODE.'],
       ['2. QTY yang dibiarkan kosong dianggap 0.'],
-      ['3. Upload di website: MRP → Update Data MRP → Upload stok RM/PM, lalu isi tanggal stok.'],
-      ['4. Upload stok mengganti seluruh stok yang tersimpan sebelumnya.'], [''],
+      [gant ? '3. Upload di website: MRP → Update Data MRP → Upload stok gantung, lalu isi tanggalnya. Stok Tersedia = Stok Awal − Stok Gantung.' : '3. Upload di website: MRP → Update Data MRP → Upload stok RM/PM, lalu isi tanggal stok.'],
+      [gant ? '4. Upload stok gantung mengganti seluruh stok gantung sebelumnya.' : '4. Upload stok mengganti seluruh stok yang tersimpan sebelumnya.'], [''],
       ['Jumlah material', `${list.length} (RM ${nRM}, PM ${list.length - nRM})`], ['Dibuat', todayStr()],
     ]);
     info['!cols'] = [{ wch: 100 }];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'STOK AWAL');
+    XLSX.utils.book_append_sheet(wb, ws, gant ? 'STOK GANTUNG' : 'STOK AWAL');
     XLSX.utils.book_append_sheet(wb, info, 'PETUNJUK');
-    XLSX.writeFile(wb, `Format_Stok_Awal_RM_PM_${todayStr()}.xlsx`);
-  });
+    XLSX.writeFile(wb, `Format_${gant ? 'Stok_Gantung' : 'Stok_Awal'}_RM_PM_${todayStr()}.xlsx`);
+  }
+  $('stockTpl').addEventListener('click', () => stockTemplate('awal'));
+  $('gantTpl').addEventListener('click', () => stockTemplate('gantung'));
   $('stockFile').addEventListener('change', async () => {
     const f = $('stockFile').files[0];
     $('stockName').textContent = f ? f.name : 'Belum ada file';
@@ -3976,6 +3993,41 @@
       P.parsedStock = null; $('stockFile').value = ''; $('stockName').textContent = 'Belum ada file';
       loadMrp(true);
     } catch (err) { $('stockResult').className = 'send-result err'; $('stockResult').textContent = 'Gagal: ' + err.message; $('stockSend').disabled = false; }
+  }));
+
+  // Upload Stok Gantung (format sama dengan stok)
+  $('gantFile').addEventListener('change', async () => {
+    const f = $('gantFile').files[0];
+    $('gantName').textContent = f ? f.name : 'Belum ada file';
+    $('gantCheck').className = 'check'; $('gantCheck').textContent = '';
+    P.parsedGant = null; $('gantSend').disabled = true;
+    if (!f) return;
+    try {
+      const p = parseStock(await readBook(f), f.name);
+      p.file = f.name; p.rows = p.rows.filter((r) => r.qty); P.parsedGant = p;
+      if (!$('gantDate').value) $('gantDate').value = p.date || P.stockDate || todayStr();
+      const notM = p.rows.filter((r) => !MRP.master.has(r.code));
+      const over = p.rows.filter((r) => r.qty > ((P.stock.get(r.code) || {}).qty || 0));
+      $('gantCheck').className = 'check ok';
+      $('gantCheck').innerHTML = `Terbaca dari sheet <b>${esc(p.sheet)}</b>: <b>${nf.format(p.rows.length)}</b> material dengan stok gantung (qty kosong/0 dilewati).`
+        + (notM.length ? `<br><span class="pl-bad">${nf.format(notM.length)} kode tidak ada di master</span>: ${esc(notM.slice(0, 12).map((r) => r.code).join(', '))}` : '')
+        + (over.length ? `<br><span class="pl-warn-t">${nf.format(over.length)} material: stok gantung lebih besar dari stok awal</span> (stok tersedia jadi minus): ${esc(over.slice(0, 8).map((r) => r.code).join(', '))}${over.length > 8 ? '…' : ''}` : '');
+      $('gantSend').disabled = !P.hasGantung;
+      if (!P.hasGantung) $('gantCheck').innerHTML += '<br><span class="pl-bad">Apps Script MRP perlu diperbarui dulu.</span>';
+    } catch (err) { $('gantCheck').className = 'check err'; $('gantCheck').textContent = err.message; }
+  });
+  $('gantSend').addEventListener('click', () => needEdit(async () => {
+    const p = P.parsedGant, date = $('gantDate').value;
+    if (!p) return;
+    if (!date) { $('gantCheck').className = 'check err'; $('gantCheck').textContent = 'Isi tanggal stok gantung dulu.'; return; }
+    $('gantSend').disabled = true; $('gantResult').className = 'send-result'; $('gantResult').textContent = 'Mengirim ke Google Sheet…';
+    try {
+      const res = await mrpApi('uploadGantung', { date, file: p.file, rows: p.rows.map((r) => [r.code, r.name, round4(r.qty), r.uom]) });
+      $('gantResult').className = 'send-result ok';
+      $('gantResult').textContent = `Tersimpan ${savedAt(res)}: ${nf.format(res.saved)} material stok gantung per ${fmtDate(date)}.`;
+      P.parsedGant = null; $('gantFile').value = ''; $('gantName').textContent = 'Belum ada file';
+      loadMrp(true);
+    } catch (err) { $('gantResult').className = 'send-result err'; $('gantResult').textContent = 'Gagal: ' + err.message; $('gantSend').disabled = false; }
   }));
 
   // Rencana: kolom "W1 NOVEMBER" … (seperti PLAN WEEKLY / MPS) atau "2026-11 W1"

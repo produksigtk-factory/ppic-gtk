@@ -1282,3 +1282,6 @@ tr.is-pcs .pl-in { background: #eef4fb; }
 
 .kf-plan { display: block; margin-top: 3px; }
 .kf-plan .kf-chip { font-size: 11px; font-weight: 500; }
+/* Proyeksi: stok gantung / tersedia */
+.pj-table td.pj-gt, .pj-table th.pj-gt { background: #fff5e8; color: #8a5200; }
+.pj-table td.pj-ts, .pj-table th.pj-ts { background: #eef6f0; }

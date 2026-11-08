@@ -3,7 +3,7 @@
  *
  * Dipasang di: MRP PPIC GTK → Extensions → Apps Script (terpisah dari Apps Script MONITORING PO).
  * - doGet  : website membaca BOM, master material, dan PEMBAGIAN_WEEK dari DATABASE PPIC GTK,
- *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, STOK, STOK_KOREKSI,
+ *            serta isi tab perencanaan di file ini (SKU_MRP, RENCANA_PRODUKSI, STOK, STOK_GANTUNG, STOK_KOREKSI,
  *            INCOMING_MANUAL, KONFIRMASI_PRODUKSI, LOG_MRP).
  * - doPost : simpan rencana produksi, parameter SKU, upload stok, koreksi stok, dan incoming manual
  *            dari website. Semua dilindungi PIN.
@@ -24,6 +24,7 @@ const MRP_CONFIG = {
   SKU_SHEET: 'SKU_MRP',
   PLAN_SHEET: 'RENCANA_PRODUKSI',
   STOCK_SHEET: 'STOK',
+  GANTUNG_SHEET: 'STOK_GANTUNG',
   ADJ_SHEET: 'STOK_KOREKSI',
   INC_SHEET: 'INCOMING_MANUAL',
   LOG_SHEET: 'LOG_MRP',
@@ -35,6 +36,8 @@ const MRP_HEAD = {
   SKU_MRP: { head: ['KODE', 'NAMA', 'JENIS', 'BOM ID AKTIF', 'UKURAN BATCH (KG)', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6, 7, 8] },
   RENCANA_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'QTY KG', 'BOM ID', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 5, 6, 7] },
   STOK: { head: ['TANGGAL STOK', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
+  // Stok Gantung: stok yang ada tetapi tidak bisa dipakai (diupload sendiri). Stok Tersedia = Stok Awal − Stok Gantung.
+  STOK_GANTUNG: { head: ['TANGGAL', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
   STOK_KOREKSI: { head: ['ID', 'TANGGAL', 'KODE', 'QTY (+/-)', 'ALASAN', 'DIBUAT'], text: [1, 2, 3, 5, 6] },
   INCOMING_MANUAL: { head: ['ID', 'BULAN', 'WEEK', 'KODE', 'QTY (+/-)', 'KETERANGAN', 'DIBUAT'], text: [1, 2, 3, 4, 6, 7] },
   LOG_MRP: { head: ['WAKTU', 'AKSI', 'RINGKASAN'], text: [1, 2, 3] },
@@ -57,6 +60,9 @@ function doGet(e) {
       .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), d_(r[7], tz, 'yyyy-MM-dd HH:mm')]);
     const plan = rows_(ss.getSheetByName(MRP_CONFIG.PLAN_SHEET), 7)
       .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')]);
+    // gantung: [tanggal, kode, nama, qty, uom, sumber, catatan]
+    const gantung = rows_(ss.getSheetByName(MRP_CONFIG.GANTUNG_SHEET), 7)
+      .map(r => [d_(r[0], tz, 'yyyy-MM-dd'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6])]);
     const stock = rows_(ss.getSheetByName(MRP_CONFIG.STOCK_SHEET), 7)
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6])]);
     const adj = rows_(ss.getSheetByName(MRP_CONFIG.ADJ_SHEET), 6)
@@ -67,7 +73,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, adj, inc, log, konf: readKonf_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -149,6 +155,7 @@ function doPost(e) {
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
     else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
+    else if (action === 'uploadGantung') res = uploadGantung_(ss, body.date, body.rows || [], body.file || '', now);
     else if (action === 'addAdj') res = addAdj_(ss, body, now);
     else if (action === 'addInc') res = addInc_(ss, body, now);
     else if (action === 'delRow') res = delRow_(ss, body.kind, body.id, now);
@@ -233,6 +240,20 @@ function uploadStock_(ss, date, rows, file, now) {
     .filter(r => r[1]);
   if (out.length) sh.getRange(2, 1, out.length, 7).setValues(out);
   log_(ss, now, 'Upload stok', `${file || 'file'} · per ${tgl} · ${out.length} material`);
+  return { saved: out.length };
+}
+
+// Upload stok gantung: isi lama diganti seluruhnya (qty 0 tidak disimpan)
+function uploadGantung_(ss, date, rows, file, now) {
+  const tgl = s_(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Tanggal stok gantung wajib diisi.');
+  const sh = sheet_(ss, MRP_CONFIG.GANTUNG_SHEET);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 7).clearContent();
+  const out = rows.map(r => [tgl, s_(r[0]), s_(r[1]), Number(r[2]) || 0, s_(r[3]), 'Upload' + (file ? ': ' + file : ''), ''])
+    .filter(r => r[1] && r[3]);
+  if (out.length) sh.getRange(2, 1, out.length, 7).setValues(out);
+  log_(ss, now, 'Upload stok gantung', `${file || 'file'} · per ${tgl} · ${out.length} material`);
   return { saved: out.length };
 }
 
