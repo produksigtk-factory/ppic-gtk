@@ -6,10 +6,6 @@
   'use strict';
 
   const CFG = window.PPIC_CONFIG || {};
-  const MRP_PO = CFG.MRP_LINK_PO === true;   // MRP memakai data Monitoring PO? (sementara tidak)
-  if (!MRP_PO) {   // sembunyikan kolom & filter PO di Daftar Material
-    document.querySelectorAll('#mTable th[data-sk="openpo"], #mUse option[value="openpo"]').forEach((x) => x.remove());
-  }
   const PAGE = 100;
   const $ = (id) => document.getElementById(id);
 
@@ -2644,20 +2640,18 @@
   });
 
   /* ---------- Daftar Material ---------- */
-  const MAT_GET = { code: (x) => x.code, name: (x) => x.name, uom: (x) => x.uom, kat: (x) => x.kat, used: (x) => x.used || null, bom: (x) => x.bom || null, openpo: (x) => x.openpo || null };
+  const MAT_GET = { code: (x) => x.code, name: (x) => x.name, uom: (x) => x.uom, kat: (x) => x.kat, used: (x) => x.used || null, bom: (x) => x.bom || null };
   function matRows() {
-    const open = new Map();
-    if (MRP_PO) (state.rows || []).forEach((r) => { if (!isClosed(r) && r.sisa > 0) open.set(r.code, (open.get(r.code) || 0) + r.sisa); });
     return [...MRP.master.values()].map((m) => {
       const used = new Set((MRP.usedIn.get(m.code) || []).map((u) => u.bom.code)).size;
-      return { ...m, used, bom: (MRP.byProduct.get(m.code) || []).length, openpo: open.get(m.code) || 0, search: (m.code + ' ' + m.name).toLowerCase() };
+      return { ...m, used, bom: (MRP.byProduct.get(m.code) || []).length, search: (m.code + ' ' + m.name).toLowerCase() };
     });
   }
   function renderMatList() {
     const q = $('mq').value.trim().toLowerCase(), k = $('mKat').value, u = $('mUse').value;
     let rows = matRows().filter((x) => (!q || q.split(/\s+/).every((w) => x.search.includes(w)))
       && (!k || (x.kat || 'Tanpa kategori') === k)
-      && (!u || (u === 'used' ? x.used : u === 'unused' ? !x.used : u === 'hasbom' ? x.bom : x.openpo > 0)));
+      && (!u || (u === 'used' ? x.used : u === 'unused' ? !x.used : u === 'hasbom' ? x.bom : true)));
     rows = applyColSort(rows, colSort.mat, MAT_GET);
     paintSortHeaders($('mTable'), 'mat');
     MRP.matView = rows;
@@ -2665,9 +2659,8 @@
     $('mRows').innerHTML = rows.slice(0, MRP.shown).map((x) => `<tr class="row" data-mat="${esc(x.code)}" tabindex="0">
         <td class="po">${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(x.uom)}</td><td>${esc(x.kat || '–')}</td>
         <td class="num">${x.used ? nf.format(x.used) : '<span class="muted">–</span>'}</td>
-        <td class="num">${x.bom ? nf.format(x.bom) : '<span class="muted">–</span>'}</td>
-        ${MRP_PO ? `<td class="num">${x.openpo ? fmtQ(x.openpo) + ' ' + esc(x.uom) : '<span class="muted">–</span>'}</td>` : ''}</tr>`).join('')
-      || '<tr class="empty"><td colspan="7">Tidak ada material yang cocok.</td></tr>';
+        <td class="num">${x.bom ? nf.format(x.bom) : '<span class="muted">–</span>'}</td></tr>`).join('')
+      || '<tr class="empty"><td colspan="6">Tidak ada material yang cocok.</td></tr>';
     $('mMore').hidden = rows.length <= MRP.shown;
   }
   ['mq'].forEach((id) => $(id).addEventListener('input', () => { MRP.shown = 200; renderMatList(); }));
@@ -2682,7 +2675,7 @@
     else { MRP.use = code; location.hash = '#/mrp/dipakai'; }
   });
   $('mExport').addEventListener('click', () => {
-    const data = (MRP.matView || []).map((x) => ({ 'Kode': x.code, 'Nama Material': x.name, 'UoM': x.uom, 'Kategori': x.kat, 'Dipakai di Produk': x.used, 'Versi BOM Sendiri': x.bom, ...(MRP_PO ? { 'PO Terbuka (Sisa)': x.openpo } : {}) }));
+    const data = (MRP.matView || []).map((x) => ({ 'Kode': x.code, 'Nama Material': x.name, 'UoM': x.uom, 'Kategori': x.kat, 'Dipakai di Produk': x.used, 'Versi BOM Sendiri': x.bom }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Daftar Material');
     XLSX.writeFile(wb, `Daftar_Material_${todayStr()}.xlsx`);
@@ -2711,13 +2704,11 @@
     directProducts.forEach((pc) => up(pc, [pc], 1));
     const prodName = (c) => { const x = MRP.master.get(c); return (x && x.name) || ((MRP.byProduct.get(c) || [])[0] || {}).name || ''; };
     const prodKat = (c) => { const x = MRP.master.get(c); return (x && x.kat) || ''; };
-    const openPo = !MRP_PO ? 0 : (state.rows || []).filter((r) => r.code === code && !isClosed(r) && r.sisa > 0).reduce((t, r) => t + r.sisa, 0);
     $('uResult').innerHTML = `
       <div class="dt-tiles mrp-utiles">
         <div class="dt-tile"><span class="dt-k">Material</span><span class="dt-v">${esc(code)}</span><span class="dt-sub">${esc((m && m.name) || (direct[0] && direct[0].bom.comps.find((c) => c.code === code) || {}).name || 'Tidak ada di master')}</span></div>
         <div class="dt-tile"><span class="dt-k">Kategori · UoM</span><span class="dt-v">${esc((m && m.kat) || '–')}</span><span class="dt-sub">${esc((m && m.uom) || '')}</span></div>
         <div class="dt-tile"><span class="dt-k">Dipakai langsung di</span><span class="dt-v">${nf.format(directProducts.length)} <small>produk</small></span><span class="dt-sub">${nf.format(direct.length)} versi BOM</span></div>
-        ${MRP_PO ? `<div class="dt-tile"><span class="dt-k">PO terbuka (sisa)</span><span class="dt-v">${openPo ? fmtQ(openPo) : '–'} <small>${esc((m && m.uom) || '')}</small></span><span class="dt-sub">dari Monitoring PO</span></div>` : ''}
       </div>
       <section class="dt-card mrp-card">
         <h4 class="dt-h">Dipakai langsung <span class="muted">${direct.length} versi BOM</span></h4>
@@ -2815,7 +2806,7 @@
   /* ================= MRP TAHAP 1: RENCANA, KEBUTUHAN, PROYEKSI STOK ================= */
   // Data perencanaan dari Google Sheet "MRP PPIC GTK" (dibaca bersama BOM oleh Apps Script MRP).
   // Hitungan dilakukan di browser: rencana kg → kebutuhan material per week (ekstrak/bulk dipecah) →
-  // saldo stok berjalan dengan incoming dari Monitoring PO + incoming manual.
+  // saldo stok berjalan dengan incoming manual.
   const P = {
     ready: false, edit: false, pin: '', hz: null, queue: new Map(), qTimer: null, saving: false,
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
@@ -2972,32 +2963,6 @@
     return { weeks, idx, req, made, fg: fgReq, noBom };
   }
 
-  // Incoming dari Monitoring PO: jadwal yang belum Done, sisa qty-nya masuk ke week sesuai tanggal jadwal
-  function poIncoming(weeks, s) {
-    const n = weeks.length, out = new Map(), uomBad = [];
-    if (!n || !MRP_PO) return { out, uomBad };   // MRP belum dihubungkan ke Monitoring PO
-    const first = weeks[Math.min(s, n - 1)], lastEnd = weeks[n - 1].end;
-    const idx = new Map(weeks.map((w, i) => [w.bulan + '|' + w.week, i]));
-    (state.rows || []).forEach((r) => {
-      if (!r.first || r.cancel || (r.takeout && r.dupCount === 1)) return;
-      r.sched.forEach((sc) => {
-        if (sc.status === 'Done' || !sc.date) return;
-        const gap = Math.max(0, (Number(sc.qty) || 0) - (Number(sc.rec) || 0));
-        if (!gap || sc.date > lastEnd) return;
-        const m = MRP.master.get(r.code);
-        if (m && m.uom && r.uom && normU(m.uom) !== normU(r.uom)) { uomBad.push({ r, sc, gap, m }); return; }
-        let i, late = false;
-        if (sc.date < first.start) { i = s; late = true; }
-        else { const w = weekOfDate(sc.date); i = w ? idx.get(w.bulan + '|' + w.week) : undefined; if (i === undefined) return; if (i < s) { i = s; late = true; } }
-        let o = out.get(r.code);
-        if (!o) { o = { w: new Array(n).fill(0), list: [] }; out.set(r.code, o); }
-        o.w[i] += gap;
-        o.list.push({ po: r.po, supplier: r.supplier, date: sc.date, qty: gap, uom: r.uom, wi: i, late });
-      });
-    });
-    return { out, uomBad };
-  }
-
   function computeProj() {
     const R = computeReq(), weeks = R.weeks, n = weeks.length;
     let s = 0, stockNote = '';
@@ -3008,7 +2973,6 @@
         s = Math.max(0, weeks.findIndex((x) => x === w));
       } else stockNote = 'before';
     }
-    const inc = poIncoming(weeks, s);
     const manual = new Map();
     P.inc.forEach((x) => {
       const i = R.idx.get(x.bulan + '|' + x.week);
@@ -3022,23 +2986,22 @@
       const st = P.stock.get(code);
       const adj = P.adj.filter((a) => a.code === code && (!P.stockDate || a.date >= P.stockDate)).reduce((t, a) => t + a.qty, 0);
       const start = (st ? st.qty : 0) + adj;
-      const po = inc.out.get(code), man = manual.get(code);
+      const man = manual.get(code);
       const saldo = new Array(n).fill(null), inW = new Array(n).fill(0);
-      let run = start, firstShort = -1, minS = Infinity, late = false;
+      let run = start, firstShort = -1, minS = Infinity;
       for (let i = s; i < n; i++) {
-        inW[i] = (po ? po.w[i] : 0) + (man ? man[i] : 0);
+        inW[i] = man ? man[i] : 0;
         run += inW[i] - q.w[i];
         saldo[i] = run;
         if (run < -1e-9 && firstShort < 0) firstShort = i;
         if (run < minS) minS = run;
       }
-      if (po) late = po.list.some((x) => x.late);
       rows.push({
         code, name: m.name || code, uom: m.uom || '', kat: m.kat || '', start, hasStock: !!st, adj,
-        need: q.w, inW, saldo, firstShort, short: minS < 0 ? -minS : 0, total: q.total, src: q.src, po, man, late,
+        need: q.w, inW, saldo, firstShort, short: minS < 0 ? -minS : 0, total: q.total, src: q.src, man,
       });
     });
-    return { R, weeks, s, rows, stockNote, uomBad: inc.uomBad };
+    return { R, weeks, s, rows, stockNote };
   }
 
   // ---------- Simpan ke Apps Script MRP ----------
@@ -3371,10 +3334,10 @@
     else if (J.stockNote === 'after') note = `Stok per ${fmtDate(P.stockDate)} lebih baru dari rentang ini. Geser rentang ke bulan stok.`;
     else if (J.stockNote === 'before') note = `Stok per <b>${fmtDate(P.stockDate)}</b> lebih awal dari rentang ini; kebutuhan antara tanggal stok dan awal rentang tidak ikut dihitung.`;
     else note = `Stok awal = stok per <b>${fmtDate(P.stockDate)}</b> (${esc(P.stockSrc || 'upload')}) + koreksi. Perhitungan mulai ${esc(wLabel(weeks[s]))}; week sebelumnya diabaikan.`;
-    $('pjNote').innerHTML = note + (J.uomBad.length ? ` · <span class="pl-bad">${J.uomBad.length} jadwal PO tidak dihitung karena UoM PO beda dengan master</span> (lihat Pemeriksaan Data).` : '');
+    $('pjNote').innerHTML = note;
     $('pjHead').innerHTML = weekHead(weeks, { lead: '<th class="pl-sticky pl-c1"></th><th colspan="2"></th>', tail: true, tailN: 2 }) +
       `<tr><th class="pl-sticky pl-c1">Material</th><th>UoM</th><th class="num">Stok awal</th>${weekTh(weeks, (i) => (i < s ? ' is-past' : ''))}<th>Mulai kurang</th><th class="num">Kurang</th></tr>`;
-    $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, r.late ? '<span class="pl-tmp" title="Ada jadwal PO yang sudah lewat tapi belum datang; dimasukkan ke week pertama">PO telat</span>' : '')}<td class="pl-uom">${esc(r.uom)}</td>
+    $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, '')}<td class="pl-uom">${esc(r.uom)}</td>
       <td class="num">${r.hasStock || r.adj ? fq((r.start)) : '<span class="muted">0</span>'}</td>
       ${weeks.map((w, j) => {
         if (j < s) return `<td class="num is-past${wCls(weeks, j)}"></td>`;
@@ -3386,15 +3349,13 @@
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
       || `<tr class="empty"><td colspan="${weeks.length + 5}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     const firstW = J.rows.filter((r) => r.firstShort === s).length;
-    const nPo = J.rows.filter((r) => r.po).length, nNoSt = P.stockDate ? J.rows.filter((r) => !r.hasStock).length : 0;
+    const nNoSt = P.stockDate ? J.rows.filter((r) => !r.hasStock).length : 0;
     $('pjKpi').innerHTML = kpis([
       { num: nf.format(nShort), lbl: 'material akan kurang', tone: nShort ? 'bad' : 'ok' },
       { num: nf.format(firstW), lbl: weeks[s] ? `sudah kurang di ${wLabel(weeks[s])}` : 'kurang di week pertama', tone: firstW ? 'bad' : '' },
       { num: nf.format(J.rows.length), lbl: 'material terpakai' },
-    ].concat(MRP_PO ? [{ num: nf.format(nPo), lbl: 'punya jadwal PO terbuka' }] : []).concat(P.stockDate ? [{ num: nf.format(nNoSt), lbl: 'tidak ada di file stok', tone: nNoSt ? 'warn' : '', title: 'Stok awalnya dianggap 0' }] : []));
-    $('pjInfo').textContent = MRP_PO
-      ? `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, jadwal PO, incoming manual, dan koreksi stok` + (state.rows && state.rows.length ? '' : ' · data PO belum dimuat, incoming PO belum dihitung')
-      : `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok · jadwal PO belum dihubungkan ke MRP`;
+    ].concat(P.stockDate ? [{ num: nf.format(nNoSt), lbl: 'tidak ada di file stok', tone: nNoSt ? 'warn' : '', title: 'Stok awalnya dianggap 0' }] : []));
+    $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok`;
   }
   ['pjQ', 'pjMode', 'pjKat'].forEach((id) => $(id).addEventListener(id === 'pjQ' ? 'input' : 'change', renderProyeksi));
   $('pjRows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
@@ -3405,20 +3366,16 @@
     const weeks = J.weeks, s = J.s, vis = weeks.map((w, i) => i).filter((i) => i >= s);
     const row = (label, f, cls = '') => `<tr class="${cls}"><th>${label}</th>${vis.map((i) => `<td class="num">${f(i)}</td>`).join('')}</tr>`;
     const q4 = (v) => (v ? fq((v)) : '');
-    const poList = r.po ? r.po.list.slice().sort((a, b) => (a.date < b.date ? -1 : 1)) : [];
     const manList = P.inc.filter((x) => x.code === code), adjList = P.adj.filter((x) => x.code === code);
     const srcList = [...r.src.entries()].map(([sku, arr]) => [sku, arr.reduce((a, b) => a + b, 0)]).sort((a, b) => b[1] - a[1]);
     openDialog({
       title: `${r.code} · ${r.name}`, ok: 'Tutup', wide: true, cancel: false, onSubmit: null,
       body: `<p class="dlg-lead">UoM ${esc(r.uom || '-')} · stok awal <b>${fq((r.start))}</b>${P.stockDate ? ` (stok per ${fmtDate(P.stockDate)}${r.adj ? `, koreksi ${r.adj > 0 ? '+' : ''}${fq((r.adj))}` : ''})` : ' (belum ada data stok)'}</p>
         <div class="table-wrap"><table class="po-table pl-mini pj-detail"><thead><tr><th></th>${vis.map((i) => `<th class="num" title="${esc(wTitle(weeks[i]))}">${esc(wLabel(weeks[i]))}</th>`).join('')}</tr></thead><tbody>
-          ${MRP_PO ? row('Incoming PO', (i) => q4(r.po ? r.po.w[i] : 0)) : ''}
           ${row('Incoming manual', (i) => q4(r.man ? r.man[i] : 0))}
           ${row('Kebutuhan', (i) => q4(r.need[i]))}
           ${row('Saldo akhir', (i) => `<b class="${r.saldo[i] < -1e-9 ? 'pl-bad' : ''}">${fq((r.saldo[i]))}</b>`, 'pj-sum')}
         </tbody></table></div>
-        ${!MRP_PO ? '' : `<h3 class="pj-h">Jadwal PO yang masuk hitungan (${poList.length})</h3>`}
-        ${!MRP_PO ? '' : poList.length ? `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Jadwal</th><th>Masuk week</th><th class="num">Sisa qty</th></tr></thead><tbody>${poList.map((x) => `<tr><td><button class="btn-link" data-po="${esc(x.po)}">${esc(x.po)}</button></td><td>${esc(x.supplier)}</td><td>${fmtDate(x.date)}${x.late ? ' <span class="badge b-late">telat</span>' : ''}</td><td>${esc(wLabel(weeks[x.wi]))}</td><td class="num">${fmtQ(x.qty)} ${esc(x.uom)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tidak ada jadwal PO terbuka di rentang ini.</p>'}
         <h3 class="pj-h">Incoming manual (${manList.length})</h3>
         ${manList.length ? `<ul class="pj-list">${manList.map((x) => `<li><b>${x.qty > 0 ? '+' : ''}${fmtQ(x.qty)}</b> · ${esc(x.week)} ${esc(monLabel(x.bulan))} · ${esc(x.note)} <span class="muted">${esc(x.time)}</span>${P.edit ? ` <button class="btn-link danger" data-del-inc="${esc(x.id)}">Hapus</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Belum ada.</p>'}
         <h3 class="pj-h">Koreksi stok (${adjList.length})</h3>
@@ -3430,7 +3387,6 @@
     const body = $('dlgBody');
     body.querySelector('#pjAddInc').addEventListener('click', () => needEdit(() => incForm(code)));
     body.querySelector('#pjAddAdj').addEventListener('click', () => needEdit(() => adjForm(code)));
-    body.querySelectorAll('[data-po]').forEach((b) => b.addEventListener('click', () => { $('dlg').close(); goMonitor({ q: b.dataset.po, jenis: '', supplier: '' }); }));
     body.querySelectorAll('[data-del-inc],[data-del-adj]').forEach((b) => b.addEventListener('click', async () => {
       const kind = b.dataset.delInc ? 'inc' : 'adj', id = b.dataset.delInc || b.dataset.delAdj;
       b.disabled = true; b.textContent = 'Menghapus…';
@@ -3445,7 +3401,7 @@
     const weeks = hzWeeks().filter((w, i) => !P.proj || i >= P.proj.s);
     openDialog({
       title: `Tambah incoming manual · ${code}`, ok: 'Simpan',
-      body: `<p class="dlg-lead">${MRP_PO ? 'Untuk kedatangan di luar jadwal PO (atau koreksi jadwal).' : 'Barang yang direncanakan datang pada week ini (jadwal PO belum dihubungkan ke MRP).'} Isi minus untuk mengurangi.</p>
+      body: `<p class="dlg-lead">Barang yang direncanakan datang pada week ini. Isi minus untuk mengurangi.</p>
         <div class="form-grid">
           <label class="field"><span>Week *</span><select name="wk">${weeks.map((w) => `<option value="${w.bulan}|${w.week}">${esc(wTitle(w))}</option>`).join('')}</select></label>
           ${fld('qty', `Qty (${esc((MRP.master.get(code) || {}).uom || '')}) *`, '', { type: 'number', step: 'any', required: true })}
@@ -3741,10 +3697,9 @@
     });
     const skuBad = [...P.skus.values()].filter((k) => !k.bom || !bomById(k.code, k.bom));
     const lockGone = [...P.plan.values()].filter((p) => p.kg > 0 && (!p.bom || !bomById(p.code, p.bom)) && MRP.byProduct.has(p.code));
-    let uomPo = [], noStock = [];
+    let noStock = [];
     if (MRP.loaded && P.weeks.length) {
       const J = computeProj();
-      uomPo = J.uomBad;
       if (P.stockDate) noStock = J.rows.filter((r) => !r.hasStock);
     }
     planBatch.sort((a, b) => (a.p.bulan + a.p.week + a.p.code).localeCompare(b.p.bulan + b.p.week + b.p.code));
@@ -3762,9 +3717,6 @@
       planBatch: { label: 'Rencana: bukan ukuran batch', badge: false, rows: planBatch,
         desc: 'Qty kg yang tidak bisa disusun dari ukuran batch SKU (Parameter SKU). Hanya peringatan; tetap dihitung.',
         head: ['Bulan', 'Week', 'Kode', 'Qty kg', 'Ukuran batch (kg)'], row: (x) => [monLabel(x.p.bulan), x.p.week, x.p.code, fmtKg(x.p.kg), x.sku.batch.join(', ')] },
-      ...(MRP_PO ? { uomPo: { label: 'PO: UoM beda dengan master', badge: true, rows: uomPo,
-        desc: 'Jadwal PO terbuka yang satuannya berbeda dengan master material. Tidak dihitung sebagai incoming di Proyeksi Stok sampai satuannya disamakan.',
-        head: ['No PO', 'Kode', 'Nama', 'Jadwal', 'Sisa qty', 'UoM PO', 'UoM master'], row: (x) => [x.r.po, x.r.code, x.r.name, fmtDate(x.sc.date), fmtQ(x.gap), x.r.uom, x.m.uom], use: (x) => x.r.code } } : {}),
       noStock: { label: 'Material terpakai tanpa data stok', badge: false, rows: noStock,
         desc: 'Material yang dibutuhkan rencana tetapi tidak ada di file stok terakhir; stok awalnya dianggap 0.',
         head: ['Kode', 'Nama', 'UoM', 'Kebutuhan di rentang'], row: (r) => [r.code, r.name, r.uom, fq((r.total))], use: (r) => r.code },
@@ -3836,7 +3788,7 @@
         desc: 'Saldo proyeksi minus di salah satu week. Cek PO yang perlu dibuat atau dipercepat.', link: '#/mrp/proyeksi', linkLabel: 'Proyeksi Stok', keys: sh.map((r) => r.code + '|' + r.firstShort),
         items: sh.map((r) => `${r.code} · ${r.name} · kurang ${fmtQ(r.short)} ${r.uom} · mulai ${wLabel(J.weeks[r.firstShort])}`) });
       const ck = planChecks();
-      const bad = ['planNoBom', 'lockGone', 'skuBad', 'uomPo'].flatMap((k) => (ck[k] ? ck[k].rows.map((x, i) => k + i) : []));
+      const bad = ['planNoBom', 'lockGone', 'skuBad'].flatMap((k) => (ck[k] ? ck[k].rows.map((x, i) => k + i) : []));
       if (bad.length) T.push({ id: 'mrp-cek', proj: 'MRP', level: 'check', title: 'Data MRP perlu dirapikan', count: bad.length, unit: 'temuan', desc: 'Rencana tanpa BOM, BOM terkunci hilang, BOM default tidak valid, atau UoM PO beda master.', link: '#/mrp/cek', linkLabel: 'Pemeriksaan Data MRP', keys: bad, items: [] });
     } catch (e) { /* abaikan */ }
     return T;

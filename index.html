@@ -520,7 +520,6 @@
             <option value="used">Dipakai di BOM</option>
             <option value="unused">Tidak dipakai di BOM</option>
             <option value="hasbom">Punya BOM sendiri</option>
-            <option value="openpo">Ada PO terbuka</option>
           </select></label>
           <button class="btn btn-ghost btn-sm" id="mReset">Reset</button>
           <button class="btn btn-sm" id="mExport">Unduh Excel</button>
@@ -530,7 +529,7 @@
           <table class="po-table mrp-table" id="mTable">
             <thead><tr>
               <th data-sk="code">Kode</th><th data-sk="name">Nama material</th><th data-sk="uom">UoM</th><th data-sk="kat">Kategori</th>
-              <th class="num" data-sk="used">Dipakai di produk</th><th class="num" data-sk="bom">Versi BOM sendiri</th><th class="num" data-sk="openpo">PO terbuka (sisa)</th>
+              <th class="num" data-sk="used">Dipakai di produk</th><th class="num" data-sk="bom">Versi BOM sendiri</th>
             </tr></thead>
             <tbody id="mRows"></tbody>
           </table>
@@ -607,7 +606,7 @@
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table pj-table"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
         </div>
-        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus. Jadwal PO belum dihubungkan ke MRP: incoming hanya dari incoming manual.</p>
+        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus.</p>
       </section>
 
       <!-- ================= MRP: PARAMETER SKU ================= -->
@@ -1082,10 +1081,10 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=c2b392d9"></script>
-<script src="app.js?v=8544c9d9"></script>
+<script src="config.js?v=85d1e56c"></script>
+<script src="app.js?v=e09a4db4"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=a9063219"></script>
+<script src="help.js?v=4ad13669"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
