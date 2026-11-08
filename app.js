@@ -3643,6 +3643,33 @@
     }
     throw new Error('Kolom kode/produk dan qty tidak ditemukan. Pastikan file punya judul kolom seperti "Product" / "Internal Reference" dan "Quantity" / "On Hand".');
   }
+  // Format stok awal: semua material RM & PM di master, QTY kosong (diisi lalu di-upload di kartu ini)
+  $('stockTpl').addEventListener('click', () => {
+    if (!MRP.loaded) { toast('Data master material belum termuat. Tunggu sebentar lalu coba lagi.'); return; }
+    const isRM = (k) => /raw|\brm\b/i.test(k || ''), isPM = (k) => /pack|\bpm\b/i.test(k || '');
+    const list = [...MRP.master.values()].filter((m) => isRM(m.kat) || isPM(m.kat))
+      .sort((a, b) => (isRM(b.kat) - isRM(a.kat)) || a.code.localeCompare(b.code, 'id', { numeric: true }));
+    const aoa = [['KODE', 'NAMA MATERIAL', 'KATEGORI', 'UoM', 'QTY']].concat(list.map((m) => [m.code, m.name, m.kat, m.uom, '']));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 12 }, { wch: 60 }, { wch: 12 }, { wch: 8 }, { wch: 14 }];
+    ws['!autofilter'] = { ref: `A1:E${aoa.length}` };
+    // kolom KODE sebagai teks supaya kode berawalan 0 tidak berubah
+    list.forEach((m, i) => { const c = ws['A' + (i + 2)]; if (c) { c.t = 's'; c.v = String(m.code); } });
+    const nRM = list.filter((m) => isRM(m.kat)).length;
+    const info = XLSX.utils.aoa_to_sheet([
+      ['Format stok awal RM & PM (MRP PPIC GTK)'], [''],
+      ['1. Isi kolom QTY dengan stok fisik / stok Odoo dalam satuan UoM di sebelahnya. Jangan ubah kolom KODE.'],
+      ['2. QTY yang dibiarkan kosong dianggap 0.'],
+      ['3. Upload di website: MRP → Update Data MRP → Upload stok RM/PM, lalu isi tanggal stok.'],
+      ['4. Upload stok mengganti seluruh stok yang tersimpan sebelumnya.'], [''],
+      ['Jumlah material', `${list.length} (RM ${nRM}, PM ${list.length - nRM})`], ['Dibuat', todayStr()],
+    ]);
+    info['!cols'] = [{ wch: 100 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'STOK AWAL');
+    XLSX.utils.book_append_sheet(wb, info, 'PETUNJUK');
+    XLSX.writeFile(wb, `Format_Stok_Awal_RM_PM_${todayStr()}.xlsx`);
+  });
   $('stockFile').addEventListener('change', async () => {
     const f = $('stockFile').files[0];
     $('stockName').textContent = f ? f.name : 'Belum ada file';
