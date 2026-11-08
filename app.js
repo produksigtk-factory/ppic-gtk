@@ -6,6 +6,10 @@
   'use strict';
 
   const CFG = window.PPIC_CONFIG || {};
+  const MRP_PO = CFG.MRP_LINK_PO === true;   // MRP memakai data Monitoring PO? (sementara tidak)
+  if (!MRP_PO) {   // sembunyikan kolom & filter PO di Daftar Material
+    document.querySelectorAll('#mTable th[data-sk="openpo"], #mUse option[value="openpo"]').forEach((x) => x.remove());
+  }
   const PAGE = 100;
   const $ = (id) => document.getElementById(id);
 
@@ -2643,7 +2647,7 @@
   const MAT_GET = { code: (x) => x.code, name: (x) => x.name, uom: (x) => x.uom, kat: (x) => x.kat, used: (x) => x.used || null, bom: (x) => x.bom || null, openpo: (x) => x.openpo || null };
   function matRows() {
     const open = new Map();
-    (state.rows || []).forEach((r) => { if (!isClosed(r) && r.sisa > 0) open.set(r.code, (open.get(r.code) || 0) + r.sisa); });
+    if (MRP_PO) (state.rows || []).forEach((r) => { if (!isClosed(r) && r.sisa > 0) open.set(r.code, (open.get(r.code) || 0) + r.sisa); });
     return [...MRP.master.values()].map((m) => {
       const used = new Set((MRP.usedIn.get(m.code) || []).map((u) => u.bom.code)).size;
       return { ...m, used, bom: (MRP.byProduct.get(m.code) || []).length, openpo: open.get(m.code) || 0, search: (m.code + ' ' + m.name).toLowerCase() };
@@ -2662,7 +2666,7 @@
         <td class="po">${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(x.uom)}</td><td>${esc(x.kat || '–')}</td>
         <td class="num">${x.used ? nf.format(x.used) : '<span class="muted">–</span>'}</td>
         <td class="num">${x.bom ? nf.format(x.bom) : '<span class="muted">–</span>'}</td>
-        <td class="num">${x.openpo ? fmtQ(x.openpo) + ' ' + esc(x.uom) : '<span class="muted">–</span>'}</td></tr>`).join('')
+        ${MRP_PO ? `<td class="num">${x.openpo ? fmtQ(x.openpo) + ' ' + esc(x.uom) : '<span class="muted">–</span>'}</td>` : ''}</tr>`).join('')
       || '<tr class="empty"><td colspan="7">Tidak ada material yang cocok.</td></tr>';
     $('mMore').hidden = rows.length <= MRP.shown;
   }
@@ -2678,7 +2682,7 @@
     else { MRP.use = code; location.hash = '#/mrp/dipakai'; }
   });
   $('mExport').addEventListener('click', () => {
-    const data = (MRP.matView || []).map((x) => ({ 'Kode': x.code, 'Nama Material': x.name, 'UoM': x.uom, 'Kategori': x.kat, 'Dipakai di Produk': x.used, 'Versi BOM Sendiri': x.bom, 'PO Terbuka (Sisa)': x.openpo }));
+    const data = (MRP.matView || []).map((x) => ({ 'Kode': x.code, 'Nama Material': x.name, 'UoM': x.uom, 'Kategori': x.kat, 'Dipakai di Produk': x.used, 'Versi BOM Sendiri': x.bom, ...(MRP_PO ? { 'PO Terbuka (Sisa)': x.openpo } : {}) }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Daftar Material');
     XLSX.writeFile(wb, `Daftar_Material_${todayStr()}.xlsx`);
@@ -2707,13 +2711,13 @@
     directProducts.forEach((pc) => up(pc, [pc], 1));
     const prodName = (c) => { const x = MRP.master.get(c); return (x && x.name) || ((MRP.byProduct.get(c) || [])[0] || {}).name || ''; };
     const prodKat = (c) => { const x = MRP.master.get(c); return (x && x.kat) || ''; };
-    const openPo = (state.rows || []).filter((r) => r.code === code && !isClosed(r) && r.sisa > 0).reduce((t, r) => t + r.sisa, 0);
+    const openPo = !MRP_PO ? 0 : (state.rows || []).filter((r) => r.code === code && !isClosed(r) && r.sisa > 0).reduce((t, r) => t + r.sisa, 0);
     $('uResult').innerHTML = `
       <div class="dt-tiles mrp-utiles">
         <div class="dt-tile"><span class="dt-k">Material</span><span class="dt-v">${esc(code)}</span><span class="dt-sub">${esc((m && m.name) || (direct[0] && direct[0].bom.comps.find((c) => c.code === code) || {}).name || 'Tidak ada di master')}</span></div>
         <div class="dt-tile"><span class="dt-k">Kategori · UoM</span><span class="dt-v">${esc((m && m.kat) || '–')}</span><span class="dt-sub">${esc((m && m.uom) || '')}</span></div>
         <div class="dt-tile"><span class="dt-k">Dipakai langsung di</span><span class="dt-v">${nf.format(directProducts.length)} <small>produk</small></span><span class="dt-sub">${nf.format(direct.length)} versi BOM</span></div>
-        <div class="dt-tile"><span class="dt-k">PO terbuka (sisa)</span><span class="dt-v">${openPo ? fmtQ(openPo) : '–'} <small>${esc((m && m.uom) || '')}</small></span><span class="dt-sub">dari Monitoring PO</span></div>
+        ${MRP_PO ? `<div class="dt-tile"><span class="dt-k">PO terbuka (sisa)</span><span class="dt-v">${openPo ? fmtQ(openPo) : '–'} <small>${esc((m && m.uom) || '')}</small></span><span class="dt-sub">dari Monitoring PO</span></div>` : ''}
       </div>
       <section class="dt-card mrp-card">
         <h4 class="dt-h">Dipakai langsung <span class="muted">${direct.length} versi BOM</span></h4>
@@ -2971,7 +2975,7 @@
   // Incoming dari Monitoring PO: jadwal yang belum Done, sisa qty-nya masuk ke week sesuai tanggal jadwal
   function poIncoming(weeks, s) {
     const n = weeks.length, out = new Map(), uomBad = [];
-    if (!n) return { out, uomBad };
+    if (!n || !MRP_PO) return { out, uomBad };   // MRP belum dihubungkan ke Monitoring PO
     const first = weeks[Math.min(s, n - 1)], lastEnd = weeks[n - 1].end;
     const idx = new Map(weeks.map((w, i) => [w.bulan + '|' + w.week, i]));
     (state.rows || []).forEach((r) => {
@@ -3387,9 +3391,10 @@
       { num: nf.format(nShort), lbl: 'material akan kurang', tone: nShort ? 'bad' : 'ok' },
       { num: nf.format(firstW), lbl: weeks[s] ? `sudah kurang di ${wLabel(weeks[s])}` : 'kurang di week pertama', tone: firstW ? 'bad' : '' },
       { num: nf.format(J.rows.length), lbl: 'material terpakai' },
-      { num: nf.format(nPo), lbl: 'punya jadwal PO terbuka' },
-    ].concat(P.stockDate ? [{ num: nf.format(nNoSt), lbl: 'tidak ada di file stok', tone: nNoSt ? 'warn' : '', title: 'Stok awalnya dianggap 0' }] : []));
-    $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, jadwal PO, incoming manual, dan koreksi stok` + (state.rows && state.rows.length ? '' : ' · data PO belum dimuat, incoming PO belum dihitung');
+    ].concat(MRP_PO ? [{ num: nf.format(nPo), lbl: 'punya jadwal PO terbuka' }] : []).concat(P.stockDate ? [{ num: nf.format(nNoSt), lbl: 'tidak ada di file stok', tone: nNoSt ? 'warn' : '', title: 'Stok awalnya dianggap 0' }] : []));
+    $('pjInfo').textContent = MRP_PO
+      ? `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, jadwal PO, incoming manual, dan koreksi stok` + (state.rows && state.rows.length ? '' : ' · data PO belum dimuat, incoming PO belum dihitung')
+      : `${nf.format(rows.length)} material ditampilkan · klik baris untuk rincian, incoming manual, dan koreksi stok · jadwal PO belum dihubungkan ke MRP`;
   }
   ['pjQ', 'pjMode', 'pjKat'].forEach((id) => $(id).addEventListener(id === 'pjQ' ? 'input' : 'change', renderProyeksi));
   $('pjRows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
@@ -3407,13 +3412,13 @@
       title: `${r.code} · ${r.name}`, ok: 'Tutup', wide: true, cancel: false, onSubmit: null,
       body: `<p class="dlg-lead">UoM ${esc(r.uom || '-')} · stok awal <b>${fq((r.start))}</b>${P.stockDate ? ` (stok per ${fmtDate(P.stockDate)}${r.adj ? `, koreksi ${r.adj > 0 ? '+' : ''}${fq((r.adj))}` : ''})` : ' (belum ada data stok)'}</p>
         <div class="table-wrap"><table class="po-table pl-mini pj-detail"><thead><tr><th></th>${vis.map((i) => `<th class="num" title="${esc(wTitle(weeks[i]))}">${esc(wLabel(weeks[i]))}</th>`).join('')}</tr></thead><tbody>
-          ${row('Incoming PO', (i) => q4(r.po ? r.po.w[i] : 0))}
+          ${MRP_PO ? row('Incoming PO', (i) => q4(r.po ? r.po.w[i] : 0)) : ''}
           ${row('Incoming manual', (i) => q4(r.man ? r.man[i] : 0))}
           ${row('Kebutuhan', (i) => q4(r.need[i]))}
           ${row('Saldo akhir', (i) => `<b class="${r.saldo[i] < -1e-9 ? 'pl-bad' : ''}">${fq((r.saldo[i]))}</b>`, 'pj-sum')}
         </tbody></table></div>
-        <h3 class="pj-h">Jadwal PO yang masuk hitungan (${poList.length})</h3>
-        ${poList.length ? `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Jadwal</th><th>Masuk week</th><th class="num">Sisa qty</th></tr></thead><tbody>${poList.map((x) => `<tr><td><button class="btn-link" data-po="${esc(x.po)}">${esc(x.po)}</button></td><td>${esc(x.supplier)}</td><td>${fmtDate(x.date)}${x.late ? ' <span class="badge b-late">telat</span>' : ''}</td><td>${esc(wLabel(weeks[x.wi]))}</td><td class="num">${fmtQ(x.qty)} ${esc(x.uom)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tidak ada jadwal PO terbuka di rentang ini.</p>'}
+        ${!MRP_PO ? '' : `<h3 class="pj-h">Jadwal PO yang masuk hitungan (${poList.length})</h3>`}
+        ${!MRP_PO ? '' : poList.length ? `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Jadwal</th><th>Masuk week</th><th class="num">Sisa qty</th></tr></thead><tbody>${poList.map((x) => `<tr><td><button class="btn-link" data-po="${esc(x.po)}">${esc(x.po)}</button></td><td>${esc(x.supplier)}</td><td>${fmtDate(x.date)}${x.late ? ' <span class="badge b-late">telat</span>' : ''}</td><td>${esc(wLabel(weeks[x.wi]))}</td><td class="num">${fmtQ(x.qty)} ${esc(x.uom)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tidak ada jadwal PO terbuka di rentang ini.</p>'}
         <h3 class="pj-h">Incoming manual (${manList.length})</h3>
         ${manList.length ? `<ul class="pj-list">${manList.map((x) => `<li><b>${x.qty > 0 ? '+' : ''}${fmtQ(x.qty)}</b> · ${esc(x.week)} ${esc(monLabel(x.bulan))} · ${esc(x.note)} <span class="muted">${esc(x.time)}</span>${P.edit ? ` <button class="btn-link danger" data-del-inc="${esc(x.id)}">Hapus</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Belum ada.</p>'}
         <h3 class="pj-h">Koreksi stok (${adjList.length})</h3>
@@ -3440,7 +3445,7 @@
     const weeks = hzWeeks().filter((w, i) => !P.proj || i >= P.proj.s);
     openDialog({
       title: `Tambah incoming manual · ${code}`, ok: 'Simpan',
-      body: `<p class="dlg-lead">Untuk kedatangan di luar jadwal PO (atau koreksi jadwal). Isi minus untuk mengurangi.</p>
+      body: `<p class="dlg-lead">${MRP_PO ? 'Untuk kedatangan di luar jadwal PO (atau koreksi jadwal).' : 'Barang yang direncanakan datang pada week ini (jadwal PO belum dihubungkan ke MRP).'} Isi minus untuk mengurangi.</p>
         <div class="form-grid">
           <label class="field"><span>Week *</span><select name="wk">${weeks.map((w) => `<option value="${w.bulan}|${w.week}">${esc(wTitle(w))}</option>`).join('')}</select></label>
           ${fld('qty', `Qty (${esc((MRP.master.get(code) || {}).uom || '')}) *`, '', { type: 'number', step: 'any', required: true })}
@@ -3757,9 +3762,9 @@
       planBatch: { label: 'Rencana: bukan ukuran batch', badge: false, rows: planBatch,
         desc: 'Qty kg yang tidak bisa disusun dari ukuran batch SKU (Parameter SKU). Hanya peringatan; tetap dihitung.',
         head: ['Bulan', 'Week', 'Kode', 'Qty kg', 'Ukuran batch (kg)'], row: (x) => [monLabel(x.p.bulan), x.p.week, x.p.code, fmtKg(x.p.kg), x.sku.batch.join(', ')] },
-      uomPo: { label: 'PO: UoM beda dengan master', badge: true, rows: uomPo,
+      ...(MRP_PO ? { uomPo: { label: 'PO: UoM beda dengan master', badge: true, rows: uomPo,
         desc: 'Jadwal PO terbuka yang satuannya berbeda dengan master material. Tidak dihitung sebagai incoming di Proyeksi Stok sampai satuannya disamakan.',
-        head: ['No PO', 'Kode', 'Nama', 'Jadwal', 'Sisa qty', 'UoM PO', 'UoM master'], row: (x) => [x.r.po, x.r.code, x.r.name, fmtDate(x.sc.date), fmtQ(x.gap), x.r.uom, x.m.uom], use: (x) => x.r.code },
+        head: ['No PO', 'Kode', 'Nama', 'Jadwal', 'Sisa qty', 'UoM PO', 'UoM master'], row: (x) => [x.r.po, x.r.code, x.r.name, fmtDate(x.sc.date), fmtQ(x.gap), x.r.uom, x.m.uom], use: (x) => x.r.code } } : {}),
       noStock: { label: 'Material terpakai tanpa data stok', badge: false, rows: noStock,
         desc: 'Material yang dibutuhkan rencana tetapi tidak ada di file stok terakhir; stok awalnya dianggap 0.',
         head: ['Kode', 'Nama', 'UoM', 'Kebutuhan di rentang'], row: (r) => [r.code, r.name, r.uom, fq((r.total))], use: (r) => r.code },
@@ -3800,7 +3805,7 @@
       items: esk.map((r) => `${r.po} · ${r.name} · ${r.supplier}${r.follow.note ? ' · ' + r.follow.note : ''}`) });
     const noSched = uniq(rows.filter((r) => r.status === 'none'));
     if (noSched.length) T.push({ id: 'po-nosched', proj: 'PO', level: 'check', title: 'PO belum punya jadwal kedatangan', count: noSched.length, unit: 'baris PO',
-      desc: 'Baris PO RM/PM yang belum dijadwalkan di Odoo, sehingga tidak masuk kalender dan incoming MRP.', link: '#/po/monitoring', linkLabel: 'Monitoring PO',
+      desc: 'Baris PO RM/PM yang belum dijadwalkan di Odoo, sehingga tidak masuk kalender.', link: '#/po/monitoring', linkLabel: 'Monitoring PO',
       keys: noSched.map((r) => r.po + '|' + r.code), items: noSched.map((r) => `${r.po} · ${fmtDate(r.date)} · ${r.name} · ${r.supplier}`) });
     try {
       const a = attentionData();
