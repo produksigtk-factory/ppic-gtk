@@ -1396,6 +1396,7 @@
     CAL.list = list; CAL.sel = sel;
     $('cDay').innerHTML = `<h3>${esc(dayLong.format(new Date(sel + 'T00:00:00')))}</h3>
       <p class="hint">${list.length ? nf.format(list.length) + ' kedatangan · ' + nf.format(new Set(list.map((x) => x.r.supplier)).size) + ' supplier' : 'Tidak ada kedatangan di tanggal ini.'}</p>
+      ${(() => { const n = list.filter((x) => x.kind === 'inc').length; return n && sel === today ? `<div class="cal-recv"><button type="button" class="btn btn-sm" data-cal-recv>Tandai semua Incoming hari ini sudah datang (${n})</button></div>` : ''; })()}
       ${list.length ? `<div class="cal-img-btns"><button type="button" class="btn btn-sm" data-cal-img="dl">Unduh gambar</button><button type="button" class="btn btn-ghost btn-sm" data-cal-img="copy">Salin gambar</button><span class="muted">untuk follow up purchasing · ikut filter jenis &amp; supplier</span></div>` : ''}
       <div class="cal-list">${list.map((it) => `<button class="cal-item" data-key="${esc(it.r.key)}">
           <span class="badge ${KIND[it.kind][1]}">${KIND[it.kind][0]}</span>
@@ -1424,11 +1425,51 @@
   ['cJenis', 'cSup'].forEach((id) => $(id).addEventListener('change', renderCal));
   $('cDay').addEventListener('click', (e) => {
     const ib = e.target.closest('[data-cal-img]'); if (ib) { calImage(ib.dataset.calImg, ib); return; }
+    if (e.target.closest('[data-cal-recv]')) { calRecvAll(); return; }
     if (e.target.closest('[data-go-late]')) return goMonitor({ status: 'late', sort: 'late-desc', jenis: $('cJenis').value, supplier: $('cSup').value });
     const it = e.target.closest('.cal-item'); if (!it) return;
     const r = state.rows.find((x) => x.key === it.dataset.key);
     if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' });
   });
+
+  /* ---------- Kalender: tandai semua Incoming hari ini sudah datang ---------- */
+  // Untuk tiap jadwal Incoming (dikonfirmasi di Proyeksi Stok) di tanggal hari ini: Diterima di Monitoring PO += qty konfirmasi
+  // (Done bila penuh) dan konfirmasi diberi tanggal datang hari ini.
+  function calRecvAll() {
+    const today = todayStr(), items = (CAL.list || []).filter((x) => x.kind === 'inc' && x.date === today && x.kf);
+    if (!items.length) return;
+    if (!P.hasIncK) { toast('Apps Script MRP perlu diperbarui dulu.'); return; }
+    needEdit(() => openDialog({
+      title: `Tandai ${items.length} Incoming sudah datang`, ok: 'Tandai sudah datang', wide: true,
+      body: `<p class="dlg-lead">Kolom <b>Diterima</b> di Monitoring PO diisi sebesar qty konfirmasi dan konfirmasi diberi tanggal datang <b>${fmtDate(today)}</b>.</p>
+        <div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Kode</th><th>Material</th><th>Supplier</th><th class="num">Qty jadwal</th><th class="num">Diterima sekarang</th><th class="num">Qty datang</th></tr></thead><tbody>
+        ${items.map((x) => { const sc = x.r.sched.find((y) => String(y.n) === String(x.kf.ke)) || {}; return `<tr><td><b>${esc(x.r.po)}</b></td><td>${esc(x.r.code)}</td><td>${esc(x.r.name)}</td><td>${esc(x.r.supplier)}</td><td class="num">${fmtNum(sc.qty)}</td><td class="num">${fmtNum(sc.rec || 0)}</td><td class="num"><b>${fmtNum(x.kf.qty)}</b> ${esc(x.r.uom)}</td></tr>`; }).join('')}
+        </tbody></table></div>
+        ${!state.edit.on ? `<div class="form-grid">${fld('popin', 'PIN Monitoring PO (untuk mengisi Diterima)', '', { type: 'password', required: true })}</div>` : ''}
+        <p class="hint">Bisa dibatalkan per jadwal lewat tombol ✓ di Proyeksi Stok / Monitoring PO (hilangkan centang "Sudah datang").</p>`,
+      onSubmit: async (fd) => {
+        const pinOld = state.edit.pin;
+        if (!state.edit.on) { state.edit.pin = String(fd.popin || '').trim(); if (!state.edit.pin) throw new Error('Isi PIN Monitoring PO.'); }
+        const done = [];
+        try {
+          for (const x of items) {
+            const k = x.kf, sc = x.r.sched.find((y) => String(y.n) === String(k.ke));
+            if (!sc || k.datang) continue;
+            const rec = round4((Number(sc.rec) || 0) + k.qty), q = Number(sc.qty) || 0;
+            const r2 = await api('saveSched', { key: { po: k.po, code: k.code, n: Number(k.ke) }, data: { po: k.po, code: k.code, name: x.r.name, date: sc.date, status: rec >= q - 1e-9 ? 'Done' : (sc.status || 'Confirmed'), qty: q, rec } });
+            applyServerUpdate(r2);
+            const res = await mrpApi('setIncK', { po: k.po, kode: k.code, ke: k.ke, qty: k.qty, tgl: k.tgl || sc.date || '', note: k.note || '', bulan: '', week: '', datang: today });
+            setIncK(res.incK || []);
+            done.push(`${k.po}/${k.code}`);
+          }
+        } catch (err) {
+          throw new Error((done.length ? `Sudah tersimpan: ${done.join(', ')}. ` : '') + 'Berhenti karena: ' + err.message);
+        } finally { if (!state.edit.on) state.edit.pin = pinOld; }
+        setTimeout(renderCal, 0);
+        return `${done.length} jadwal ditandai sudah datang.`;
+      },
+    }));
+  }
 
   /* ---------- Kalender: gambar daftar kedatangan (follow up purchasing) ---------- */
   function calCanvas() {
