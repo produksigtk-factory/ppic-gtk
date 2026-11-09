@@ -813,7 +813,9 @@
     // Jadwal pengiriman
     const sRows = r.sched.length ? r.sched.map((s) => {
       const late = s.status !== 'Done' && s.date && s.date < r.today;
+      const kfS = P.incKMap ? P.incKMap.get(r.po + '|' + r.code + '|' + s.n) : null;
       const pill = s.status === 'Done' ? '<span class="pill pill-done">Sudah datang</span>'
+        : kfS && (Number(s.qty) || 0) - (Number(s.rec) || 0) > 0 ? '<span class="pill pill-inc" title="Dikonfirmasi incoming di Proyeksi Stok">Incoming</span>'
         : late ? `<span class="pill pill-late">Lewat ${daysBetween(s.date, r.today)} hari</span>`
         : s.date ? '<span class="pill pill-wait">Menunggu</span>' : '<span class="pill">Belum ada tanggal</span>';
       const act = ed ? `<td class="row-actions">
@@ -1344,7 +1346,8 @@
       r.sched.forEach((s) => {
         if (s.status === 'Done' || !s.date) return;
         const gap = Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0));
-        if (gap) out.push({ date: s.date, r, qty: gap, kind: s.date < today ? 'late' : 'wait' });
+        const kf = P.incKMap ? P.incKMap.get(r.po + '|' + r.code + '|' + s.n) : null;   // dikonfirmasi di Proyeksi Stok → "Incoming"
+        if (gap) out.push({ date: s.date, r, qty: kf ? Math.min(kf.qty, gap) : gap, kind: kf ? 'inc' : s.date < today ? 'late' : 'wait', kf });
       });
       if (r.follow && r.follow.promise) out.push({ date: r.follow.promise, r, qty: r.shortage || Math.max(0, r.sisa), kind: 'promise' });
     });
@@ -1374,21 +1377,22 @@
     let html = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((d) => `<div class="cal-dow" role="columnheader">${d}</div>`).join('');
     for (let d = start; d <= end; d = dayAdd(d, 1)) {
       const list = byDate.get(d) || [];
-      const n = { wait: 0, late: 0, promise: 0 };
+      const n = { wait: 0, late: 0, promise: 0, inc: 0 };
       list.forEach((it) => { n[it.kind]++; });
       const cls = ['cal-cell', d.slice(0, 7) !== month ? 'is-other' : '', d === today ? 'is-today' : '', d === sel ? 'is-sel' : '', list.length ? 'has' : ''].join(' ');
-      const label = `${dayLong.format(new Date(d + 'T00:00:00'))}: ${n.wait} akan datang, ${n.late} lewat jadwal, ${n.promise} janji kirim`;
+      const label = `${dayLong.format(new Date(d + 'T00:00:00'))}: ${n.wait} akan datang, ${n.late} lewat jadwal, ${n.promise} janji kirim, ${n.inc} incoming`;
       html += `<button class="${cls}" data-d="${d}" role="gridcell" aria-label="${esc(label)}" aria-pressed="${d === sel}">
         <span class="cal-num">${+d.slice(8)}</span>
-        <span class="cal-counts">${n.late ? `<span class="cc cc-late"><b>${n.late}</b><span class="cc-t"> lewat jadwal</span></span>` : ''}${n.wait ? `<span class="cc cc-wait"><b>${n.wait}</b><span class="cc-t"> akan datang</span></span>` : ''}${n.promise ? `<span class="cc cc-promise"><b>${n.promise}</b><span class="cc-t"> janji kirim</span></span>` : ''}${list.length ? `<span class="cc-sup">${new Set(list.map((it) => it.r.supplier)).size} supplier</span>` : ''}</span>
+        <span class="cal-counts">${n.late ? `<span class="cc cc-late"><b>${n.late}</b><span class="cc-t"> lewat jadwal</span></span>` : ''}${n.wait ? `<span class="cc cc-wait"><b>${n.wait}</b><span class="cc-t"> akan datang</span></span>` : ''}${n.promise ? `<span class="cc cc-promise"><b>${n.promise}</b><span class="cc-t"> janji kirim</span></span>` : ''}${n.inc ? `<span class="cc cc-inc"><b>${n.inc}</b><span class="cc-t"> incoming</span></span>` : ''}${list.length ? `<span class="cc-sup">${new Set(list.map((it) => it.r.supplier)).size} supplier</span>` : ''}</span>
       </button>`;
     }
     $('cGrid').innerHTML = html;
 
     // Daftar hari terpilih
-    const list = (byDate.get(sel) || []).slice().sort((a, b) => ({ late: 0, promise: 1, wait: 2 })[a.kind] - ({ late: 0, promise: 1, wait: 2 })[b.kind] || a.r.supplier.localeCompare(b.r.supplier));
+    const ORD = { late: 0, promise: 1, wait: 2, inc: 3 };
+    const list = (byDate.get(sel) || []).slice().sort((a, b) => ORD[a.kind] - ORD[b.kind] || a.r.supplier.localeCompare(b.r.supplier));
     const olderLate = items.filter((it) => it.kind === 'late' && it.date < first).length;
-    const KIND = { late: ['Lewat jadwal', 'b-late'], wait: ['Dijadwalkan', 'b-wait'], promise: ['Janji kirim baru', 'b-promise'] };
+    const KIND = { late: ['Lewat jadwal', 'b-late'], wait: ['Dijadwalkan', 'b-wait'], promise: ['Janji kirim baru', 'b-promise'], inc: ['Incoming', 'b-inc'] };
     CAL.list = list; CAL.sel = sel;
     $('cDay').innerHTML = `<h3>${esc(dayLong.format(new Date(sel + 'T00:00:00')))}</h3>
       <p class="hint">${list.length ? nf.format(list.length) + ' kedatangan · ' + nf.format(new Set(list.map((x) => x.r.supplier)).size) + ' supplier' : 'Tidak ada kedatangan di tanggal ini.'}</p>
@@ -1396,7 +1400,7 @@
       <div class="cal-list">${list.map((it) => `<button class="cal-item" data-key="${esc(it.r.key)}">
           <span class="badge ${KIND[it.kind][1]}">${KIND[it.kind][0]}</span>
           <span class="cal-item-main"><b>${esc(it.r.po)}</b> · ${esc(it.r.supplier)}<br><span class="mat-name">${esc(it.r.name)}</span> <span class="mat-code">${esc(it.r.code)}</span></span>
-          <span class="cal-item-qty">${fmtNum(it.qty)} ${esc(it.r.uom)}</span>
+          <span class="cal-item-qty">${fmtNum(it.qty)} ${esc(it.r.uom)}${it.kf && it.kf.week ? `<small>datang ${esc(it.kf.week)} ${esc(monShort(it.kf.bulan))}</small>` : ''}</span>
         </button>`).join('')}</div>
       ${olderLate ? `<p class="cal-older"><button class="btn btn-ghost btn-sm" data-go-late>${nf.format(olderLate)} jadwal lewat sebelum bulan ini</button></p>` : ''}`;
   }
@@ -1430,7 +1434,7 @@
   function calCanvas() {
     const list = CAL.list || [], sel = CAL.sel, jenisSel = $('cJenis'), sup = $('cSup').value;
     const jenisTxt = jenisSel.options[jenisSel.selectedIndex] ? jenisSel.options[jenisSel.selectedIndex].text : 'Semua jenis';
-    const KIND = { late: ['Lewat jadwal', '#b42318', '#fdecea'], wait: ['Dijadwalkan', '#1d5fa8', '#e8f0fb'], promise: ['Janji kirim baru', '#7a4d00', '#fff4dd'] };
+    const KIND = { late: ['Lewat jadwal', '#b42318', '#fdecea'], wait: ['Dijadwalkan', '#1d5fa8', '#e8f0fb'], promise: ['Janji kirim baru', '#7a4d00', '#fff4dd'], inc: ['Incoming', '#1f6b35', '#e3f1e6'] };
     // kelompok per supplier (supaya mudah diteruskan per supplier)
     const groups = new Map();
     list.forEach((it) => { const g = groups.get(it.r.supplier) || []; g.push(it); groups.set(it.r.supplier, g); });
@@ -2953,6 +2957,7 @@
     P.hasCons = Array.isArray(d.cons); setCons(d.cons || []);
     P.inc = (d.inc || []).map((r) => ({ id: r[0], bulan: r[1], week: r[2], code: r[3], qty: Number(r[4]) || 0, note: r[5], time: r[6] }));
     P.hasIncK = Array.isArray(d.incK); setIncK(d.incK || []);
+    setTimeout(() => { if (state.routeKey === 'po/kalender') renderCal(); else if (state.routeKey === 'po/monitoring' && state.rows.length) render(); }, 0);
     P.weeks = (d.weeks || []).map((r) => ({ bulan: r[0], week: r[1], start: r[2], end: r[3] }));
     P.weekBy = new Map(P.weeks.map((w) => [w.bulan + '|' + w.week, w]));
     P.monthWeeks = new Map();

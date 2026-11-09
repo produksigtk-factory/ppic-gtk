@@ -1469,3 +1469,9 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pj-detail tr.pj-incrow th, .pj-detail tr.pj-incrow td { background: #eef7f1; }
 .cal-img-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
 .cal-img-btns .muted { font-size: 11.5px; }
+/* Jadwal yang dikonfirmasi incoming di Proyeksi Stok */
+.dot-inc { background: #2e8b4e; }
+.cal-counts .cc-inc { background: #e3f1e6; color: #1f6b35; box-shadow: inset 3px 0 0 #2e8b4e; }
+.b-inc { background: #e3f1e6; color: #1f6b35; }
+.pill-inc { background: #e3f1e6; color: #1f6b35; }
+.cal-item-qty small { display: block; font-size: 11px; color: var(--muted); font-weight: 500; }
