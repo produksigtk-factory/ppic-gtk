@@ -1492,3 +1492,4 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .badge.rk-2in1 { background: #f1ecf9; color: #5b3f8c; }
 .badge.rk-kit { background: #fff4dd; color: #7a4d00; }
 .rk-fgbom { white-space: nowrap; font-size: 12.5px; }
+.sk-rk-h { font-size: 15px; margin: 22px 0 4px; }

@@ -4400,6 +4400,19 @@
   /* ---------- BoM Banded / 2in1 / KIT ---------- */
   function setRakitan(list) {
     P.rakitan = (list || []).map((r) => ({ code: r[0], bom: r[1], aktif: String(r[2] || 'Y').toUpperCase() !== 'N', note: r[3], time: r[4] }));
+    syncRakitanSkus();
+  }
+  // Produk rakitan ikut daftar SKU (Rencana Produksi, Konfirmasi, perhitungan) dengan BoM dari menu BoM Banded/2in1/KIT.
+  // Sumber tunggal: menu rakitan menimpa baris SKU_MRP dengan kode yang sama. Di Parameter SKU tampil terpisah (hanya baca).
+  function syncRakitanSkus() {
+    if (!P.skus) return;
+    P.skus.forEach((v, c) => { if (v.rakitan) { P.skus.delete(c); if (v.orig) P.skus.set(c, v.orig); } });
+    (P.rakitan || []).forEach((k) => {
+      const orig = P.skus.get(k.code), b = (k.bom && bomById(k.code, k.bom)) || (MRP.byProduct.get(k.code) || [])[0];
+      const name = ((MRP.master.get(k.code) || {}).name) || (b && b.name) || (orig && orig.name) || '';
+      P.skus.set(k.code, { code: k.code, name, jenis: 'Rakitan', bom: b ? b.id : k.bom, batchText: '', batch: [], aktif: k.aktif, note: k.note, time: k.time, rakitan: true, orig: orig || null });
+    });
+    unitMemo.clear();
   }
   const rkJenis = (name) => (/\bkit\b/i.test(name) ? 'KIT' : /2\s*in\s*1/i.test(name) ? '2in1' : 'Banded');
   const rkBom = (k) => (k.bom && bomById(k.code, k.bom)) || (MRP.byProduct.get(k.code) || [])[0] || null;
@@ -4413,11 +4426,11 @@
     P.rkList = list;
     const fgSet = new Set(), pmSet = new Set();
     const rkHtml = list.map((k, i) => {
-      const versions = MRP.byProduct.get(k.code) || [], b = k.b, inSku = P.skus.has(k.code);
+      const versions = MRP.byProduct.get(k.code) || [], b = k.b;
       const head = `<tr class="rk-head${k.aktif ? '' : ' is-off'}" data-i="${i}"><td class="mono"><b>${esc(k.code)}</b></td>
         <td colspan="2"><b>${esc(k.name)}</b><div class="rk-meta"><span class="badge rk-${k.jenis.toLowerCase()}">${k.jenis}</span>
           ${b ? `BoM <b>${esc(refOf(b))}</b> · batch ${fmtQ(b.batch)} ${esc(b.uom || '')}${versions.length > 1 ? ` · ${versions.length} versi` : ''}` : '<span class="pl-bad">BoM tidak ditemukan di DATABASE</span>'}
-          · ${inSku ? '<span class="muted">ada di Parameter SKU</span>' : '<span class="pl-warn-t">belum di Parameter SKU</span>'}${k.aktif ? '' : ' · <b>tidak aktif</b>'}${k.note ? ` · ${esc(k.note)}` : ''}</div></td>
+          · ${k.aktif ? '<span class="muted">ikut Rencana Produksi (pcs)</span>' : '<b>tidak aktif</b> (tidak ikut Rencana Produksi)'}${k.note ? ` · ${esc(k.note)}` : ''}</div></td>
         <td colspan="4" class="rk-act">${ed ? `${versions.length > 1 ? `<label class="rk-bomsel">BoM <select data-rkbom="${esc(k.code)}">${versions.map((v) => `<option value="${esc(v.id)}"${b && v.id === b.id ? ' selected' : ''}>${esc(refOf(v))}</option>`).join('')}</select></label>` : ''}
           <button type="button" class="btn-link" data-rkedit="${esc(k.code)}">Ubah</button> <button type="button" class="btn-link danger" data-rkdel="${esc(k.code)}">Hapus dari menu</button>` : ''}</td></tr>`;
       const comps = b ? b.comps.map((c) => {
@@ -4426,14 +4439,14 @@
         const fb = fg ? activeBom(c.code) : null;
         return `<tr class="rk-comp${fg ? ' is-fg' : ''}"><td class="mono">${esc(c.code)}</td><td>${esc(m.name || c.name || '')}</td><td>${esc(m.kat || '')}</td>
           <td class="num">${fq((Number(c.qty) || 0) * (b.batch ? 1000 / b.batch : 0))}</td><td class="num">${fq(per)}</td><td>${esc(c.uom || m.uom || '')}</td>
-          <td class="rk-fgbom">${fg ? (fb ? `Ref ${esc(refOf(fb))} · ${normU(fb.uom) === 'kg' ? `batch ${fmtQ(fb.batch)} kg` : `${fmtQ(fb.batch)} pcs = 1.000 kg`}${P.skus.has(c.code) ? '' : ' <span class="muted">(belum di Parameter SKU)</span>'}` : '<span class="pl-bad">FG tanpa BoM</span>') : ''}</td></tr>`;
+          <td class="rk-fgbom">${fg ? (fb ? `Ref ${esc(refOf(fb))} · ${normU(fb.uom) === 'kg' ? `batch ${fmtQ(fb.batch)} kg` : `${fmtQ(fb.batch)} pcs = 1.000 kg`}${P.skus.has(c.code) ? '' : ' <span class="pl-warn-t">(FG belum di Parameter SKU)</span>'}` : '<span class="pl-bad">FG tanpa BoM</span>') : ''}</td></tr>`;
       }).join('') : '';
       return `<tbody class="rk-group">${head}${comps}</tbody>`;
     }).join('') || `<tbody><tr class="empty"><td colspan="7">${(P.rakitan || []).length ? 'Tidak ada yang cocok.' : (P.hasRakitan ? 'Belum ada kode. Klik "Tambah kode" (mode edit).' : 'Apps Script MRP perlu diperbarui (versi dengan BoM rakitan).')}</td></tr></tbody>`;
     // satu tbody per produk (kepala produk + komponennya)
     const tbl = $('rkTable'); tbl.querySelectorAll('tbody').forEach((t) => t.remove()); tbl.insertAdjacentHTML('beforeend', rkHtml);
     $('rkKpi').innerHTML = kpis([{ num: nf.format(list.length), lbl: 'produk rakitan' }, { num: nf.format(fgSet.size), lbl: 'komponen FG (unik)' }, { num: nf.format(pmSet.size), lbl: 'kemasan rakitan (unik)' },
-      { num: nf.format(list.filter((k) => !P.skus.has(k.code)).length), lbl: 'belum di Parameter SKU', tone: list.some((k) => !P.skus.has(k.code)) ? 'warn' : '' }]);
+      { num: nf.format(list.filter((k) => k.aktif).length), lbl: 'aktif (ikut Rencana Produksi)' }]);
     $('rkInfo').textContent = `${nf.format(list.length)} produk ditampilkan${ed ? '' : ' · masuk Mode edit untuk menambah / mengubah'}`;
     $('rkAdd').disabled = !ed;
   }
@@ -4492,7 +4505,7 @@
 
   function renderSku() {
     const q = $('skQ').value.trim().toLowerCase(), j = $('skJenis').value;
-    const rows = [...P.skus.values()].filter((k) => (!q || (k.code + ' ' + k.name).toLowerCase().includes(q)) && (!j || (j === 'off' ? !k.aktif : k.jenis === j)))
+    const rows = [...P.skus.values()].filter((k) => !k.rakitan && (!q || (k.code + ' ' + k.name).toLowerCase().includes(q)) && (!j || (j === 'off' ? !k.aktif : k.jenis === j)))
       .sort((a, b) => (a.jenis === b.jenis ? a.code.localeCompare(b.code, 'id', { numeric: true }) : a.jenis === 'SKU' ? -1 : 1));
     P.skRows = rows;
     $('skRows').innerHTML = rows.map((k, i) => {
@@ -4504,8 +4517,16 @@
         <td>${subs.map((c) => `<span class="pl-chip" title="${esc((MRP.master.get(c) || {}).name || '')}">${esc(c)}</span>`).join(' ') || '<span class="muted">–</span>'}</td>
         <td>${k.aktif ? 'Ya' : '<span class="muted">Tidak</span>'}</td><td>${esc(k.note || '')}</td><td class="muted">${esc(k.time || '')}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="9">Tidak ada SKU yang cocok.</td></tr>';
-    const nS = [...P.skus.values()].filter((k) => k.jenis !== 'Ekstrak' && k.aktif).length;
+    const nS = [...P.skus.values()].filter((k) => !k.rakitan && k.jenis !== 'Ekstrak' && k.aktif).length;
     $('skInfo').textContent = `${nf.format(nS)} SKU aktif · ${nf.format([...P.skus.values()].filter((k) => k.jenis === 'Ekstrak').length)} ekstrak/bulk · klik baris untuk mengubah (mode edit)`;
+    // Bagian terpisah: produk rakitan dari menu BoM Banded/2in1/KIT (hanya baca)
+    const rk = [...P.skus.values()].filter((k) => k.rakitan && (!q || (k.code + ' ' + k.name).toLowerCase().includes(q)) && (!j || j === 'off' ? (j !== 'off' || !k.aktif) : false))
+      .sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }));
+    $('skRkRows').innerHTML = rk.map((k) => { const b = bomById(k.code, k.bom); return `<tr class="${k.aktif ? '' : 'is-off'}"><td class="mono"><a href="#/mrp/rakitan">${esc(k.code)}</a></td><td>${esc(k.name)}</td>
+      <td><span class="badge rk-${rkJenis(k.name).toLowerCase()}">${rkJenis(k.name)}</span></td><td>${b ? esc(refOf(b)) + ` <span class="muted">${esc(b.id)}</span>` : '<span class="pl-bad">BoM tidak ditemukan</span>'}</td>
+      <td>pcs</td><td>${k.aktif ? 'Ya' : '<span class="muted">Tidak</span>'}</td><td>${esc(k.note || '')}</td><td class="muted">${esc(k.time || '')}</td></tr>`; }).join('')
+      || `<tr class="empty"><td colspan="8">${(P.rakitan || []).length ? 'Tidak ada yang cocok dengan filter.' : 'Belum ada produk rakitan.'}</td></tr>`;
+    $('skRkInfo').textContent = `${nf.format((P.rakitan || []).filter((k) => k.aktif).length)} produk rakitan aktif · diambil dari menu BoM Banded/2in1/KIT; ubah di sana`;
   }
   $('skQ').addEventListener('input', renderSku);
   $('skJenis').addEventListener('change', renderSku);
