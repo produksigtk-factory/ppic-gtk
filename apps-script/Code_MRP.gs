@@ -48,7 +48,7 @@ const MRP_HEAD = {
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo. Baris tanpa KODE MATERIAL = penanda MO ada di file tapi kosong.
   // Konfirmasi incoming: jadwal kirim PO (Monitoring PO) yang dikonfirmasi datang → Incoming di Proyeksi Stok. Kunci = NO PO + KODE + JADWAL KE.
   // BULAN/WEEK DATANG = perkiraan week barang datang yang dipilih saat konfirmasi (kosong = ikut tanggal jadwal PO)
-  KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9] },
+  KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG', 'TANGGAL DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9, 10] },
   PC_CP_MO: { head: ['JENIS', 'NO MO', 'KODE SKU', 'KODE MATERIAL', 'NAMA MATERIAL', 'QTY', 'UoM', 'FILE', 'DIUBAH'], text: [1, 2, 3, 4, 5, 7, 8, 9] },
 };
 
@@ -290,9 +290,10 @@ function addInc_(ss, b, now) {
 }
 
 /* ================= Konfirmasi incoming (jadwal PO) ================= */
-// incK: [noPo, kode, jadwalKe, qty, tglJadwal, catatan, diubah, bulanDatang, weekDatang]
+// incK: [noPo, kode, jadwalKe, qty, tglJadwal, catatan, diubah, bulanDatang, weekDatang, tanggalDatang]
+// TANGGAL DATANG terisi bila dicentang "Sudah datang hari ini" (Diterima di Monitoring PO ikut diisi dari website)
 function readIncK_(ss, tz) {
-  return rows_(ss.getSheetByName(MRP_CONFIG.INCK_SHEET), 9).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), d_(r[4], tz, 'yyyy-MM-dd'), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm'), s_(r[7]), s_(r[8])]);
+  return rows_(ss.getSheetByName(MRP_CONFIG.INCK_SHEET), 10).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), d_(r[4], tz, 'yyyy-MM-dd'), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm'), s_(r[7]), s_(r[8]), d_(r[9], tz, 'yyyy-MM-dd')]);
 }
 // Upsert satu jadwal; qty 0 / kosong = batalkan konfirmasi
 function setIncK_(ss, b, now) {
@@ -303,15 +304,16 @@ function setIncK_(ss, b, now) {
   if ((bulan || week) && (!/^\d{4}-\d{2}$/.test(bulan) || !/^W[1-5]$/.test(week))) throw new Error('Week datang tidak dikenal: ' + bulan + ' ' + week);
   const tz = ss.getSpreadsheetTimeZone();
   const all = readIncK_(ss, tz).filter(r => !(r[0] === po && r[1] === kode && r[2] === ke));
-  if (qty > 0) all.push([po, kode, ke, qty, s_(b.tgl), s_(b.note), now, bulan, week]);
+  const datang = /^\d{4}-\d{2}-\d{2}$/.test(s_(b.datang)) ? s_(b.datang) : '';
+  if (qty > 0) all.push([po, kode, ke, qty, s_(b.tgl), s_(b.note), now, bulan, week, datang]);
   const sh = sheet_(ss, MRP_CONFIG.INCK_SHEET);
   const head = MRP_HEAD[MRP_CONFIG.INCK_SHEET].head;
   sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');   // tab lama (7 kolom) ikut diperbarui
-  sh.getRange(2, 8, Math.max(1, all.length), 2).setNumberFormat('@');
+  sh.getRange(2, 8, Math.max(1, all.length), 3).setNumberFormat('@');
   const last = sh.getLastRow();
-  if (last > 1) sh.getRange(2, 1, last - 1, 9).clearContent();
-  if (all.length) sh.getRange(2, 1, all.length, 9).setValues(all);
-  log_(ss, now, qty > 0 ? 'Konfirmasi incoming' : 'Batal konfirmasi incoming', `${po} · ${kode} · jadwal ${ke}${qty > 0 ? ' · ' + qty + (week ? ' · datang ' + week + ' ' + bulan : '') : ''}`);
+  if (last > 1) sh.getRange(2, 1, last - 1, 10).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 10).setValues(all);
+  log_(ss, now, qty > 0 ? 'Konfirmasi incoming' : 'Batal konfirmasi incoming', `${po} · ${kode} · jadwal ${ke}${qty > 0 ? ' · ' + qty + (datang ? ' · sudah datang ' + datang : week ? ' · datang ' + week + ' ' + bulan : '') : ''}`);
   return { incK: readIncK_(ss, tz) };
 }
 
