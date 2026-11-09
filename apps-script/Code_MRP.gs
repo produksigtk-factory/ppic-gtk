@@ -33,6 +33,7 @@ const MRP_CONFIG = {
   INCK_SHEET: 'KONFIRMASI_INCOMING',
   RAKITAN_SHEET: 'BOM_RAKITAN',
   PAKAI_SHEET: 'BOM_RAKITAN_PAKAI',
+  KURANG_SHEET: 'PENGURANGAN_MANUAL',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -50,6 +51,8 @@ const MRP_HEAD = {
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo. Baris tanpa KODE MATERIAL = penanda MO ada di file tapi kosong.
   // Daftar produk rakitan (Banded / 2in1 / KIT) yang dikelola di menu "BoM Banded/2in1/KIT". BOM ID kosong = BOM pertama di DATABASE.
   BOM_RAKITAN: { head: ['KODE', 'BOM ID', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
+  // Pengurangan stok manual (ADD / FOH / RS) per permintaan; week dihitung dari TANGGAL di website
+  PENGURANGAN_MANUAL: { head: ['ID', 'TANGGAL', 'KODE', 'QTY', 'KETERANGAN', 'DIBUAT'], text: [1, 2, 3, 5, 6] },
   // Material yang DIGUNAKAN per produk rakitan (hanya yang "Y" disimpan; tidak ada baris = Tidak digunakan).
   // SUMBER = kode FG asal material (dipecah lewat BoM FG) atau RAKITAN untuk kemasan langsung di BoM rakitan.
   BOM_RAKITAN_PAKAI: { head: ['KODE RAKITAN', 'SUMBER', 'KODE MATERIAL', 'DIGUNAKAN', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
@@ -87,7 +90,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -169,6 +172,9 @@ function doPost(e) {
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
     else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
+    else if (action === 'saveKurang') res = saveKurang_(ss, body, now);
+    else if (action === 'delKurang') res = delKurang_(ss, body, now);
+    else if (action === 'uploadKurang') res = uploadKurang_(ss, body.rows || [], body.file || '', now);
     else if (action === 'setPakai') res = setPakai_(ss, body.items || [], now);
     else if (action === 'saveRakitan') res = saveRakitan_(ss, body.rows || [], body.del || [], now);
     else if (action === 'setIncK') res = setIncK_(ss, body, now);
@@ -316,6 +322,60 @@ function saveRakitan_(ss, rows, del, now) {
   if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
   log_(ss, now, 'BoM rakitan', `${rows.length} disimpan${(del || []).length ? ', ' + del.length + ' dihapus (' + del.join(', ') + ')' : ''}`);
   return { rakitan: readRakitan_(ss, tz) };
+}
+
+/* ================= Pengurangan stok manual (ADD / FOH / RS) ================= */
+// kurang: [id, tanggal, kode, qty, keterangan, dibuat]
+function readKurang_(ss, tz) {
+  return rows_(ss.getSheetByName(MRP_CONFIG.KURANG_SHEET), 6).map(r => [s_(r[0]), d_(r[1], tz, 'yyyy-MM-dd'), s_(r[2]), n_(r[3]), s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd HH:mm')]);
+}
+function writeKurang_(ss, all) {
+  const sh = sheet_(ss, MRP_CONFIG.KURANG_SHEET);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 6).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 6).setValues(all);
+}
+// tambah / ubah satu permintaan (id kosong = baru)
+function saveKurang_(ss, b, now) {
+  const tgl = s_(b.tanggal), kode = s_(b.kode), qty = Number(b.qty) || 0;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Tanggal permintaan wajib diisi.');
+  if (!kode) throw new Error('Kode material wajib ada.');
+  if (!(qty > 0)) throw new Error('Qty harus lebih dari 0.');
+  const tz = ss.getSpreadsheetTimeZone();
+  const all = readKurang_(ss, tz);
+  const id = s_(b.id) || ('K' + Date.now() + Math.floor(Math.random() * 1000));
+  const i = all.findIndex(r => r[0] === id);
+  const row = [id, tgl, kode, qty, s_(b.ket), now];
+  if (i >= 0) all[i] = row; else all.push(row);
+  writeKurang_(ss, all);
+  log_(ss, now, i >= 0 ? 'Ubah pengurangan' : 'Pengurangan ADD/FOH/RS', `${kode} · ${qty} · ${tgl}${b.ket ? ' · ' + s_(b.ket) : ''}`);
+  return { kurang: readKurang_(ss, tz) };
+}
+// Upload Excel: baris ditambahkan (tidak mengganti); baris yang persis sama (tanggal+kode+qty+keterangan) dilewati
+function uploadKurang_(ss, rows, file, now) {
+  const tz = ss.getSpreadsheetTimeZone();
+  const all = readKurang_(ss, tz);
+  const seen = new Set(all.map(r => [r[1], r[2], Number(r[3]), r[4]].join('|')));
+  let add = 0, skip = 0;
+  rows.forEach((r, i) => {
+    const tgl = s_(r[0]), kode = s_(r[1]), qty = Number(r[2]) || 0, ket = s_(r[3]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl) || !kode || !(qty > 0)) { skip++; return; }
+    const k = [tgl, kode, qty, ket].join('|');
+    if (seen.has(k)) { skip++; return; }
+    seen.add(k);
+    all.push(['K' + Date.now() + '-' + i, tgl, kode, qty, ket, now]); add++;
+  });
+  writeKurang_(ss, all);
+  log_(ss, now, 'Upload ADD/FOH/RS', `${file || 'file'} · ${add} baris ditambahkan${skip ? ', ' + skip + ' dilewati (kosong/sama)' : ''}`);
+  return { kurang: readKurang_(ss, tz), added: add, skipped: skip };
+}
+function delKurang_(ss, b, now) {
+  const tz = ss.getSpreadsheetTimeZone();
+  const all = readKurang_(ss, tz), r = all.find(x => x[0] === s_(b.id));
+  if (!r) throw new Error('Data tidak ditemukan. Muat ulang data lalu coba lagi.');
+  writeKurang_(ss, all.filter(x => x[0] !== r[0]));
+  log_(ss, now, 'Hapus pengurangan', `${r[2]} · ${r[3]} · ${r[1]}${r[4] ? ' · ' + r[4] : ''}`);
+  return { kurang: readKurang_(ss, tz) };
 }
 
 // pakai: [kodeRakitan, sumber, kodeMaterial, digunakan, diubah]

@@ -3001,6 +3001,7 @@
     P.hasIncK = Array.isArray(d.incK); setIncK(d.incK || []);
     P.hasRakitan = Array.isArray(d.rakitan); setRakitan(d.rakitan || []);
     P.hasPakai = Array.isArray(d.rakitanPakai); setPakai(d.rakitanPakai || []);
+    P.hasKurang = Array.isArray(d.kurang); setKurang(d.kurang || []);
     setTimeout(() => { if (state.routeKey === 'po/kalender') renderCal(); else if (state.routeKey === 'po/monitoring' && state.rows.length) render(); }, 0);
     P.weeks = (d.weeks || []).map((r) => ({ bulan: r[0], week: r[1], start: r[2], end: r[3] }));
     P.weekBy = new Map(P.weeks.map((w) => [w.bulan + '|' + w.week, w]));
@@ -3329,6 +3330,15 @@
     }
     const rows = [], moMode = P.pjCalc === 'mo', C = moMode ? consByWeek(R, s) : null, PO = poByMat(R);
     const codes = new Set(R.req.keys()); if (C) C.m.forEach((v, code) => codes.add(code));
+    // Pengurangan manual ADD/FOH/RS per week (tanggal sebelum week stok → masuk week pertama perhitungan)
+    const kur = new Map();
+    (P.kurang || []).forEach((x) => {
+      const w = weekOfDate(x.tgl); let i = w ? R.idx.get(w.bulan + '|' + w.week) : undefined;
+      if (i === undefined) { if (x.tgl && R.weeks.length && x.tgl < R.weeks[0].start) i = s; else return; }
+      if (i < s) i = s;
+      if (!kur.has(x.code)) kur.set(x.code, new Array(n).fill(0));
+      kur.get(x.code)[i] += x.qty; codes.add(x.code);
+    });
     const zero = new Array(n).fill(0);
     codes.forEach((code) => {
       const q = R.req.get(code) || { w: zero, total: 0, src: new Map() };
@@ -3339,11 +3349,11 @@
       const awal = (st ? st.qty : 0) + adj, gant = (P.gantung && P.gantung.get(code)) || 0;
       const start = awal - gant;   // Stok Tersedia = Stok Awal − Stok Gantung → dipakai untuk saldo
       const man = null, pin = PO.m.get(code);   // Incoming = jadwal PO yang dikonfirmasi (Konfirmasi incoming)
-      const saldo = new Array(n).fill(null), inW = new Array(n).fill(0);
+      const saldo = new Array(n).fill(null), inW = new Array(n).fill(0), outW = kur.get(code) || zero;
       let run = start, firstShort = -1, minS = Infinity;
       for (let i = s; i < n; i++) {
         inW[i] = pin ? pin.inc[i] : 0;
-        run += inW[i] - (moMode ? (cs ? cs.pc[i] + cs.cp[i] : 0) : q.w[i]);
+        run += inW[i] - (moMode ? (cs ? cs.pc[i] + cs.cp[i] : 0) : q.w[i]) - outW[i];
         saldo[i] = run;
         if (run < -1e-9 && firstShort < 0) firstShort = i;
         if (run < minS) minS = run;
@@ -3351,7 +3361,7 @@
       rows.push({
         code, name: m.name || code, uom: m.uom || '', kat: m.kat || '', start, awal, gant, hasStock: !!st, adj,
         need: q.w, inW, saldo, firstShort, short: minS < 0 ? -minS : 0, total: q.total, src: q.src, man,
-        pc: cs ? cs.pc : zero, cp: cs ? cs.cp : zero, moList: cs ? cs.list : [], po: PO.m.get(code) || null,
+        pc: cs ? cs.pc : zero, cp: cs ? cs.cp : zero, moList: cs ? cs.list : [], po: PO.m.get(code) || null, outW,
       });
     });
     return { R, weeks, s, rows, stockNote, moMode, C, PO };
@@ -4126,18 +4136,18 @@
     if (J.moMode) return renderProyeksiMo(J, rows, vis, VW, mode);
     const AF = pjAfter(VW); P.pjAfter = AF;
     $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: [AF.th].concat(PJ_TAIL), cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
-      subs: [PJ_INC_SUB, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Saldo akhir week (tebal) = saldo sebelumnya + incoming − kebutuhan (di bawahnya)' }] });
+      subs: [PJ_INC_SUB, PJ_KUR_SUB, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Saldo akhir week (tebal) = saldo sebelumnya + incoming − kebutuhan (di bawahnya) − ADD/FOH/RS' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td>` + '<td class="is-past"></td>'.repeat(3);
         const v = r.saldo[j], neg = v < -1e-9;
         const sub = r.need[j] ? `<span class="pj-out">−${fq((r.need[j]))}</span>` : '';
-        return pjIncCell(r, j, k, VW, true) + pjPoCell(r, j) + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
+        return pjIncCell(r, j, k, VW, true) + pjKurCell(r, j) + pjPoCell(r, j) + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
       }).join('')}
       <td class="num pj-poa">${poQ(AF.qty(r))}</td>
       <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length * 3 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 4 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   function pjKpis(J) {
@@ -4160,6 +4170,8 @@
   const pjIncCell = (r, j, k, VW, first) => `<td class="num pj-sinc${first ? ' w-start' + wCls(VW, k) : ''}${r.po && r.po.w[j] ? ' pj-pow' : ''}" data-v="${r.inW[j] || 0}"${r.po && r.po.w[j] ? ` data-pow="${j}" title="Klik untuk konfirmasi incoming"` : ''}>`
     + (r.inW[j] ? `<b class="pj-in">+${fq(r.inW[j])}</b>` : '') + '</td>';
   const pjPoCell = (r, j) => `<td class="num pj-spo${r.po && r.po.w[j] ? ' pj-pow' : ''}"${r.po && r.po.w[j] ? ` data-pow="${j}" title="Klik untuk konfirmasi incoming"` : ''}>${r.po ? poQ(r.po.w[j]) : ''}</td>`;
+  const PJ_KUR_SUB = { label: 'ADD/FOH/RS', cls: 'pj-skur', title: 'Pengurangan stok manual (ADD / FOH / RS) di week ini; mengurangi saldo. Klik untuk melihat / menambah' };
+  const pjKurCell = (r, j) => `<td class="num pj-skur pj-kurc" data-kur="${j}" data-v="${r.outW[j] || 0}" title="${P.edit ? 'Klik untuk menambah / melihat permintaan' : 'Klik untuk melihat permintaan'}">${r.outW[j] ? `<b class="pj-out">−${fq(r.outW[j])}</b>` : ''}</td>`;
   const PJ_PO_SUB = { label: 'PO', cls: 'pj-spo', title: 'Sisa qty jadwal PO yang jatuh di week ini (informasi, tidak menambah saldo)' };
   const poQ = (v) => (v > 1e-9 ? fq(v) : '');
   const PJ_TAIL = [{ html: 'Mulai kurang' }, { html: 'Kurang', cls: 'num' }];
@@ -4184,18 +4196,18 @@
     const AF = pjAfter(VW); P.pjAfter = AF;
     $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: [AF.th].concat(PJ_TAIL), cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
       subs: [{ label: 'Plan', cls: 'pj-sp', title: 'Kebutuhan MPS (pembanding)' }, { label: 'PC', cls: 'pj-spc', title: 'Products to Consume: belum dikonsumsi' },
-        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, PJ_INC_SUB, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia − (PC + CP) berjalan' }] });
+        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, PJ_INC_SUB, PJ_KUR_SUB, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia + incoming − (PC + CP) − ADD/FOH/RS berjalan' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td>` + '<td class="is-past"></td>'.repeat(5);
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td>` + '<td class="is-past"></td>'.repeat(6);
         const v = r.saldo[j], neg = v < -1e-9;
-        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td>${pjIncCell(r, j, k, VW, false)}${pjPoCell(r, j)}`
+        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td>${pjIncCell(r, j, k, VW, false)}${pjKurCell(r, j)}${pjPoCell(r, j)}`
           + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq(v)}</b></td>`;
       }).join('')}
       <td class="num pj-poa">${poQ(AF.qty(r))}</td>
       <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq(r.short)}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length * 6 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 7 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   // pilihan mode hitung Proyeksi (diingat per browser)
@@ -4212,8 +4224,9 @@
   ['pjQ', 'pjMode', 'pjKat'].forEach((id) => $(id).addEventListener(id === 'pjQ' ? 'input' : 'change', renderProyeksi));
   $('pjRows').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-i]'); if (!tr) return;
-    const code = P.pjRows[Number(tr.dataset.i)].code, pw = e.target.closest('[data-pow]');
-    if (pw) pjWeekPoDialog(code, Number(pw.dataset.pow)); else openProjDetail(code);
+    const code = P.pjRows[Number(tr.dataset.i)].code, pw = e.target.closest('[data-pow]'), kc = e.target.closest('[data-kur]');
+    if (kc) pjKurDialog(code, Number(kc.dataset.kur));
+    else if (pw) pjWeekPoDialog(code, Number(pw.dataset.pow)); else openProjDetail(code);
   });
   $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter' || e.target.closest('input')) return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
   function openProjDetail(code) {
@@ -4232,6 +4245,7 @@
           ${row('Incoming (PO dikonfirmasi)', (i) => (r.inW[i] ? `<b class="pj-in">+${fq(r.inW[i])}</b>` : ''), 'pj-incrow')}
           ${row(J.moMode ? 'Plan (pembanding)' : 'Kebutuhan', (i) => q4(r.need[i]), J.moMode ? 'muted' : '')}
           ${J.moMode ? row('PC (belum dikonsumsi)', (i) => q4(r.pc[i])) + row('CP (sudah dikonsumsi)', (i) => q4(r.cp[i])) : ''}
+          ${row('ADD/FOH/RS (manual)', (i) => (r.outW[i] ? `<b class="pj-out">−${fq(r.outW[i])}</b>` : ''), 'pj-kurrow')}
           ${row('PO (info, tidak dihitung)', (i) => q4(r.po ? r.po.w[i] : 0), 'pj-porow')}
           ${row('Saldo akhir', (i) => `<b class="${r.saldo[i] < -1e-9 ? 'pl-bad' : ''}">${fq((r.saldo[i]))}</b>`, 'pj-sum')}
         </tbody></table></div>
@@ -4262,6 +4276,88 @@
       } catch (err) { b.disabled = false; b.textContent = 'Hapus'; toast('Gagal: ' + err.message); }
     }));
   }
+  /* ---------- Pengurangan stok manual ADD / FOH / RS ---------- */
+  function setKurang(list) { P.kurang = (list || []).map((r) => ({ id: r[0], tgl: r[1], code: r[2], qty: Number(r[3]) || 0, ket: r[4], time: r[5] })); }
+  function pjKurDialog(code, j) {
+    const J = P.proj || computeProj(), w = J.weeks[j], m = MRP.master.get(code) || {};
+    const inWeek = (x) => { const ww = weekOfDate(x.tgl); let i = ww ? J.R.idx.get(ww.bulan + '|' + ww.week) : undefined; if (i === undefined && x.tgl && J.weeks.length && x.tgl < J.weeks[0].start) i = J.s; if (i !== undefined && i < J.s) i = J.s; return i === j; };
+    const L = (P.kurang || []).filter((x) => x.code === code && inWeek(x)).sort((a, b) => (a.tgl < b.tgl ? -1 : 1));
+    const ed = P.edit, def = todayStr() >= w.start && todayStr() <= w.end ? todayStr() : w.start;
+    openDialog({
+      title: `ADD/FOH/RS · ${code} · ${wLabel(w)} ${w.bulan.slice(0, 4)}`, ok: ed ? 'Tambah permintaan' : 'Tutup', cancel: ed, wide: true,
+      body: `<p class="dlg-lead">${esc(m.name || '')} · ${esc(wTitle(w))} · total <b>${fq(L.reduce((t, x) => t + x.qty, 0))} ${esc(m.uom || '')}</b></p>
+        ${L.length ? `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>Tanggal</th><th class="num">Qty</th><th>Keterangan / peminta</th><th>Dicatat</th>${ed ? '<th></th>' : ''}</tr></thead><tbody>
+          ${L.map((x) => `<tr><td>${fmtDate(x.tgl)}${x.tgl < w.start ? ' <small class="muted">(sebelum tanggal stok, dihitung di week ini)</small>' : ''}</td><td class="num"><b>${fq(x.qty)}</b></td><td>${esc(x.ket)}</td><td class="muted">${esc(x.time)}</td>${ed ? `<td><button type="button" class="btn-link danger" data-kurdel="${esc(x.id)}">Hapus</button></td>` : ''}</tr>`).join('')}
+          </tbody></table></div>` : '<p class="muted">Belum ada permintaan di week ini.</p>'}
+        ${ed ? `<h3 class="pj-h">Tambah permintaan</h3><div class="form-grid">${fld('tgl', 'Tanggal permintaan *', def, { type: 'date', required: true })}${fld('qty', `Qty (${esc(m.uom || '')}) *`, '', { type: 'number', step: 'any', required: true })}${fld('ket', 'Keterangan / peminta (ADD / FOH / RS …)', '', { wide: true })}</div>` : '<p class="hint">Masuk Mode edit (PIN MRP) untuk menambah atau menghapus.</p>'}`,
+      onSubmit: ed ? async (fd) => {
+        if (!P.hasKurang) throw new Error('Apps Script MRP perlu diperbarui (versi dengan ADD/FOH/RS).');
+        const qty = Number(fd.qty); if (!(qty > 0)) throw new Error('Qty harus lebih dari 0.');
+        const res = await mrpApi('saveKurang', { tanggal: fd.tgl, kode: code, qty, ket: (fd.ket || '').trim() });
+        setKurang(res.kurang || []); renderProyeksi();
+        setTimeout(() => pjKurDialog(code, j), 0);
+        return 'Permintaan dicatat.';
+      } : async () => '',
+    });
+    const b = $('dlgBody'), seq = dlgSeq;
+    b.addEventListener('click', async (e) => {
+      if (seq !== dlgSeq) return;
+      const d = e.target.closest('[data-kurdel]'); if (!d) return;
+      d.disabled = true; d.textContent = 'Menghapus…';
+      try { const res = await mrpApi('delKurang', { id: d.dataset.kurdel }); setKurang(res.kurang || []); renderProyeksi(); pjKurDialog(code, j); toast('Permintaan dihapus.'); }
+      catch (err) { d.disabled = false; d.textContent = 'Hapus'; toast('Gagal: ' + err.message); }
+    });
+  }
+  // Format Excel & upload ADD/FOH/RS
+  const KUR_HEAD = ['TANGGAL', 'KODE', 'NAMA MATERIAL', 'QTY', 'UoM', 'KETERANGAN'];
+  $('kurTpl').addEventListener('click', () => {
+    const ws = XLSX.utils.aoa_to_sheet([KUR_HEAD, [todayStr(), '', '', '', '', 'ADD / FOH / RS - peminta']]);
+    ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 40 }, { wch: 10 }, { wch: 6 }, { wch: 40 }];
+    const info = XLSX.utils.aoa_to_sheet([['Petunjuk'], ['Satu baris = satu permintaan. Wajib: TANGGAL (tanggal permintaan, yyyy-mm-dd), KODE material, QTY (> 0).'],
+      ['NAMA MATERIAL & UoM hanya pembantu, boleh kosong. KETERANGAN: jenis (ADD / FOH / RS) dan peminta / no. dokumen.'],
+      ['Upload menambahkan baris (tidak mengganti data lama). Baris yang persis sama (tanggal, kode, qty, keterangan) dilewati.'],
+      ['Week dihitung dari TANGGAL; tanggal sebelum tanggal stok dihitung di week pertama Proyeksi Stok.']]);
+    const mat = XLSX.utils.json_to_sheet([...MRP.master.values()].filter((m) => /raw|pack|ekstrak/i.test(m.kat || '')).map((m) => ({ KODE: m.code, 'NAMA MATERIAL': m.name, KATEGORI: m.kat, UoM: m.uom })));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'ADD FOH RS'); XLSX.utils.book_append_sheet(wb, info, 'PETUNJUK'); XLSX.utils.book_append_sheet(wb, mat, 'DAFTAR MATERIAL');
+    XLSX.writeFile(wb, `Format_ADD_FOH_RS_${todayStr()}.xlsx`);
+  });
+  const xlDay = (v) => {
+    if (v === '' || v === null || v === undefined) return '';
+    if (typeof v === 'number') { const d = XLSX.SSF.parse_date_code(v); return d ? `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}` : ''; }
+    const t = String(v).trim(); let mm = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (mm) return `${mm[1]}-${mm[2].padStart(2, '0')}-${mm[3].padStart(2, '0')}`;
+    mm = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); return mm ? `${mm[3]}-${mm[2].padStart(2, '0')}-${mm[1].padStart(2, '0')}` : '';
+  };
+  $('kurFile').addEventListener('change', async () => {
+    const f = $('kurFile').files[0]; $('kurFile').value = ''; if (!f) return;
+    try {
+      const wb = await readBook(f), sn = wb.SheetNames.find((x) => /add|foh|rs/i.test(x)) || wb.SheetNames[0], A = sheetRows(wb, sn);
+      const h = A.findIndex((r) => r.some((x) => txt(x).toUpperCase() === 'TANGGAL') && r.some((x) => txt(x).toUpperCase() === 'KODE'));
+      if (h < 0) throw new Error('Kolom TANGGAL dan KODE tidak ditemukan. Pakai "Format ADD/FOH/RS".');
+      const H = A[h].map((x) => txt(x).toUpperCase()), ix = (nm) => H.indexOf(nm);
+      const rows = [], bad = [], unk = new Set();
+      A.slice(h + 1).forEach((r, i) => {
+        const kode = txt(r[ix('KODE')]).replace(/\.0+$/, ''), qty = Number(String(r[ix('QTY')] ?? '').replace(',', '.')), tgl = xlDay(r[ix('TANGGAL')]);
+        if (!kode && !r[ix('QTY')]) return;
+        if (!tgl || !kode || !(qty > 0)) { bad.push(h + i + 2); return; }
+        if (!MRP.master.has(kode)) unk.add(kode);
+        rows.push([tgl, kode, qty, ix('KETERANGAN') >= 0 ? txt(r[ix('KETERANGAN')]) : '']);
+      });
+      if (!rows.length) throw new Error('Tidak ada baris yang lengkap (TANGGAL, KODE, QTY).');
+      needEdit(() => openDialog({
+        title: `Upload ADD/FOH/RS · ${f.name}`, ok: 'Simpan ke Google Sheet',
+        body: `<p class="dlg-lead">Terbaca <b>${nf.format(rows.length)}</b> permintaan, total qty ${fq(rows.reduce((t, r) => t + r[2], 0))}. Baris ditambahkan ke data lama; baris yang persis sama dilewati.</p>
+          ${bad.length ? `<p class="pl-bad">${bad.length} baris dilewati karena TANGGAL/KODE/QTY tidak lengkap (baris ${bad.slice(0, 10).join(', ')}${bad.length > 10 ? '…' : ''}).</p>` : ''}
+          ${unk.size ? `<p class="pl-warn-t">Kode tidak ada di Daftar Material: ${esc([...unk].slice(0, 10).join(', '))} (tetap disimpan).</p>` : ''}`,
+        onSubmit: async () => {
+          if (!P.hasKurang) throw new Error('Apps Script MRP perlu diperbarui (versi dengan ADD/FOH/RS).');
+          const res = await mrpApi('uploadKurang', { rows, file: f.name });
+          setKurang(res.kurang || []); if (PLAN_KEYS.has(state.routeKey)) renderPlanView(state.routeKey);
+          return `${res.added} permintaan ditambahkan${res.skipped ? `, ${res.skipped} dilewati` : ''}.`;
+        },
+      }));
+    } catch (err) { toast('Upload gagal: ' + err.message); }
+  });
+
   /* ---------- Konfirmasi incoming (jadwal PO → Incoming Proyeksi Stok) ---------- */
   function setIncK(list) {
     P.incK = (list || []).map((r) => ({ po: r[0], code: r[1], ke: String(r[2]), qty: Number(r[3]) || 0, tgl: r[4], note: r[5], time: r[6], bulan: r[7] || '', week: r[8] || '', datang: r[9] || '' }));
@@ -4423,6 +4519,7 @@
         const k = wLabel(w) + ' ' + w.bulan.slice(0, 4);
         o[k + ' IN'] = round4(r.inW[i]);
         if (J.moMode) { o[k + ' PLAN'] = round4(r.need[i]); o[k + ' PC'] = round4(r.pc[i]); o[k + ' CP'] = round4(r.cp[i]); } else o[k + ' KEBUTUHAN'] = round4(r.need[i]);
+        o[k + ' ADD/FOH/RS'] = round4(r.outW[i] || 0);
         o[k + ' PO (INFO)'] = round4(r.po ? r.po.w[i] : 0);
         o[k + ' SALDO'] = round4(r.saldo[i]);
       });

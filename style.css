@@ -1505,3 +1505,8 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .rk-yn button + button { border-left: 1px solid var(--line); }
 .rk-yn button[aria-pressed="true"]:first-child { background: #e3f1e6; color: #1f6b35; font-weight: 600; }
 .rk-yn button[aria-pressed="true"]:last-child { background: #f3f4f6; color: var(--ink); font-weight: 600; }
+/* Proyeksi: ADD/FOH/RS (pengurangan manual) */
+.pj-table th.pj-skur, .pj-table td.pj-skur { background: #fdf1ef; }
+.pj-table td.pj-kurc { cursor: pointer; }
+.pj-table td.pj-kurc:hover { box-shadow: inset 0 0 0 9999px rgba(180, 35, 24, .07); }
+.pj-detail tr.pj-kurrow th, .pj-detail tr.pj-kurrow td { background: #fdf1ef; }

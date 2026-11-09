@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2b9840c2">
+<link rel="stylesheet" href="style.css?v=9cc6e74e">
 </head>
 <body>
 <div class="shell">
@@ -655,7 +655,7 @@
           <div class="pj-seg" id="pjCalc" role="group" aria-label="Mode hitung"><button type="button" data-calc="plan" aria-pressed="true">Mode Plan</button><button type="button" data-calc="mo" aria-pressed="false">Mode PC + CP</button></div>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
-          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="pjExport">Unduh Excel</button></div>
+          <div class="tb-actions"><button class="btn-link" id="kurTpl">Format ADD/FOH/RS</button><label class="btn btn-ghost btn-sm kf-up" for="kurFile">Upload ADD/FOH/RS<input type="file" id="kurFile" accept=".xls,.xlsx" hidden></label><button class="btn btn-ghost btn-sm" id="pjExport">Unduh Excel</button></div>
         </div>
         <div class="warn-box pj-nostock" id="pjNoStock" hidden><div><b>Belum ada data stok RM/PM.</b> Upload export stok Odoo supaya saldo dan kekurangan dihitung dari stok sebenarnya.</div><a class="btn btn-sm" href="#/mrp/update">Upload stok</a></div>
         <div class="pl-kpis" id="pjKpi"></div>
@@ -1210,9 +1210,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=78e6e8bd"></script>
+<script src="app.js?v=74e9b466"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=05063bbd"></script>
+<script src="help.js?v=aa2edc6a"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
