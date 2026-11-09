@@ -1452,3 +1452,9 @@ label.is-disabled { opacity: .5; pointer-events: none; }
 }
 .kf-act { white-space: nowrap; }
 .kf-ed { grid-template-columns: 1fr 1fr; }
+/* Proyeksi: kolom Incoming (menambah saldo) */
+.pj-table th.pj-sinc, .pj-table td.pj-sinc { background: #eef7f1; }
+.pj-table td.pj-sinc .pj-in { color: #1f6b35; }
+.pj-inc-in { width: 76px; border: 1px solid #b9d3c2; border-radius: 5px; padding: 3px 6px; font: inherit; font-size: 12.5px; text-align: right; background: #fff; }
+.pj-inc-in:focus { outline: 2px solid var(--brand-dark); outline-offset: 0; }
+.pj-inc-in.is-saving { opacity: .5; }

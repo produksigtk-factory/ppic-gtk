@@ -3929,18 +3929,18 @@
     if (J.moMode) return renderProyeksiMo(J, rows, vis, VW, mode);
     const AF = pjAfter(VW); P.pjAfter = AF;
     $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: [AF.th].concat(PJ_TAIL), cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
-      subs: [PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Saldo akhir week (tebal); di bawahnya +incoming / −kebutuhan' }] });
+      subs: [PJ_INC_SUB, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Saldo akhir week (tebal) = saldo sebelumnya + incoming − kebutuhan (di bawahnya)' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td>`;
         const v = r.saldo[j], neg = v < -1e-9;
-        const sub = (r.inW[j] ? `<span class="pj-in">+${fq((r.inW[j]))}</span>` : '') + (r.need[j] ? `<span class="pj-out">−${fq((r.need[j]))}</span>` : '');
-        return `<td class="num pj-spo w-start${wCls(VW, k)}">${r.po ? poQ(r.po.w[j]) : ''}</td><td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
+        const sub = r.need[j] ? `<span class="pj-out">−${fq((r.need[j]))}</span>` : '';
+        return pjIncCell(r, j, k, VW, true) + `<td class="num pj-spo">${r.po ? poQ(r.po.w[j]) : ''}</td><td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq((v))}</b>${sub ? `<small>${sub}</small>` : ''}</td>`;
       }).join('')}
       <td class="num pj-poa">${poQ(AF.qty(r))}</td>
       <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq((r.short))}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length * 2 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 3 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   function pjKpis(J) {
@@ -3958,6 +3958,11 @@
   const PJ_LEAD = [{ html: 'Material', cls: 'pl-sticky pl-c1' }, { html: 'Stok tersedia<small>awal − gantung</small>', cls: 'num pj-stk', title: 'Stok Tersedia = Stok Awal (stok upload + koreksi) − Stok Gantung; dipakai sebagai saldo awal' },
     { html: 'PO lewat<small>tanggal</small>', cls: 'num pj-pol', title: 'Sisa qty jadwal PO yang belum Done dan tanggalnya sudah lewat (informasi, tidak menambah saldo)' },
     { html: 'PO belum<small>dijadwalkan</small>', cls: 'num pj-pon', title: 'Qty order PO yang belum dibagi ke jadwal kirim (informasi, tidak menambah saldo)' }];
+  const PJ_INC_SUB = { label: 'Incoming', cls: 'pj-sinc', title: 'Barang masuk di week ini; menambah saldo. Mode edit: ketik langsung di sel' };
+  // Sel Incoming: mode edit → input langsung (simpan sebagai incoming manual selisihnya)
+  const pjIncCell = (r, j, k, VW, first) => `<td class="num pj-sinc${first ? ' w-start' + wCls(VW, k) : ''}" data-v="${r.inW[j] || 0}">`
+    + (P.edit ? `<input class="pj-inc-in" data-code="${esc(r.code)}" data-j="${j}" value="${r.inW[j] ? round4(r.inW[j]) : ''}" inputmode="decimal" aria-label="Incoming ${esc(r.code)} ${esc(wLabel(VW[k]))}">`
+      : (r.inW[j] ? `<b class="pj-in">+${fq(r.inW[j])}</b>` : '')) + '</td>';
   const PJ_PO_SUB = { label: 'PO', cls: 'pj-spo', title: 'Sisa qty jadwal PO yang jatuh di week ini (informasi, tidak menambah saldo)' };
   const poQ = (v) => (v > 1e-9 ? fq(v) : '');
   const PJ_TAIL = [{ html: 'Mulai kurang' }, { html: 'Kurang', cls: 'num' }];
@@ -3982,18 +3987,18 @@
     const AF = pjAfter(VW); P.pjAfter = AF;
     $('pjHead').innerHTML = gridHead(VW, { lead: PJ_LEAD, tail: [AF.th].concat(PJ_TAIL), cellCls: (k) => (vis[k] < s ? ' is-past' : ''),
       subs: [{ label: 'Plan', cls: 'pj-sp', title: 'Kebutuhan MPS (pembanding)' }, { label: 'PC', cls: 'pj-spc', title: 'Products to Consume: belum dikonsumsi' },
-        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia − (PC + CP) berjalan' }] });
+        { label: 'CP', cls: 'pj-scp', title: 'Consumed Products: sudah dikonsumsi' }, PJ_INC_SUB, PJ_PO_SUB, { label: 'Saldo', cls: 'pj-ssal', title: 'Stok tersedia − (PC + CP) berjalan' }] });
     $('pjRows').innerHTML = rows.slice(0, 1500).map((r, i) => `<tr class="row" data-i="${i}" tabindex="0">${pjLead(r)}
       ${vis.map((j, k) => {
-        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td><td class="is-past"></td>`;
+        if (j < s) return `<td class="num is-past w-start${wCls(VW, k)}"></td>` + '<td class="is-past"></td>'.repeat(5);
         const v = r.saldo[j], neg = v < -1e-9;
-        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td><td class="num pj-spo">${r.po ? poQ(r.po.w[j]) : ''}</td>`
-          + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq(v)}</b>${r.inW[j] ? `<small><span class="pj-in">+${fq(r.inW[j])}</span></small>` : ''}</td>`;
+        return `<td class="num pj-sp w-start${wCls(VW, k)}">${q0(r.need[j])}</td><td class="num pj-spc">${q0(r.pc[j])}</td><td class="num pj-scp">${q0(r.cp[j])}</td>${pjIncCell(r, j, k, VW, false)}<td class="num pj-spo">${r.po ? poQ(r.po.w[j]) : ''}</td>`
+          + `<td class="num pj-cell${neg ? ' is-neg' : ''}"><b>${fq(v)}</b></td>`;
       }).join('')}
       <td class="num pj-poa">${poQ(AF.qty(r))}</td>
       <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(wLabel(weeks[r.firstShort]))}</span>` : '<span class="badge b-done">Aman</span>'}</td>
       <td class="num">${r.short ? `<b class="pl-bad">${fq(r.short)}</b>` : ''}</td></tr>`).join('')
-      || `<tr class="empty"><td colspan="${VW.length * 5 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
+      || `<tr class="empty"><td colspan="${VW.length * 6 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
   // pilihan mode hitung Proyeksi (diingat per browser)
@@ -4008,8 +4013,29 @@
     renderProyeksi();
   });
   ['pjQ', 'pjMode', 'pjKat'].forEach((id) => $(id).addEventListener(id === 'pjQ' ? 'input' : 'change', renderProyeksi));
-  $('pjRows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
-  $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter') return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
+  $('pjRows').addEventListener('click', (e) => { if (e.target.closest('input')) return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
+  // Incoming diketik langsung di sel (mode edit): selisih terhadap total week itu disimpan sebagai incoming manual
+  $('pjRows').addEventListener('change', (e) => {
+    const inp = e.target.closest('.pj-inc-in'); if (!inp) return;
+    const J = P.proj, code = inp.dataset.code, j = Number(inp.dataset.j), w = J && J.weeks[j];
+    const r = J && J.rows.find((x) => x.code === code); if (!r || !w) return;
+    const raw = inp.value.trim(), val = raw === '' ? 0 : Number(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw);
+    if (isNaN(val)) { toast('Incoming harus angka.'); inp.value = r.inW[j] ? round4(r.inW[j]) : ''; return; }
+    const delta = round4(val - (r.inW[j] || 0));
+    if (!delta) return;
+    needEdit(async () => {
+      inp.disabled = true; inp.classList.add('is-saving');
+      try {
+        const ket = `Diisi di tabel Proyeksi: incoming ${wLabel(w)} ${w.bulan.slice(0, 4)} jadi ${val}`;
+        const res = await mrpApi('addInc', { bulan: w.bulan, week: w.week, kode: code, qty: delta, ket });
+        P.inc.push({ id: res.id, bulan: w.bulan, week: w.week, code, qty: delta, note: ket, time: res.time });
+        toast(`Incoming ${code} ${wLabel(w)} tersimpan: ${fq(val)}.`);
+        renderProyeksi();
+      } catch (err) { inp.disabled = false; inp.classList.remove('is-saving'); inp.value = r.inW[j] ? round4(r.inW[j]) : ''; toast('Gagal menyimpan: ' + err.message); }
+    });
+  });
+  $('pjRows').addEventListener('keydown', (e) => { if (e.target.closest('.pj-inc-in')) { if (e.key === 'Enter') e.target.blur(); return; } });
+  $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter' || e.target.closest('input')) return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
   function openProjDetail(code) {
     const J = computeProj(); P.proj = J;
     const r = J.rows.find((x) => x.code === code); if (!r) return;
