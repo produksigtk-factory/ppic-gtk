@@ -3926,7 +3926,7 @@
     }
     {
       const poRead = state.readAt ? whenText(state.readAt) : '', poUp = (state.lastUpload && (state.lastUpload.detTime || state.lastUpload.time)) || '';
-      note += `<br><b>PO</b> (hanya informasi, tidak menambah saldo): ${state.rows && state.rows.length ? `data PO upload ${poUp ? esc(fmtDate(poUp.slice(0, 10))) : '-'}${P.stockDate ? ` · stok per ${fmtDate(P.stockDate)}` : ''}${poRead ? ` · dibaca ${esc(poRead)}` : ''}. Jadwal Done, PO cancel, dan take out tidak dihitung.` : '<span class="pl-bad">data PO belum dimuat</span>.'}`;
+      note += `<br><b>PO</b> (informasi; hanya jadwal yang dikonfirmasi masuk <b>Incoming</b> dan menambah saldo — klik angka PO bergaris titik untuk konfirmasi): ${state.rows && state.rows.length ? `data PO upload ${poUp ? esc(fmtDate(poUp.slice(0, 10))) : '-'}${P.stockDate ? ` · stok per ${fmtDate(P.stockDate)}` : ''}${poRead ? ` · dibaca ${esc(poRead)}` : ''}. Jadwal Done, PO cancel, dan take out tidak dihitung.` : '<span class="pl-bad">data PO belum dimuat</span>.'}`;
     }
     $('pjNote').innerHTML = note;
     // hanya week di bulan yang dicentang yang ditampilkan; saldo tetap dihitung lewat bulan di antaranya
