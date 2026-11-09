@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=a57dab72">
+<link rel="stylesheet" href="style.css?v=f75b1385">
 </head>
 <body>
 <div class="shell">
@@ -150,7 +150,7 @@
               <h2>MRP</h2>
               <span class="module-link">Buka Proyeksi Stok</span>
             </div>
-            <p class="module-desc">Rencana produksi per week dipecah lewat BOM (sampai bahan baku ekstrak) menjadi kebutuhan RM/PM, lalu dibandingkan dengan stok dan incoming manual.</p>
+            <p class="module-desc">Rencana produksi per week dipecah lewat BOM (sampai bahan baku ekstrak) menjadi kebutuhan RM/PM, lalu dibandingkan dengan stok dan incoming (jadwal PO yang dikonfirmasi).</p>
             <dl class="module-stats">
               <div><dt>Material akan kurang</dt><dd id="hMrpShort">–</dd></div>
               <div><dt>Produk ber-BOM</dt><dd id="hMrpProd">–</dd></div>
@@ -647,7 +647,7 @@
       <section id="view-mrp-proyeksi" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Menghitung proyeksi stok…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
-        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik sebuah material untuk menambah incoming manual atau koreksi stok.</p></div>
+        <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Klik angka PO / Incoming untuk konfirmasi incoming per jadwal PO, atau klik material untuk koreksi stok.</p></div>
         <div class="toolbar mrp-toolbar">
           <button type="button" class="pl-hz pl-hzbtn" id="pjHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
@@ -663,7 +663,7 @@
         <div class="table-wrap pl-wrap">
           <table class="po-table pl-table pj-table"><thead id="pjHead"></thead><tbody id="pjRows"></tbody></table>
         </div>
-        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> incoming manual · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus. <b>Mode Plan</b>: saldo dikurangi kebutuhan MPS. <b>Mode PC + CP</b>: saldo dikurangi PC (belum dikonsumsi) + CP (sudah dikonsumsi) dari MO di Konfirmasi Produksi; Plan tampil sebagai pembanding.</p>
+        <p class="hint">Angka tebal = saldo akhir week (dibawa ke week berikutnya). <span class="pj-in">+hijau</span> Incoming = jadwal PO yang dikonfirmasi (klik angka PO untuk konfirmasi) · <span class="pj-out">−abu</span> kebutuhan · <span class="pl-legend pj-negl">merah</span> saldo minus. <b>Mode Plan</b>: saldo dikurangi kebutuhan MPS. <b>Mode PC + CP</b>: saldo dikurangi PC (belum dikonsumsi) + CP (sudah dikonsumsi) dari MO di Konfirmasi Produksi; Plan tampil sebagai pembanding.</p>
       </section>
 
       <!-- ================= MRP: PARAMETER SKU ================= -->
@@ -1187,9 +1187,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=0136e8a9"></script>
+<script src="app.js?v=03c61461"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=38379159"></script>
+<script src="help.js?v=2588672b"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>

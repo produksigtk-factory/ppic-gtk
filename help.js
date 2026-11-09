@@ -63,7 +63,7 @@
     ['MRP', 'Rakitan', 'Banded, 2in1, KIT', 'Produk yang BOM-nya hanya berisi FG + bahan kemas (tanpa RM/ekstrak). Direncanakan dalam pcs; komponen FG-nya tidak dipecah lagi, tampil sebagai "FG untuk rakitan/bonus". Perlakuan per jenis masih menunggu keputusan.', 'mrp/kebutuhan|Kebutuhan Material'],
     ['MRP', 'Ekstrak / bulk dipecah', '', 'Ekstrak dan bulk yang punya BOM sendiri dipecah terus sampai bahan baku, dengan kebutuhan pas (tanpa pembulatan batch).', ''],
     ['MRP', 'Kebutuhan', '', 'Qty material yang dibutuhkan untuk rencana produksi pada week tersebut.', 'mrp/kebutuhan|Kebutuhan Material'],
-    ['MRP', 'Incoming', '', 'Barang yang akan datang dan ditambahkan ke saldo stok per week, dicatat lewat Incoming manual.', 'mrp/proyeksi|Proyeksi Stok'],
+    ['MRP', 'Incoming', '', 'Jadwal kirim PO berjalan (Monitoring PO) yang sudah Anda konfirmasi datang; menambah saldo di week tanggal jadwalnya. Qty konfirmasi diketik (maks. sisa jadwal) dan ikut turun bila sisa jadwal berkurang. Jadwal lewat tanggal / Done / PO cancel tidak dihitung.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Saldo / Proyeksi stok', '', 'Stok awal + incoming − kebutuhan, dibawa dari week ke week. Saldo minus (merah) = material akan kurang.', 'mrp/proyeksi|Proyeksi Stok'],
     ['MRP', 'Stok koreksi', '', 'Penyesuaian manual (+/−) atas stok hasil export Odoo, berlaku sejak tanggalnya.', ''],
     // ---------- CSL ----------

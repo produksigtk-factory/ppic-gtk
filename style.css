@@ -1458,3 +1458,12 @@ label.is-disabled { opacity: .5; pointer-events: none; }
 .pj-inc-in { width: 76px; border: 1px solid #b9d3c2; border-radius: 5px; padding: 3px 6px; font: inherit; font-size: 12.5px; text-align: right; background: #fff; }
 .pj-inc-in:focus { outline: 2px solid var(--brand-dark); outline-offset: 0; }
 .pj-inc-in.is-saving { opacity: .5; }
+/* Konfirmasi incoming */
+.pj-kbtn { border: 1px solid #b9d3c2; background: #fff; color: var(--brand-dark); border-radius: 5px; padding: 2px 8px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.pj-kbtn:hover { background: #eef7f1; }
+.pj-kbtn.is-on { background: #e3f1e6; border-color: #7fb491; color: #1f6b35; }
+.pj-kbtn small { font-weight: 500; }
+td .pj-kbtn + small { display: block; font-size: 11px; }
+.pj-table td.pj-pow { cursor: pointer; text-decoration: underline dotted #9b86c4; text-underline-offset: 3px; }
+.pj-table td.pj-pow:hover { box-shadow: inset 0 0 0 9999px rgba(91, 63, 140, .08); }
+.pj-detail tr.pj-incrow th, .pj-detail tr.pj-incrow td { background: #eef7f1; }
