@@ -823,8 +823,8 @@
       const sisa = (Number(s.qty) || 0) - (Number(s.rec) || 0), kf = P.incKMap ? P.incKMap.get(r.po + '|' + r.code + '|' + s.n) : null;
       const kAttr = `data-inck="${esc(r.po)}|${esc(r.code)}|${s.n}" data-inck-date="${esc(s.date || '')}" data-inck-sisa="${sisa}"`;
       const inc = r.cancel ? '<span class="muted">–</span>'
-        : kf ? `<button type="button" class="pj-kbtn is-on" ${kAttr}>✓ ${fmtNum(kf.qty)}</button>${s.status === 'Done' || !(sisa > 0) ? '<small class="muted">sudah diterima</small>' : late ? '<small class="pl-bad">lewat tanggal, tidak dihitung</small>' : ''}`
-        : s.status !== 'Done' && sisa > 0 && s.date && !late ? `<button type="button" class="pj-kbtn" ${kAttr}>Konfirmasi</button>` : '<span class="muted">–</span>';
+        : kf ? `<button type="button" class="pj-kbtn is-on" ${kAttr}>✓ ${fmtNum(kf.qty)}</button>${s.status === 'Done' || !(sisa > 0) ? '<small class="muted">sudah diterima</small>' : kf.week ? `<small class="muted">datang ${esc(kf.week)} ${esc(monShort(kf.bulan))}</small>` : ''}`
+        : s.status !== 'Done' && sisa > 0 ? `<button type="button" class="pj-kbtn" ${kAttr}>Konfirmasi</button>` : '<span class="muted">–</span>';
       return `<tr><td class="c-n">${s.n}</td><td class="c-date">${fmtDate(s.date)}</td>
         <td class="num">${fmtNum(s.qty)}</td><td class="num">${fmtNum(s.rec)}</td>
         <td class="num">${s.short ? `<b class="short-qty">${fmtNum(s.short)}</b>` : '<span class="muted">–</span>'}</td>
@@ -3098,6 +3098,10 @@
     const groups = new Map();
     (state.rows || []).forEach((r) => { const k = r.po + '|' + r.code; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
     const get = (code) => { let o = m.get(code); if (!o) { o = { late: 0, unsched: 0, w: new Array(n).fill(0), inc: new Array(n).fill(0), list: [], kFlags: [] }; m.set(code, o); } return o; };
+    // week berjalan (index di rentang); konfirmasi yang week datangnya sudah lewat dipindah ke sini
+    const tw = weekOfDate(today); let cw = tw ? R.idx.get(tw.bulan + '|' + tw.week) : undefined;
+    if (cw === undefined) cw = R.weeks.findIndex((w) => w.end >= today);
+    if (cw < 0) cw = undefined;
     groups.forEach((rs) => {
       const act = rs.filter((r) => !r.cancel && !r.takeout);
       if (!act.length) return;
@@ -3109,11 +3113,23 @@
         const sisa = (Number(x.qty) || 0) - (Number(x.rec) || 0);
         if (x.status === 'Done' || !(sisa > 1e-9)) { if (kf) { W.kDone++; get(code).kFlags.push(Object.assign({ t: 'Jadwal sudah Done / sudah diterima', date: x.date, ke: x.n, konf: kf.qty }, base)); } return; }
         const o = get(code), it = Object.assign({ date: x.date, qty: Number(x.qty) || 0, rec: Number(x.rec) || 0, sisa, ke: x.n, konf: kf ? kf.qty : 0, kNote: kf ? kf.note : '' }, base);
-        if (!x.date || x.date < today) { o.late += sisa; it.kind = 'late'; if (kf) { W.kLate++; it.kFlag = 'Jadwal lewat tanggal: konfirmasi tidak dihitung, perlu dicek'; } }
+        if (!x.date || x.date < today) { o.late += sisa; it.kind = 'late'; }
         else {
           const w = weekOfDate(x.date), i = w ? R.idx.get(w.bulan + '|' + w.week) : undefined;
-          if (i === undefined) { it.kind = 'out'; W.outside++; if (kf) { W.kOut++; it.kFlag = 'Di luar rentang bulan: tidak dihitung'; } }
-          else { o.w[i] += sisa; it.kind = 'w'; it.i = i; if (kf) { it.eff = Math.min(kf.qty, sisa); o.inc[i] += it.eff; } }
+          if (i === undefined) { it.kind = 'out'; W.outside++; } else { o.w[i] += sisa; it.kind = 'w'; it.i = i; }
+        }
+        if (kf) {
+          // week datang: pilihan saat konfirmasi, atau week tanggal jadwal; yang sudah lewat → week berjalan
+          let ti;
+          if (kf.bulan && kf.week) {
+            const wk = P.weeks.find((w) => w.bulan === kf.bulan && w.week === kf.week);
+            if (wk && wk.end < today) { ti = cw; it.moved = true; } else ti = R.idx.get(kf.bulan + '|' + kf.week);
+          } else if (it.kind === 'late') { ti = cw; it.moved = true; }
+          else if (it.kind === 'w') ti = it.i;
+          if (ti !== undefined && cw !== undefined && ti < cw) { ti = cw; it.moved = true; }
+          if (ti === undefined) { W.kOut++; it.kFlag = 'Week datang di luar rentang bulan: tidak dihitung'; }
+          else { it.eff = Math.min(kf.qty, sisa); o.inc[ti] += it.eff; it.incI = ti; }
+          it.kWeek = kf.week ? `${kf.week} ${monShort(kf.bulan)}` : '';
         }
         o.list.push(it);
       });
@@ -4072,34 +4088,43 @@
   }
   /* ---------- Konfirmasi incoming (jadwal PO → Incoming Proyeksi Stok) ---------- */
   function setIncK(list) {
-    P.incK = (list || []).map((r) => ({ po: r[0], code: r[1], ke: String(r[2]), qty: Number(r[3]) || 0, tgl: r[4], note: r[5], time: r[6] }));
+    P.incK = (list || []).map((r) => ({ po: r[0], code: r[1], ke: String(r[2]), qty: Number(r[3]) || 0, tgl: r[4], note: r[5], time: r[6], bulan: r[7] || '', week: r[8] || '' }));
     P.incKMap = new Map(P.incK.map((k) => [k.po + '|' + k.code + '|' + k.ke, k]));
   }
   // Sel konfirmasi di daftar jadwal PO (x: item poByMat)
   function incKCell(x, code) {
     if (x.kind === 'none') return '<span class="muted">belum dijadwalkan</span>';
     const k = `data-inck="${esc(x.po)}|${esc(code)}|${esc(x.ke)}" data-inck-date="${esc(x.date || '')}" data-inck-sisa="${x.sisa}"`;
-    if (x.konf) return `<button type="button" class="pj-kbtn is-on" ${k} title="${esc(x.kNote || '')}">✓ ${fq(x.konf)}${x.eff !== undefined && x.eff < x.konf - 1e-9 ? ` <small>(dihitung ${fq(x.eff)})</small>` : ''}</button>${x.kFlag ? `<small class="pl-bad">${esc(x.kFlag)}</small>` : ''}`;
-    if (x.kind === 'late') return '<span class="muted">lewat tanggal, tidak bisa dikonfirmasi</span>';
+    const wl = P.proj && x.incI !== undefined ? P.proj.weeks[x.incI] : null;
+    if (x.konf) return `<button type="button" class="pj-kbtn is-on" ${k} title="${esc(x.kNote || '')}">✓ ${fq(x.konf)}${x.eff !== undefined && x.eff < x.konf - 1e-9 ? ` <small>(dihitung ${fq(x.eff)})</small>` : ''}</button>`
+      + (wl ? `<small class="muted">datang ${esc(wLabel(wl))}${x.moved ? ' (dipindah ke week berjalan)' : ''}</small>` : '') + (x.kFlag ? `<small class="pl-bad">${esc(x.kFlag)}</small>` : '');
     return `<button type="button" class="pj-kbtn" ${k}>Konfirmasi</button>`;
   }
   // Dialog isi qty konfirmasi satu jadwal; after() dipanggil setelah tersimpan (mis. buka lagi rincian)
   function incKDialog(po, code, ke, date, sisa, after) {
     if (!P.hasIncK) { toast('Apps Script MRP perlu diperbarui (versi dengan konfirmasi incoming).'); return; }
     needEdit(() => {
-      const k = P.incKMap.get(po + '|' + code + '|' + ke), m = MRP.master.get(code) || {};
+      const k = P.incKMap.get(po + '|' + code + '|' + ke), m = MRP.master.get(code) || {}, today = todayStr();
+      // pilihan week datang: week berjalan s.d. ±6 bulan; default = pilihan lama / week tanggal jadwal (bila belum lewat) / week berjalan
+      const opts = P.weeks.filter((w) => w.end >= today && w.bulan <= addMonth(today.slice(0, 7), 6));
+      const sw = date && date >= today ? weekOfDate(date) : null, cur = opts[0];
+      const defKey = k && k.week ? k.bulan + '|' + k.week : sw ? sw.bulan + '|' + sw.week : cur ? cur.bulan + '|' + cur.week : '';
+      const late = !date || date < today;
       openDialog({
         title: `Konfirmasi incoming · ${po}`, ok: 'Simpan konfirmasi',
         body: `<p class="dlg-lead"><b>${esc(code)}</b> ${esc(m.name || '')} · jadwal ke-${esc(ke)} · ${date ? fmtDate(date) : 'tanpa tanggal'} · sisa jadwal <b>${fq(sisa)} ${esc(m.uom || '')}</b></p>
+          ${late ? '<p class="check err">Jadwal ini sudah lewat tanggal. Pilih perkiraan week barang datang.</p>' : ''}
           <div class="form-grid">${fld('qty', `Qty yang dikonfirmasi datang (${esc(m.uom || '')}) *`, k ? String(k.qty) : String(round4(sisa)), { type: 'number', step: 'any', required: true })}
+          <label class="field"><span>Perkiraan week datang *</span><select name="wk">${opts.map((w) => `<option value="${w.bulan}|${w.week}"${w.bulan + '|' + w.week === defKey ? ' selected' : ''}>${esc(wLabel(w))} ${w.bulan.slice(0, 4)} · ${fmtDate(w.start).slice(0, 6)}–${fmtDate(w.end).slice(0, 6)}${sw && w === sw ? ' (tanggal jadwal)' : ''}${w === cur ? ' (week berjalan)' : ''}</option>`).join('')}</select></label>
           ${fld('note', 'Catatan', k ? k.note : '', { wide: true })}</div>
           ${k ? '<label class="chk"><input type="checkbox" name="hapus" value="1"> Batalkan konfirmasi ini</label>' : ''}
-          <p class="hint">Qty maksimal sebesar sisa jadwal. Incoming masuk ke week tanggal jadwal PO dan ikut berkurang bila sisa jadwal berkurang (barang sudah diterima).</p>`,
+          <p class="hint">Qty maksimal sebesar sisa jadwal. Incoming masuk ke week datang yang dipilih dan ikut berkurang bila sisa jadwal berkurang (barang sudah diterima). Bila week datang sudah lewat dan barang belum diterima, incoming otomatis pindah ke week berjalan.</p>`,
         onSubmit: async (fd) => {
           const del = fd.hapus === '1', qty = del ? 0 : Number(fd.qty);
           if (!del && !(qty > 0)) throw new Error('Isi qty lebih dari 0, atau centang "Batalkan konfirmasi".');
           if (qty > sisa + 1e-9) throw new Error(`Qty melebihi sisa jadwal (${fq(sisa)}).`);
-          const res = await mrpApi('setIncK', { po, kode: code, ke, qty, tgl: date || '', note: (fd.note || '').trim() });
+          const [wb, ww] = String(fd.wk || '|').split('|'), sameAsSched = sw && wb === sw.bulan && ww === sw.week;
+          const res = await mrpApi('setIncK', { po, kode: code, ke, qty, tgl: date || '', note: (fd.note || '').trim(), bulan: sameAsSched ? '' : wb, week: sameAsSched ? '' : ww });
           setIncK(res.incK || []);
           setTimeout(() => { if (PLAN_KEYS.has(state.routeKey)) renderPlanView(state.routeKey); if (state.routeKey === 'po/monitoring') render(); if (after) after(); }, 0);
           return del ? 'Konfirmasi dibatalkan.' : 'Incoming dikonfirmasi.';
@@ -4130,11 +4155,11 @@
   function pjWeekPoDialog(code, j) {
     const J = computeProj(); P.proj = J;
     const r = J.rows.find((x) => x.code === code); if (!r || !r.po) return;
-    const w = J.weeks[j], L = r.po.list.filter((x) => x.kind === 'w' && x.i === j).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const w = J.weeks[j], L = r.po.list.filter((x) => (x.kind === 'w' && x.i === j) || x.incI === j).sort((a, b) => (a.date < b.date ? -1 : 1));
     P.incKBack = () => pjWeekPoDialog(code, j);
     openDialog({
       title: `${r.code} · PO ${wLabel(w)} ${w.bulan.slice(0, 4)}`, ok: 'Tutup', wide: true, cancel: false, onSubmit: null,
-      body: `<p class="dlg-lead">${esc(r.name)} · ${esc(wTitle(w))} · PO <b>${fq(r.po.w[j])}</b> · Incoming dikonfirmasi <b>${fq(r.inW[j] || 0)}</b> ${esc(r.uom)}</p>
+      body: `<p class="dlg-lead">${esc(r.name)} · ${esc(wTitle(w))} · PO terjadwal di week ini <b>${fq(r.po.w[j])}</b> · Incoming dikonfirmasi <b>${fq(r.inW[j] || 0)}</b> ${esc(r.uom)}</p>
         <div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Jadwal ke</th><th>Tgl jadwal</th><th class="num">Qty</th><th class="num">Diterima</th><th class="num">Sisa</th><th>Konfirmasi incoming</th></tr></thead><tbody>
         ${L.map((x) => `<tr><td><button type="button" class="btn-link pr-po" data-gopo="${esc(x.po)}" data-gocode="${esc(r.code)}">${esc(x.po)}</button></td><td>${esc(x.supplier)}</td><td class="num">${esc(x.ke)}</td><td>${fmtDate(x.date)}</td>
           <td class="num">${fq(x.qty)}</td><td class="num">${x.rec ? fq(x.rec) : ''}</td><td class="num"><b>${fq(x.sisa)}</b></td><td>${incKCell(x, r.code)}</td></tr>`).join('')}
