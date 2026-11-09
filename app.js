@@ -1389,8 +1389,10 @@
     const list = (byDate.get(sel) || []).slice().sort((a, b) => ({ late: 0, promise: 1, wait: 2 })[a.kind] - ({ late: 0, promise: 1, wait: 2 })[b.kind] || a.r.supplier.localeCompare(b.r.supplier));
     const olderLate = items.filter((it) => it.kind === 'late' && it.date < first).length;
     const KIND = { late: ['Lewat jadwal', 'b-late'], wait: ['Dijadwalkan', 'b-wait'], promise: ['Janji kirim baru', 'b-promise'] };
+    CAL.list = list; CAL.sel = sel;
     $('cDay').innerHTML = `<h3>${esc(dayLong.format(new Date(sel + 'T00:00:00')))}</h3>
       <p class="hint">${list.length ? nf.format(list.length) + ' kedatangan · ' + nf.format(new Set(list.map((x) => x.r.supplier)).size) + ' supplier' : 'Tidak ada kedatangan di tanggal ini.'}</p>
+      ${list.length ? `<div class="cal-img-btns"><button type="button" class="btn btn-sm" data-cal-img="dl">Unduh gambar</button><button type="button" class="btn btn-ghost btn-sm" data-cal-img="copy">Salin gambar</button><span class="muted">untuk follow up purchasing · ikut filter jenis &amp; supplier</span></div>` : ''}
       <div class="cal-list">${list.map((it) => `<button class="cal-item" data-key="${esc(it.r.key)}">
           <span class="badge ${KIND[it.kind][1]}">${KIND[it.kind][0]}</span>
           <span class="cal-item-main"><b>${esc(it.r.po)}</b> · ${esc(it.r.supplier)}<br><span class="mat-name">${esc(it.r.name)}</span> <span class="mat-code">${esc(it.r.code)}</span></span>
@@ -1417,11 +1419,79 @@
   $('cToday').addEventListener('click', () => { CAL.month = null; CAL.day = null; renderCal(); });
   ['cJenis', 'cSup'].forEach((id) => $(id).addEventListener('change', renderCal));
   $('cDay').addEventListener('click', (e) => {
+    const ib = e.target.closest('[data-cal-img]'); if (ib) { calImage(ib.dataset.calImg, ib); return; }
     if (e.target.closest('[data-go-late]')) return goMonitor({ status: 'late', sort: 'late-desc', jenis: $('cJenis').value, supplier: $('cSup').value });
     const it = e.target.closest('.cal-item'); if (!it) return;
     const r = state.rows.find((x) => x.key === it.dataset.key);
     if (r) goMonitor({ q: r.po, openKey: r.key, jenis: '', supplier: '' });
   });
+
+  /* ---------- Kalender: gambar daftar kedatangan (follow up purchasing) ---------- */
+  function calCanvas() {
+    const list = CAL.list || [], sel = CAL.sel, jenisSel = $('cJenis'), sup = $('cSup').value;
+    const jenisTxt = jenisSel.options[jenisSel.selectedIndex] ? jenisSel.options[jenisSel.selectedIndex].text : 'Semua jenis';
+    const KIND = { late: ['Lewat jadwal', '#b42318', '#fdecea'], wait: ['Dijadwalkan', '#1d5fa8', '#e8f0fb'], promise: ['Janji kirim baru', '#7a4d00', '#fff4dd'] };
+    // kelompok per supplier (supaya mudah diteruskan per supplier)
+    const groups = new Map();
+    list.forEach((it) => { const g = groups.get(it.r.supplier) || []; g.push(it); groups.set(it.r.supplier, g); });
+    const S = 2, W = 1180, PAD = 28, RH = 34, GH = 34;
+    const cols = [{ t: 'Status', w: 130 }, { t: 'No PO', w: 110 }, { t: 'Kode', w: 80 }, { t: 'Material', w: 0 }, { t: 'Tgl order', w: 100 }, { t: 'Sisa datang', w: 140, r: true }];
+    const fixed = cols.reduce((t, c) => t + c.w, 0); cols[3].w = W - PAD * 2 - fixed;
+    const H = PAD + 30 + 22 + 22 + 18 + RH + groups.size * GH + list.length * RH + 46;
+    const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+    const g = cv.getContext('2d'); g.scale(S, S);
+    const F = (w, sz) => `${w} ${sz}px Inter, "Segoe UI", Arial, sans-serif`;
+    const fit = (t, w) => { t = String(t || ''); if (g.measureText(t).width <= w) return t; while (t.length && g.measureText(t + '…').width > w) t = t.slice(0, -1); return t + '…'; };
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    let y = PAD + 22;
+    g.fillStyle = '#0b4f2b'; g.font = F(700, 22); g.fillText('Jadwal Kedatangan Material', PAD, y);
+    g.fillStyle = '#1b2b3f'; g.font = F(600, 16); y += 26; g.fillText(dayLong.format(new Date(sel + 'T00:00:00')), PAD, y);
+    g.fillStyle = '#5b6878'; g.font = F(400, 13); y += 22;
+    g.fillText(`Jenis: ${jenisTxt} · Supplier: ${sup || 'Semua supplier'} · ${nf.format(list.length)} kedatangan · ${nf.format(groups.size)} supplier`, PAD, y);
+    y += 18;
+    // kepala tabel
+    let x = PAD; g.fillStyle = '#eef3f0'; g.fillRect(PAD, y, W - PAD * 2, RH);
+    g.fillStyle = '#334155'; g.font = F(600, 12.5);
+    cols.forEach((c) => { g.textAlign = c.r ? 'right' : 'left'; g.fillText(c.t, c.r ? x + c.w - 10 : x + 10, y + 22); x += c.w; }); g.textAlign = 'left';
+    y += RH;
+    groups.forEach((items, supName) => {
+      g.fillStyle = '#f6f8fa'; g.fillRect(PAD, y, W - PAD * 2, GH);
+      g.fillStyle = '#0b4f2b'; g.font = F(700, 13.5); g.fillText(fit(supName || '(tanpa supplier)', W - PAD * 2 - 140), PAD + 10, y + 22);
+      g.fillStyle = '#5b6878'; g.font = F(400, 12); g.textAlign = 'right'; g.fillText(`${items.length} item`, W - PAD - 10, y + 22); g.textAlign = 'left';
+      y += GH;
+      items.forEach((it) => {
+        g.strokeStyle = '#e3e8ee'; g.beginPath(); g.moveTo(PAD, y + RH - 0.5); g.lineTo(W - PAD, y + RH - 0.5); g.stroke();
+        let cx = PAD; const k = KIND[it.kind];
+        g.font = F(600, 11.5); const bw = g.measureText(k[0]).width + 14;
+        g.fillStyle = k[2]; g.beginPath(); if (g.roundRect) g.roundRect(cx + 10, y + 8, bw, 19, 9); else g.rect(cx + 10, y + 8, bw, 19); g.fill();
+        g.fillStyle = k[1]; g.fillText(k[0], cx + 17, y + 21.5); cx += cols[0].w;
+        g.fillStyle = '#1b2b3f'; g.font = F(700, 13); g.fillText(it.r.po, cx + 10, y + 22); cx += cols[1].w;
+        g.font = F(500, 12.5); g.fillStyle = '#5b6878'; g.fillText(it.r.code, cx + 10, y + 22); cx += cols[2].w;
+        g.fillStyle = '#1b2b3f'; g.font = F(400, 13); g.fillText(fit(it.r.name, cols[3].w - 20), cx + 10, y + 22); cx += cols[3].w;
+        g.fillStyle = '#5b6878'; g.font = F(400, 12); g.fillText(it.r.date ? fmtDate(it.r.date) : '', cx + 10, y + 22); cx += cols[4].w;
+        g.fillStyle = '#1b2b3f'; g.font = F(700, 13.5); g.textAlign = 'right'; g.fillText(`${fmtNum(it.qty)} ${it.r.uom || ''}`, cx + cols[5].w - 10, y + 22); g.textAlign = 'left';
+        y += RH;
+      });
+    });
+    g.fillStyle = '#8a96a5'; g.font = F(400, 11.5);
+    g.fillText(`Dibuat dari Monitoring PO · data PO dibaca ${state.readAt ? whenText(state.readAt) : '-'} · ${new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}`, PAD, H - 18);
+    return cv;
+  }
+  async function calImage(mode, btn) {
+    if (!(CAL.list || []).length) return;
+    const cv = calCanvas();
+    const blob = await new Promise((ok) => cv.toBlob(ok, 'image/png'));
+    const sup = $('cSup').value, jenisSel = $('cJenis');
+    const jt = jenisSel.options[jenisSel.selectedIndex] ? jenisSel.options[jenisSel.selectedIndex].text : '';
+    const name = `Kedatangan_${CAL.sel}_${(sup || 'Semua-supplier').replace(/[^\w.-]+/g, '-')}_${jt.replace(/[^\w.-]+/g, '-')}.png`;
+    if (mode === 'copy') {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); toast('Gambar disalin. Tempel (Ctrl+V) di WhatsApp / email.'); return; }
+      catch (err) { toast('Browser tidak mengizinkan salin gambar, jadi gambar diunduh.'); }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    if (btn) { const t = btn.textContent; btn.textContent = 'Terunduh ✓'; setTimeout(() => { btn.textContent = t; }, 1500); }
+  }
 
   /* ================= EDIT MANUAL ================= */
 

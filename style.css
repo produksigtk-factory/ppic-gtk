@@ -1467,3 +1467,5 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pj-table td.pj-pow { cursor: pointer; text-decoration: underline dotted #9b86c4; text-underline-offset: 3px; }
 .pj-table td.pj-pow:hover { box-shadow: inset 0 0 0 9999px rgba(91, 63, 140, .08); }
 .pj-detail tr.pj-incrow th, .pj-detail tr.pj-incrow td { background: #eef7f1; }
+.cal-img-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
+.cal-img-btns .muted { font-size: 11.5px; }
