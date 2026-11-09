@@ -1450,3 +1450,5 @@ label.is-disabled { opacity: .5; pointer-events: none; }
   #prPrintRoot .pr-lamp-h { font-size: 13px; margin-bottom: 8px; }
   #prPrintRoot .pr-lamp-page img { max-width: 100%; max-height: 175mm; object-fit: contain; display: block; margin: 0 auto; }
 }
+.kf-act { white-space: nowrap; }
+.kf-ed { grid-template-columns: 1fr 1fr; }

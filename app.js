@@ -3563,7 +3563,7 @@
         <td class="num">${r.ek ? fmtKg(r.ekKg) : ''}</td>
         <td>${r.ek ? (edit ? `<select class="kf-moek">${moOpts}</select>` : (r.moEk ? `<b>${esc(r.moEk)}</b>` : '<span class="muted">–</span>')) : ''}</td>
         <td><span class="kf-w kf-${w.lvl}">${esc(w.t)}</span>${r.note && r.bom ? `<small class="muted kf-note">${esc(r.note)}</small>` : ''}</td>
-        <td>${edit ? `<button type="button" class="btn-link danger kf-del" title="Hapus MO ini dari daftar">Hapus</button>` : ''}</td></tr>`;
+        <td class="kf-act">${edit ? `<button type="button" class="btn-link kf-edit" title="Ubah No MO, produk, qty, BOM">Ubah</button> <button type="button" class="btn-link danger kf-del" title="Hapus MO ini dari daftar">Hapus</button>` : ''}</td></tr>`;
     }).join('') || `<tr class="empty"><td colspan="11">${all.length ? 'Tidak ada MO yang cocok.' : 'Belum ada data. Upload file LIST_MO dari Odoo.'}</td></tr>`;
     // MO ekstrak
     $('kfEkRows').innerHTML = (show === 'sku' ? [] : eks).filter((r) => !q || (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q)).sort((a, b) => a.no.localeCompare(b.no)).map((r) => {
@@ -3571,7 +3571,7 @@
       const st = !users.length ? '<span class="kf-w kf-todo">Belum dipakai</span>' : sisa < -kfTol(cap) ? `<span class="kf-w kf-bad">Melebihi hasil (kurang ${fmtKg(-sisa)} kg)</span>` : '<span class="kf-w kf-ok">OK</span>';
       return `<tr class="kf-row${P.kfDraft.has(r.no) ? ' is-dirty' : ''}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${consTag(r.no)}</td><td>${esc(r.code)} <span class="muted">${esc(r.name)}</span></td><td class="num">${fmtKg(cap)}</td>
         <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}</td><td class="num">${fmtKg(used) || 0}</td><td class="num${sisa < -kfTol(cap) ? ' pl-bad' : ''}">${fmtKg(sisa) || 0}</td>
-        <td>${users.map((x) => `${esc(x.no)} <span class="muted">${esc(x.code)}</span>`).join(', ') || '<span class="muted">–</span>'}</td><td>${st}${edit ? ` <button type="button" class="btn-link danger kf-del">Hapus</button>` : ''}</td></tr>`;
+        <td>${users.map((x) => `${esc(x.no)} <span class="muted">${esc(x.code)}</span>`).join(', ') || '<span class="muted">–</span>'}</td><td>${st}${edit ? ` <button type="button" class="btn-link kf-edit">Ubah</button> <button type="button" class="btn-link danger kf-del">Hapus</button>` : ''}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="8">Belum ada MO ekstrak.</td></tr>';
     const ws = sku.map((r) => kfWarn(r, all));
     const nBad = ws.filter((w) => w.lvl === 'bad').length, nTodo = ws.filter((w) => w.lvl === 'todo').length;
@@ -3599,6 +3599,7 @@
       renderKonf();
     });
     $(id).addEventListener('click', (e) => {
+      const ed = e.target.closest('.kf-edit'); if (ed) { kfEditDialog(ed.closest('tr[data-no]').dataset.no); return; }
       const b = e.target.closest('.kf-del'); if (!b) return;
       const no = b.closest('tr[data-no]').dataset.no;
       if (P.konf.has(no)) P.kfDel.add(no);
@@ -3608,6 +3609,59 @@
       renderKonf();
     });
   });
+  // Ubah No MO, produk, qty, UoM, BOM satu MO (masuk draft; tersimpan saat "Simpan perubahan")
+  function kfEditDialog(no) {
+    const r0 = kfGet(no); if (!r0) return;
+    const codes = new Map(); P.skus.forEach((v, c) => codes.set(c, v.name || '')); MRP.byProduct.forEach((l, c) => { if (!codes.has(c)) codes.set(c, ((MRP.master.get(c) || {}).name) || (l[0] || {}).name || ''); });
+    const bomOpts = (code, cur) => { const list = MRP.byProduct.get(code) || [], def = activeBom(code); if (!list.length) return '<option value="">(kode tidak punya BOM)</option>';
+      return list.map((b) => `<option value="${esc(b.id)}"${b.id === (cur || (def && def.id)) ? ' selected' : ''}>${esc(refOf(b))}${def && b.id === def.id ? ' (default)' : ''}${b.batch ? ` · batch ${fmtQ(b.batch)} ${esc(b.uom || '')}` : ''}</option>`).join(''); };
+    openDialog({
+      title: `Ubah MO ${no}`, ok: 'Terapkan',
+      body: `<div class="form-grid kf-ed">
+          <label class="field"><span>No MO *</span><input name="no" value="${esc(r0.no)}" required></label>
+          <label class="field"><span>Kode produk *</span><input name="code" value="${esc(r0.code)}" list="kfEdCodes" required autocomplete="off"></label>
+          <label class="field full"><span>Nama produk</span><input name="name" value="${esc(r0.name)}" readonly></label>
+          <label class="field"><span>Qty *</span><input name="qty" value="${esc(String(r0.qty))}" inputmode="decimal" required></label>
+          <label class="field"><span>UoM</span><select name="uom">${['Pcs', 'Kg'].map((u) => `<option${normU(r0.uom) === normU(u) ? ' selected' : ''}>${u}</option>`).join('')}${['pcs', 'kg'].includes(normU(r0.uom)) || !r0.uom ? '' : `<option selected>${esc(r0.uom)}</option>`}</select></label>
+          <label class="field full"><span>BOM (Reference)</span><select name="bom">${bomOpts(r0.code, r0.bom)}</select></label>
+        </div><datalist id="kfEdCodes">${[...codes].map(([c, n]) => `<option value="${esc(c)}">${esc(n)}</option>`).join('')}</datalist>
+        <p class="check" id="kfEdCalc"></p>
+        <p class="hint">Konversi kg dan kebutuhan ekstrak dihitung ulang dari BOM yang dipilih. Week tetap; MO ekstrak dikosongkan bila ekstrak berubah. Perubahan baru tersimpan setelah klik <b>Simpan perubahan</b>.</p>`,
+      onSubmit: async (fd) => {
+        const nno = String(fd.no || '').trim(), code = String(fd.code || '').trim(), qty = Number(String(fd.qty).replace(',', '.'));
+        if (!nno || !code) throw new Error('No MO dan kode produk wajib diisi.');
+        if (!(qty > 0)) throw new Error('Qty harus lebih dari 0.');
+        if (nno !== no && kfRows().some((x) => x.no === nno)) throw new Error(`No MO ${nno} sudah ada di daftar.`);
+        const c = kfCalc(code, qty, fd.uom, fd.bom);
+        const name = codes.get(code) || ((MRP.master.get(code) || {}).name) || r0.name;
+        const row = Object.assign({}, r0, { no: nno, code, name, qty, uom: fd.uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: c.note, moEk: c.ek === r0.ek ? r0.moEk : '' });
+        if (nno !== no) {
+          if (P.konf.has(no)) P.kfDel.add(no);
+          P.kfDraft.delete(no); P.kfDel.delete(nno);
+          kfRows().filter((x) => x.moEk === no).forEach((x) => kfTouch(x.no, { moEk: nno }));   // MO SKU yang memakai MO ekstrak ini ikut pindah
+        }
+        P.kfDraft.set(nno, row);
+        renderKonf();
+        return `MO ${nno} diubah. Klik "Simpan perubahan" untuk menyimpan ke Google Sheet.`;
+      },
+    });
+    const body = $('dlgBody'), seq = dlgSeq;
+    const calc = () => {
+      if (seq !== dlgSeq) return;
+      const f = (n) => body.querySelector(`[name=${n}]`), code = f('code').value.trim(), qty = Number(String(f('qty').value).replace(',', '.')) || 0;
+      const c = kfCalc(code, qty, f('uom').value, f('bom').value);
+      $('kfEdCalc').innerHTML = !MRP.byProduct.has(code) ? '<span class="pl-bad">Kode tidak punya BOM di DATABASE PPIC.</span>'
+        : `Konversi: <b>${c.kg !== '' ? fmtKg(c.kg) + ' kg' : 'tidak dikonversi (pcs)'}</b>${c.ek ? ` · ekstrak ${esc(c.ek)} <b>${fmtKg(c.ekKg)} kg</b>` : ' · tidak perlu ekstrak'}${c.note ? ` · <span class="muted">${esc(c.note)}</span>` : ''}`;
+    };
+    body.querySelector('[name=code]').addEventListener('input', (e) => {
+      const code = e.target.value.trim();
+      body.querySelector('[name=name]').value = codes.get(code) || ((MRP.master.get(code) || {}).name) || '';
+      body.querySelector('[name=bom]').innerHTML = bomOpts(code, '');
+      calc();
+    });
+    ['qty', 'uom', 'bom'].forEach((n) => body.querySelector(`[name=${n}]`).addEventListener(n === 'qty' ? 'input' : 'change', calc));
+    calc();
+  }
   $('kfSaveBtn').addEventListener('click', () => needEdit(async () => {
     const rows = [...P.kfDraft.values()].map((r) => [r.no, r.code, r.name, r.qty, r.uom, r.bom, r.kg, r.bulan || '', r.week || '', r.ek || '', r.ekKg, r.moEk || '', r.note || '']);
     const del = [...P.kfDel];
