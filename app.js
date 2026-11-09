@@ -146,6 +146,7 @@
     'mrp/konfirmasi':    { view: 'view-mrp-konfirmasi',    crumb: 'MRP',                       title: 'Konfirmasi Produksi', actions: 'mrp' },
     'mrp/kebutuhan':     { view: 'view-mrp-kebutuhan',     crumb: 'MRP',                       title: 'Kebutuhan Material', actions: 'mrp' },
     'mrp/proyeksi':      { view: 'view-mrp-proyeksi',      crumb: 'MRP',                       title: 'Proyeksi Stok', actions: 'mrp' },
+    'mrp/rakitan':       { view: 'view-mrp-rakitan',       crumb: 'MRP',                       title: 'BoM Banded/2in1/KIT', actions: 'mrp' },
     'mrp/sku':           { view: 'view-mrp-sku',           crumb: 'MRP',                       title: 'Parameter SKU', actions: 'mrp' },
     'mrp/update':        { view: 'view-mrp-update',        crumb: 'MRP',                       title: 'Update Data MRP', actions: 'mrp' },
     'po/supplier':       { view: 'view-po-supplier',       crumb: 'Purchase Order',            title: 'Supplier & MoQ',  actions: 'sup' },
@@ -2952,7 +2953,7 @@
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
     parsedStock: null, parsedPlan: null,
   };
-  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update']);
+  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update', 'mrp/rakitan']);
   const BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const monLabel = (b) => `${BULAN_PANJANG[Number(b.slice(5, 7)) - 1]} ${b.slice(0, 4)}`;
@@ -2998,6 +2999,7 @@
     P.hasCons = Array.isArray(d.cons); setCons(d.cons || []);
     P.inc = (d.inc || []).map((r) => ({ id: r[0], bulan: r[1], week: r[2], code: r[3], qty: Number(r[4]) || 0, note: r[5], time: r[6] }));
     P.hasIncK = Array.isArray(d.incK); setIncK(d.incK || []);
+    P.hasRakitan = Array.isArray(d.rakitan); setRakitan(d.rakitan || []);
     setTimeout(() => { if (state.routeKey === 'po/kalender') renderCal(); else if (state.routeKey === 'po/monitoring' && state.rows.length) render(); }, 0);
     P.weeks = (d.weeks || []).map((r) => ({ bulan: r[0], week: r[1], start: r[2], end: r[3] }));
     P.weekBy = new Map(P.weeks.map((w) => [w.bulan + '|' + w.week, w]));
@@ -3396,6 +3398,7 @@
     else if (key === 'mrp/proyeksi') renderProyeksi();
     else if (key === 'mrp/sku') renderSku();
     else if (key === 'mrp/update') renderMrpUpdate();
+    else if (key === 'mrp/rakitan') renderRakitan();
   }
   // Header tabel per week yang seragam (seperti Rencana Produksi): baris bulan → baris week + rentang tanggal → baris sub-kolom
   // lead/tail: [{ html, cls, title }] (rowspan 2); subs: [{ label, cls, title }]; cellCls(i): kelas tambahan per week
@@ -4394,6 +4397,99 @@
     toast(`${p.kode} tersimpan.`);
     return res;
   }
+  /* ---------- BoM Banded / 2in1 / KIT ---------- */
+  function setRakitan(list) {
+    P.rakitan = (list || []).map((r) => ({ code: r[0], bom: r[1], aktif: String(r[2] || 'Y').toUpperCase() !== 'N', note: r[3], time: r[4] }));
+  }
+  const rkJenis = (name) => (/\bkit\b/i.test(name) ? 'KIT' : /2\s*in\s*1/i.test(name) ? '2in1' : 'Banded');
+  const rkBom = (k) => (k.bom && bomById(k.code, k.bom)) || (MRP.byProduct.get(k.code) || [])[0] || null;
+  function renderRakitan() {
+    const q = $('rkQ').value.trim().toLowerCase(), j = $('rkJenis').value, ed = P.edit;
+    const list = (P.rakitan || []).map((k) => {
+      const b = rkBom(k), name = ((MRP.master.get(k.code) || {}).name) || (b && b.name) || '';
+      return Object.assign({}, k, { b, name, jenis: rkJenis(name) });
+    }).filter((k) => (!j || k.jenis === j) && (!q || (k.code + ' ' + k.name + ' ' + (k.b ? k.b.comps.map((c) => c.code + ' ' + c.name).join(' ') : '')).toLowerCase().includes(q)))
+      .sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }));
+    P.rkList = list;
+    const fgSet = new Set(), pmSet = new Set();
+    const rkHtml = list.map((k, i) => {
+      const versions = MRP.byProduct.get(k.code) || [], b = k.b, inSku = P.skus.has(k.code);
+      const head = `<tr class="rk-head${k.aktif ? '' : ' is-off'}" data-i="${i}"><td class="mono"><b>${esc(k.code)}</b></td>
+        <td colspan="2"><b>${esc(k.name)}</b><div class="rk-meta"><span class="badge rk-${k.jenis.toLowerCase()}">${k.jenis}</span>
+          ${b ? `BoM <b>${esc(refOf(b))}</b> · batch ${fmtQ(b.batch)} ${esc(b.uom || '')}${versions.length > 1 ? ` · ${versions.length} versi` : ''}` : '<span class="pl-bad">BoM tidak ditemukan di DATABASE</span>'}
+          · ${inSku ? '<span class="muted">ada di Parameter SKU</span>' : '<span class="pl-warn-t">belum di Parameter SKU</span>'}${k.aktif ? '' : ' · <b>tidak aktif</b>'}${k.note ? ` · ${esc(k.note)}` : ''}</div></td>
+        <td colspan="4" class="rk-act">${ed ? `${versions.length > 1 ? `<label class="rk-bomsel">BoM <select data-rkbom="${esc(k.code)}">${versions.map((v) => `<option value="${esc(v.id)}"${b && v.id === b.id ? ' selected' : ''}>${esc(refOf(v))}</option>`).join('')}</select></label>` : ''}
+          <button type="button" class="btn-link" data-rkedit="${esc(k.code)}">Ubah</button> <button type="button" class="btn-link danger" data-rkdel="${esc(k.code)}">Hapus dari menu</button>` : ''}</td></tr>`;
+      const comps = b ? b.comps.map((c) => {
+        const m = MRP.master.get(c.code) || {}, fg = isFg(c.code), per = b.batch ? (Number(c.qty) || 0) / b.batch : 0;
+        (fg ? fgSet : pmSet).add(c.code);
+        const fb = fg ? activeBom(c.code) : null;
+        return `<tr class="rk-comp${fg ? ' is-fg' : ''}"><td class="mono">${esc(c.code)}</td><td>${esc(m.name || c.name || '')}</td><td>${esc(m.kat || '')}</td>
+          <td class="num">${fq((Number(c.qty) || 0) * (b.batch ? 1000 / b.batch : 0))}</td><td class="num">${fq(per)}</td><td>${esc(c.uom || m.uom || '')}</td>
+          <td class="rk-fgbom">${fg ? (fb ? `Ref ${esc(refOf(fb))} · ${normU(fb.uom) === 'kg' ? `batch ${fmtQ(fb.batch)} kg` : `${fmtQ(fb.batch)} pcs = 1.000 kg`}${P.skus.has(c.code) ? '' : ' <span class="muted">(belum di Parameter SKU)</span>'}` : '<span class="pl-bad">FG tanpa BoM</span>') : ''}</td></tr>`;
+      }).join('') : '';
+      return `<tbody class="rk-group">${head}${comps}</tbody>`;
+    }).join('') || `<tbody><tr class="empty"><td colspan="7">${(P.rakitan || []).length ? 'Tidak ada yang cocok.' : (P.hasRakitan ? 'Belum ada kode. Klik "Tambah kode" (mode edit).' : 'Apps Script MRP perlu diperbarui (versi dengan BoM rakitan).')}</td></tr></tbody>`;
+    // satu tbody per produk (kepala produk + komponennya)
+    const tbl = $('rkTable'); tbl.querySelectorAll('tbody').forEach((t) => t.remove()); tbl.insertAdjacentHTML('beforeend', rkHtml);
+    $('rkKpi').innerHTML = kpis([{ num: nf.format(list.length), lbl: 'produk rakitan' }, { num: nf.format(fgSet.size), lbl: 'komponen FG (unik)' }, { num: nf.format(pmSet.size), lbl: 'kemasan rakitan (unik)' },
+      { num: nf.format(list.filter((k) => !P.skus.has(k.code)).length), lbl: 'belum di Parameter SKU', tone: list.some((k) => !P.skus.has(k.code)) ? 'warn' : '' }]);
+    $('rkInfo').textContent = `${nf.format(list.length)} produk ditampilkan${ed ? '' : ' · masuk Mode edit untuk menambah / mengubah'}`;
+    $('rkAdd').disabled = !ed;
+  }
+  ['rkQ', 'rkJenis'].forEach((id) => $(id).addEventListener(id === 'rkQ' ? 'input' : 'change', renderRakitan));
+  async function rkSave(rows, del, msg) {
+    if (!P.hasRakitan) { toast('Apps Script MRP perlu diperbarui (versi dengan BoM rakitan).'); return; }
+    const res = await mrpApi('saveRakitan', { rows, del });
+    setRakitan(res.rakitan || []); renderRakitan(); if (msg) toast(msg);
+  }
+  function rkDialog(code) {
+    const k = code ? (P.rakitan || []).find((x) => x.code === code) : null;
+    // saran kode: produk di DATABASE yang BoM-nya berisi FG
+    const sug = [...MRP.byProduct.entries()].filter(([c, l]) => !(P.rakitan || []).some((x) => x.code === c) && l.some((b) => b.comps.some((x) => isFg(x.code))))
+      .map(([c, l]) => `<option value="${esc(c)}">${esc(((MRP.master.get(c) || {}).name) || l[0].name || '')}</option>`).join('');
+    needEdit(() => openDialog({
+      title: k ? `Ubah ${k.code}` : 'Tambah kode rakitan', ok: 'Simpan',
+      body: `<div class="form-grid">
+          <label class="field"><span>Kode produk *</span><input name="code" value="${esc(k ? k.code : '')}" ${k ? 'readonly' : 'list="rkSug" autocomplete="off"'} required placeholder="Bisa beberapa, pisah koma"></label>
+          <label class="field"><span>Aktif</span><select name="aktif"><option value="Y"${!k || k.aktif ? ' selected' : ''}>Ya</option><option value="N"${k && !k.aktif ? ' selected' : ''}>Tidak</option></select></label>
+          ${fld('note', 'Catatan', k ? k.note : '', { wide: true })}</div><datalist id="rkSug">${sug}</datalist>
+        <p class="hint">${k ? 'BoM bisa dipilih langsung di tabel bila ada lebih dari satu versi.' : 'Daftar saran berisi produk yang BoM-nya mengandung FG. Bisa isi beberapa kode sekaligus, pisah koma.'}</p>`,
+      onSubmit: async (fd) => {
+        const codes = k ? [k.code] : String(fd.code || '').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+        if (!codes.length) throw new Error('Isi kode produk.');
+        const bad = codes.filter((c) => !MRP.byProduct.has(c));
+        if (bad.length) throw new Error(`Tidak punya BoM di DATABASE: ${bad.join(', ')}`);
+        await rkSave(codes.map((c) => { const o = (P.rakitan || []).find((x) => x.code === c); return [c, o ? o.bom : ((MRP.byProduct.get(c) || [])[0] || {}).id || '', fd.aktif, k ? fd.note : (o ? o.note : fd.note)]; }), []);
+        return `${codes.length} kode tersimpan.`;
+      },
+    }));
+  }
+  $('rkAdd').addEventListener('click', () => rkDialog(''));
+  $('view-mrp-rakitan').addEventListener('click', (e) => {
+    const ed = e.target.closest('[data-rkedit]'); if (ed) { rkDialog(ed.dataset.rkedit); return; }
+    const dl = e.target.closest('[data-rkdel]');
+    if (dl) needEdit(() => openDialog({ title: `Hapus ${dl.dataset.rkdel} dari menu?`, ok: 'Hapus', danger: true,
+      body: '<p>Kode ini hanya dihapus dari daftar menu BoM Banded/2in1/KIT. BoM di DATABASE PPIC tidak berubah.</p>',
+      onSubmit: async () => { await rkSave([], [dl.dataset.rkdel]); return 'Dihapus dari menu.'; } }));
+  });
+  $('view-mrp-rakitan').addEventListener('change', (e) => {
+    const s = e.target.closest('[data-rkbom]'); if (!s) return;
+    const k = (P.rakitan || []).find((x) => x.code === s.dataset.rkbom); if (!k) return;
+    needEdit(() => rkSave([[k.code, s.value, k.aktif ? 'Y' : 'N', k.note]], [], `BoM ${k.code} diganti.`).catch((err) => toast('Gagal: ' + err.message)));
+  });
+  $('rkExport').addEventListener('click', () => {
+    const rows = [];
+    (P.rkList || []).forEach((k) => (k.b ? k.b.comps : []).forEach((c) => {
+      const m = MRP.master.get(c.code) || {}, fb = isFg(c.code) ? activeBom(c.code) : null;
+      rows.push({ 'KODE RAKITAN': k.code, 'NAMA RAKITAN': k.name, JENIS: k.jenis, BOM: k.b ? refOf(k.b) : '', 'BOM ID': k.b ? k.b.id : '', KOMPONEN: c.code, 'NAMA KOMPONEN': m.name || c.name || '',
+        KATEGORI: m.kat || '', 'QTY PER 1.000 PCS': round4((Number(c.qty) || 0) * (k.b.batch ? 1000 / k.b.batch : 0)), 'QTY PER PCS': round4(k.b.batch ? (Number(c.qty) || 0) / k.b.batch : 0), UoM: c.uom || m.uom || '',
+        'BOM KOMPONEN FG': fb ? refOf(fb) : '' });
+    }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'BOM RAKITAN');
+    XLSX.writeFile(wb, `BoM_Banded_2in1_KIT_${todayStr()}.xlsx`);
+  });
+
   function renderSku() {
     const q = $('skQ').value.trim().toLowerCase(), j = $('skJenis').value;
     const rows = [...P.skus.values()].filter((k) => (!q || (k.code + ' ' + k.name).toLowerCase().includes(q)) && (!j || (j === 'off' ? !k.aktif : k.jenis === j)))

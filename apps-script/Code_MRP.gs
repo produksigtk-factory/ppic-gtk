@@ -31,6 +31,7 @@ const MRP_CONFIG = {
   KONF_SHEET: 'KONFIRMASI_PRODUKSI',
   CONS_SHEET: 'PC_CP_MO',
   INCK_SHEET: 'KONFIRMASI_INCOMING',
+  RAKITAN_SHEET: 'BOM_RAKITAN',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -46,6 +47,8 @@ const MRP_HEAD = {
   // Konfirmasi Produksi: satu baris = satu MO Odoo (dari LIST_MO). BOM ID & konversi kg dikunci saat disimpan.
   KONFIRMASI_PRODUKSI: { head: ['NO MO', 'KODE', 'NAMA PRODUK', 'QTY', 'UoM', 'BOM ID', 'KONVERSI KG', 'BULAN', 'WEEK', 'KODE EKSTRAK', 'KEBUTUHAN EKSTRAK KG', 'MO EKSTRAK', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 14] },
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo. Baris tanpa KODE MATERIAL = penanda MO ada di file tapi kosong.
+  // Daftar produk rakitan (Banded / 2in1 / KIT) yang dikelola di menu "BoM Banded/2in1/KIT". BOM ID kosong = BOM pertama di DATABASE.
+  BOM_RAKITAN: { head: ['KODE', 'BOM ID', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
   // Konfirmasi incoming: jadwal kirim PO (Monitoring PO) yang dikonfirmasi datang → Incoming di Proyeksi Stok. Kunci = NO PO + KODE + JADWAL KE.
   // BULAN/WEEK DATANG = perkiraan week barang datang yang dipilih saat konfirmasi (kosong = ikut tanggal jadwal PO)
   KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG', 'TANGGAL DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9, 10] },
@@ -80,7 +83,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -162,6 +165,7 @@ function doPost(e) {
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
     else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
+    else if (action === 'saveRakitan') res = saveRakitan_(ss, body.rows || [], body.del || [], now);
     else if (action === 'setIncK') res = setIncK_(ss, body, now);
     else if (action === 'uploadCons') res = uploadCons_(ss, body.jenis, body.mos || [], body.rows || [], body.file || '', now);
     else if (action === 'uploadGantung') res = uploadGantung_(ss, body.date, body.rows || [], body.file || '', now);
@@ -287,6 +291,26 @@ function addInc_(ss, b, now) {
   sh.getRange(sh.getLastRow() + 1, 1, 1, 7).setValues([[id, s_(b.bulan), s_(b.week), kode, qty, s_(b.ket), now]]);
   log_(ss, now, 'Incoming manual', `${kode} ${qty > 0 ? '+' : ''}${qty} · ${s_(b.bulan)} ${s_(b.week)} · ${s_(b.ket)}`);
   return { id };
+}
+
+/* ================= BoM Banded / 2in1 / KIT ================= */
+// rakitan: [kode, bomId, aktif, catatan, diubah]
+function readRakitan_(ss, tz) {
+  return rows_(ss.getSheetByName(MRP_CONFIG.RAKITAN_SHEET), 5).map(r => [s_(r[0]), s_(r[1]), s_(r[2]) || 'Y', s_(r[3]), d_(r[4], tz, 'yyyy-MM-dd HH:mm')]);
+}
+// upsert per KODE; del = daftar kode yang dihapus dari menu
+function saveRakitan_(ss, rows, del, now) {
+  const tz = ss.getSpreadsheetTimeZone();
+  const map = new Map(readRakitan_(ss, tz).map(r => [r[0], r]));
+  (del || []).forEach(k => map.delete(s_(k)));
+  rows.forEach(r => { const k = s_(r[0]); if (!k) return; map.set(k, [k, s_(r[1]), s_(r[2]).toUpperCase() === 'N' ? 'N' : 'Y', s_(r[3]), now]); });
+  const all = [...map.values()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const sh = sheet_(ss, MRP_CONFIG.RAKITAN_SHEET);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 5).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
+  log_(ss, now, 'BoM rakitan', `${rows.length} disimpan${(del || []).length ? ', ' + del.length + ' dihapus (' + del.join(', ') + ')' : ''}`);
+  return { rakitan: readRakitan_(ss, tz) };
 }
 
 /* ================= Konfirmasi incoming (jadwal PO) ================= */

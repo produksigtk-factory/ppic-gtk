@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=46a640cb">
+<link rel="stylesheet" href="style.css?v=5502e793">
 </head>
 <body>
 <div class="shell">
@@ -33,6 +33,7 @@
           <a class="menu-item sub" href="#/mrp/kebutuhan" data-route="mrp/kebutuhan">Kebutuhan Material</a>
           <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
           <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
+          <a class="menu-item sub" href="#/mrp/rakitan" data-route="mrp/rakitan">BoM Banded/2in1/KIT</a>
           <a class="menu-item sub" href="#/mrp/update" data-route="mrp/update">Update Data MRP</a>
           <a class="menu-item sub" href="#/mrp/bom" data-route="mrp/bom">Bill of Material</a>
           <a class="menu-item sub" href="#/mrp/material" data-route="mrp/material">Daftar Material</a>
@@ -667,6 +668,22 @@
       </section>
 
       <!-- ================= MRP: PARAMETER SKU ================= -->
+      <section id="view-mrp-rakitan" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat BoM rakitan…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="toolbar mrp-toolbar">
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="rkQ" placeholder="Cari kode / nama produk atau komponen"></label>
+          <label class="tb-field"><span class="sr">Jenis</span><select id="rkJenis"><option value="">Semua jenis</option><option>Banded</option><option>2in1</option><option>KIT</option></select></label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="rkExport">Unduh Excel</button><button class="btn btn-sm" id="rkAdd">Tambah kode</button></div>
+        </div>
+        <div class="pl-kpis" id="rkKpi"></div>
+        <p class="mrp-count" id="rkInfo"></p>
+        <div class="table-wrap mrp-wrap">
+          <table class="po-table mrp-table mrp-tree rk-table" id="rkTable"><thead><tr><th>Kode</th><th>Nama</th><th>Kategori</th><th class="num">Qty per 1.000 pcs</th><th class="num">Qty per 1 pcs</th><th>UoM</th><th>BoM komponen FG</th></tr></thead></table>
+        </div>
+        <p class="hint">Produk rakitan (Banded / 2in1 / KIT) berisi FG + kemasan. Rencana produk rakitan diisi dalam pcs. Kolom "BoM komponen FG" menunjukkan BoM default FG di dalamnya (dari Parameter SKU / DATABASE) untuk pembacaan lanjutan.</p>
+      </section>
+
       <section id="view-mrp-sku" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat parameter SKU…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
@@ -1188,9 +1205,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=25fd1b97"></script>
+<script src="app.js?v=d48a2c5c"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=7ce0c819"></script>
+<script src="help.js?v=05063bbd"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
