@@ -1493,3 +1493,15 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .badge.rk-kit { background: #fff4dd; color: #7a4d00; }
 .rk-fgbom { white-space: nowrap; font-size: 12.5px; }
 .sk-rk-h { font-size: 15px; margin: 22px 0 4px; }
+.rk-table tr.rk-src td { background: #fafbfc; font-size: 12.5px; padding-top: 6px; padding-bottom: 6px; }
+.rk-table tr.rk-src td:first-child { padding-left: 14px; }
+.rk-src-act { text-align: right; white-space: nowrap; font-size: 12px; }
+.rk-table tr.rk-comp td:first-child { padding-left: 28px; }
+.rk-table tr.rk-comp:not(.is-on) td { color: var(--muted); }
+.rk-table tr.rk-comp.is-on td { color: var(--ink); }
+.rk-ya { color: #1f6b35; }
+.rk-yn { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.rk-yn button { border: 0; background: #fff; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; color: var(--muted); }
+.rk-yn button + button { border-left: 1px solid var(--line); }
+.rk-yn button[aria-pressed="true"]:first-child { background: #e3f1e6; color: #1f6b35; font-weight: 600; }
+.rk-yn button[aria-pressed="true"]:last-child { background: #f3f4f6; color: var(--ink); font-weight: 600; }

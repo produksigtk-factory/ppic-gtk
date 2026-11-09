@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3211431a">
+<link rel="stylesheet" href="style.css?v=2b9840c2">
 </head>
 <body>
 <div class="shell">
@@ -679,9 +679,9 @@
         <div class="pl-kpis" id="rkKpi"></div>
         <p class="mrp-count" id="rkInfo"></p>
         <div class="table-wrap mrp-wrap">
-          <table class="po-table mrp-table mrp-tree rk-table" id="rkTable"><thead><tr><th>Kode</th><th>Nama</th><th>Kategori</th><th class="num">Qty per 1.000 pcs</th><th class="num">Qty per 1 pcs</th><th>UoM</th><th>BoM komponen FG</th></tr></thead></table>
+          <table class="po-table mrp-table mrp-tree rk-table" id="rkTable"><thead><tr><th>Kode</th><th>Nama</th><th>Kategori</th><th class="num">Qty per 1.000 pcs</th><th class="num">Qty per 1 pcs</th><th>UoM</th><th>Digunakan</th></tr></thead></table>
         </div>
-        <p class="hint">Produk rakitan (Banded / 2in1 / KIT) berisi FG + kemasan. Rencana produk rakitan diisi dalam pcs. Kolom "BoM komponen FG" menunjukkan BoM default FG di dalamnya (dari Parameter SKU / DATABASE) untuk pembacaan lanjutan.</p>
+        <p class="hint">Material produk rakitan dipecah sampai bahan baku dan ekstrak: kemasan langsung di BoM rakitan, lalu isi BoM tiap FG di dalamnya (BoM default FG). Hanya material bertanda <b>Ya</b> yang dihitung di Kebutuhan Material & Proyeksi Stok (default Tidak). Ekstrak bertanda Ya dihitung sebagai kebutuhan ekstrak beserta RM-nya. Ubah Ya/Tidak di Mode edit.</p>
       </section>
 
       <section id="view-mrp-sku" class="view" hidden>
@@ -1210,7 +1210,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=9c8fa2a3"></script>
+<script src="app.js?v=78e6e8bd"></script>
 <script src="csl.js?v=9fbb7bf7"></script>
 <script src="help.js?v=05063bbd"></script>
 <script src="tasks.js?v=4755b43f"></script>

@@ -3000,6 +3000,7 @@
     P.inc = (d.inc || []).map((r) => ({ id: r[0], bulan: r[1], week: r[2], code: r[3], qty: Number(r[4]) || 0, note: r[5], time: r[6] }));
     P.hasIncK = Array.isArray(d.incK); setIncK(d.incK || []);
     P.hasRakitan = Array.isArray(d.rakitan); setRakitan(d.rakitan || []);
+    P.hasPakai = Array.isArray(d.rakitanPakai); setPakai(d.rakitanPakai || []);
     setTimeout(() => { if (state.routeKey === 'po/kalender') renderCal(); else if (state.routeKey === 'po/monitoring' && state.rows.length) render(); }, 0);
     P.weeks = (d.weeks || []).map((r) => ({ bulan: r[0], week: r[1], start: r[2], end: r[3] }));
     P.weekBy = new Map(P.weeks.map((w) => [w.bulan + '|' + w.week, w]));
@@ -3122,6 +3123,8 @@
   function needOf(code, qty, override) {
     const bom = activeBom(code, override);
     if (!bom || !bom.batch) return null;
+    const skR = P.skus && P.skus.get(code);
+    if (skR && skR.rakitan) return needRakitan(code, qty, bom);
     // kg: BOM SKU = pcs per batch 1.000 kg (seperti MoQ); pcs: produk rakitan, qty langsung dalam pcs
     const need = planUnit(code) === 'pcs' ? qty : normU(bom.uom) === 'kg' ? qty : (qty / 1000) * bom.batch;
     const leaves = new Map(), made = new Map(), fg = new Map();
@@ -3138,6 +3141,49 @@
       });
     };
     walk(bom, need, new Set([code]), 0);
+    return { bom, leaves, made, fg };
+  }
+
+  // ---------- Produk rakitan: material dipecah sampai ekstrak; hanya baris "Ya digunakan" yang dihitung ----------
+  function setPakai(list) { P.pakai = new Set((list || []).map((r) => r[0] + '|' + r[1] + '|' + r[2])); }
+  // Daftar material per 1 pcs produk rakitan. sumber = 'RAKITAN' (kemasan langsung) atau kode FG asal.
+  function rkLines(code, bom) {
+    const b = bom || activeBom(code); if (!b || !b.batch) return [];
+    const out = [];
+    const push = (src, c, q, fgBom) => {
+      const kind = isFg(c.code) ? 'fg' : (MRP.byProduct.has(c.code) ? 'ek' : 'leaf');
+      out.push({ src, code: c.code, name: c.name, uom: c.uom, q, kind, fgBom });
+    };
+    b.comps.forEach((c) => {
+      const q1 = (Number(c.qty) || 0) / b.batch;
+      if (!q1) return;
+      if (isFg(c.code)) {
+        const fb = activeBom(c.code);
+        if (!fb || !fb.batch) { out.push({ src: c.code, code: c.code, name: c.name, uom: c.uom, q: q1, kind: 'fg', noBom: true }); return; }
+        fb.comps.forEach((y) => { const q = (Number(y.qty) || 0) * (q1 / fb.batch); if (q) push(c.code, y, q, fb); });
+      } else push('RAKITAN', c, q1);
+    });
+    return out;
+  }
+  function needRakitan(code, pcs, bom) {
+    const leaves = new Map(), made = new Map(), fg = new Map();
+    const add = (m, c, x) => m.set(c, (m.get(c) || 0) + x);
+    const walk = (b, q, path, depth) => {
+      const f = b && b.batch ? q / b.batch : 0;
+      (b ? b.comps : []).forEach((c) => {
+        const x = (Number(c.qty) || 0) * f; if (!x) return;
+        if (isFg(c.code)) add(fg, c.code, x);
+        else if (MRP.byProduct.has(c.code) && depth < 6 && !path.has(c.code)) { add(made, c.code, x); walk(activeBom(c.code), x, new Set([...path, c.code]), depth + 1); }
+        else add(leaves, c.code, x);
+      });
+    };
+    rkLines(code, bom).forEach((l) => {
+      if (!P.pakai || !P.pakai.has(code + '|' + l.src + '|' + l.code)) return;
+      const x = l.q * pcs;
+      if (l.kind === 'fg') add(fg, l.code, x);
+      else if (l.kind === 'ek') { add(made, l.code, x); walk(activeBom(l.code), x, new Set([code, l.code]), 1); }
+      else add(leaves, l.code, x);
+    });
     return { bom, leaves, made, fg };
   }
 
@@ -4417,6 +4463,7 @@
   const rkJenis = (name) => (/\bkit\b/i.test(name) ? 'KIT' : /2\s*in\s*1/i.test(name) ? '2in1' : 'Banded');
   const rkBom = (k) => (k.bom && bomById(k.code, k.bom)) || (MRP.byProduct.get(k.code) || [])[0] || null;
   function renderRakitan() {
+    if (!P.pakai) P.pakai = new Set();
     const q = $('rkQ').value.trim().toLowerCase(), j = $('rkJenis').value, ed = P.edit;
     const list = (P.rakitan || []).map((k) => {
       const b = rkBom(k), name = ((MRP.master.get(k.code) || {}).name) || (b && b.name) || '';
@@ -4430,22 +4477,33 @@
       const head = `<tr class="rk-head${k.aktif ? '' : ' is-off'}" data-i="${i}"><td class="mono"><b>${esc(k.code)}</b></td>
         <td colspan="2"><b>${esc(k.name)}</b><div class="rk-meta"><span class="badge rk-${k.jenis.toLowerCase()}">${k.jenis}</span>
           ${b ? `BoM <b>${esc(refOf(b))}</b> · batch ${fmtQ(b.batch)} ${esc(b.uom || '')}${versions.length > 1 ? ` · ${versions.length} versi` : ''}` : '<span class="pl-bad">BoM tidak ditemukan di DATABASE</span>'}
-          · ${k.aktif ? '<span class="muted">ikut Rencana Produksi (pcs)</span>' : '<b>tidak aktif</b> (tidak ikut Rencana Produksi)'}${k.note ? ` · ${esc(k.note)}` : ''}</div></td>
+          · ${k.aktif ? '<span class="muted">ikut Rencana Produksi (pcs)</span>' : '<b>tidak aktif</b> (tidak ikut Rencana Produksi)'}
+          · <b class="${b && rkLines(k.code, b).some((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)) ? '' : 'pl-bad'}">${b ? rkLines(k.code, b).filter((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)).length : 0}/${b ? rkLines(k.code, b).length : 0} material digunakan</b>${k.note ? ` · ${esc(k.note)}` : ''}</div></td>
         <td colspan="4" class="rk-act">${ed ? `${versions.length > 1 ? `<label class="rk-bomsel">BoM <select data-rkbom="${esc(k.code)}">${versions.map((v) => `<option value="${esc(v.id)}"${b && v.id === b.id ? ' selected' : ''}>${esc(refOf(v))}</option>`).join('')}</select></label>` : ''}
           <button type="button" class="btn-link" data-rkedit="${esc(k.code)}">Ubah</button> <button type="button" class="btn-link danger" data-rkdel="${esc(k.code)}">Hapus dari menu</button>` : ''}</td></tr>`;
-      const comps = b ? b.comps.map((c) => {
-        const m = MRP.master.get(c.code) || {}, fg = isFg(c.code), per = b.batch ? (Number(c.qty) || 0) / b.batch : 0;
-        (fg ? fgSet : pmSet).add(c.code);
-        const fb = fg ? activeBom(c.code) : null;
-        return `<tr class="rk-comp${fg ? ' is-fg' : ''}"><td class="mono">${esc(c.code)}</td><td>${esc(m.name || c.name || '')}</td><td>${esc(m.kat || '')}</td>
-          <td class="num">${fq((Number(c.qty) || 0) * (b.batch ? 1000 / b.batch : 0))}</td><td class="num">${fq(per)}</td><td>${esc(c.uom || m.uom || '')}</td>
-          <td class="rk-fgbom">${fg ? (fb ? `Ref ${esc(refOf(fb))} · ${normU(fb.uom) === 'kg' ? `batch ${fmtQ(fb.batch)} kg` : `${fmtQ(fb.batch)} pcs = 1.000 kg`}${P.skus.has(c.code) ? '' : ' <span class="pl-warn-t">(FG belum di Parameter SKU)</span>'}` : '<span class="pl-bad">FG tanpa BoM</span>') : ''}</td></tr>`;
-      }).join('') : '';
+      const lines = b ? rkLines(k.code, b) : [];
+      const groups = new Map(); lines.forEach((l) => { if (!groups.has(l.src)) groups.set(l.src, []); groups.get(l.src).push(l); });
+      const nYa = lines.filter((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)).length;
+      const comps = [...groups].map(([src, ls]) => {
+        const fgC = src === 'RAKITAN' ? null : src, fgB = ls[0] && ls[0].fgBom, ya = ls.filter((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)).length;
+        (fgC ? fgSet : pmSet).add(fgC || ls.map((l) => l.code).join());
+        const gh = `<tr class="rk-src"><td colspan="6"><b>${fgC ? `Dari FG ${esc(fgC)}` : 'Kemasan rakitan'}</b> <span class="muted">${fgC ? esc(((MRP.master.get(fgC) || {}).name) || '') : ''}${fgB ? ` · BoM Ref ${esc(refOf(fgB))} (${normU(fgB.uom) === 'kg' ? 'batch ' + fmtQ(fgB.batch) + ' kg' : fmtQ(fgB.batch) + ' pcs = 1.000 kg'})` : ''} · ${ya}/${ls.length} digunakan</span></td>
+          <td class="rk-src-act">${ed ? `<button type="button" class="btn-link" data-rkall="${esc(k.code)}|${esc(src)}|Y">Ya semua</button> · <button type="button" class="btn-link" data-rkall="${esc(k.code)}|${esc(src)}|N">Tidak semua</button>` : ''}</td></tr>`;
+        return gh + ls.map((l) => {
+          const m = MRP.master.get(l.code) || {}, on = P.pakai.has(k.code + '|' + l.src + '|' + l.code);
+          return `<tr class="rk-comp${on ? ' is-on' : ''}"><td class="mono">${esc(l.code)}</td><td>${esc(m.name || l.name || '')}${l.noBom ? ' <span class="pl-bad">(FG tanpa BoM)</span>' : ''}</td><td>${l.kind === 'ek' ? '<span class="badge b-wait">Ekstrak/bulk</span>' : esc(m.kat || '')}</td>
+            <td class="num">${fq(l.q * 1000)}</td><td class="num">${fq(l.q)}</td><td>${esc(l.uom || m.uom || '')}</td>
+            <td>${ed ? `<span class="rk-yn" role="group"><button type="button" data-rkp="${esc(k.code)}|${esc(l.src)}|${esc(l.code)}|Y" aria-pressed="${on}">Ya</button><button type="button" data-rkp="${esc(k.code)}|${esc(l.src)}|${esc(l.code)}|N" aria-pressed="${!on}">Tidak</button></span>`
+              : (on ? '<b class="rk-ya">Ya</b>' : '<span class="muted">Tidak</span>')}</td></tr>`;
+        }).join('');
+      }).join('');
+      k.nYa = nYa; k.nLines = lines.length;
       return `<tbody class="rk-group">${head}${comps}</tbody>`;
     }).join('') || `<tbody><tr class="empty"><td colspan="7">${(P.rakitan || []).length ? 'Tidak ada yang cocok.' : (P.hasRakitan ? 'Belum ada kode. Klik "Tambah kode" (mode edit).' : 'Apps Script MRP perlu diperbarui (versi dengan BoM rakitan).')}</td></tr></tbody>`;
     // satu tbody per produk (kepala produk + komponennya)
     const tbl = $('rkTable'); tbl.querySelectorAll('tbody').forEach((t) => t.remove()); tbl.insertAdjacentHTML('beforeend', rkHtml);
-    $('rkKpi').innerHTML = kpis([{ num: nf.format(list.length), lbl: 'produk rakitan' }, { num: nf.format(fgSet.size), lbl: 'komponen FG (unik)' }, { num: nf.format(pmSet.size), lbl: 'kemasan rakitan (unik)' },
+    $('rkKpi').innerHTML = kpis([{ num: nf.format(list.length), lbl: 'produk rakitan' }, { num: nf.format(fgSet.size), lbl: 'komponen FG (unik)' },
+      { num: nf.format(list.filter((k) => !k.nYa).length), lbl: 'belum ada material digunakan', tone: list.some((k) => !k.nYa) ? 'warn' : '' },
       { num: nf.format(list.filter((k) => k.aktif).length), lbl: 'aktif (ikut Rencana Produksi)' }]);
     $('rkInfo').textContent = `${nf.format(list.length)} produk ditampilkan${ed ? '' : ' · masuk Mode edit untuk menambah / mengubah'}`;
     $('rkAdd').disabled = !ed;
@@ -4486,6 +4544,24 @@
       body: '<p>Kode ini hanya dihapus dari daftar menu BoM Banded/2in1/KIT. BoM di DATABASE PPIC tidak berubah.</p>',
       onSubmit: async () => { await rkSave([], [dl.dataset.rkdel]); return 'Dihapus dari menu.'; } }));
   });
+  // Ya / Tidak digunakan (simpan langsung)
+  async function rkPakaiSave(items) {
+    if (!P.hasPakai) { toast('Apps Script MRP perlu diperbarui (versi dengan material rakitan).'); return; }
+    items.forEach(([a, b, c, v]) => { const key = a + '|' + b + '|' + c; if (v === 'Y') P.pakai.add(key); else P.pakai.delete(key); });
+    renderRakitan();
+    try { const res = await mrpApi('setPakai', { items }); setPakai(res.rakitanPakai || []); renderRakitan(); }
+    catch (err) { toast('Gagal menyimpan: ' + err.message + '. Muat ulang data.'); }
+  }
+  $('view-mrp-rakitan').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-rkp]');
+    if (t) { const [a, b, c, v] = t.dataset.rkp.split('|'); if ((v === 'Y') === P.pakai.has(a + '|' + b + '|' + c)) return; needEdit(() => rkPakaiSave([[a, b, c, v]])); return; }
+    const all = e.target.closest('[data-rkall]');
+    if (all) {
+      const [a, src, v] = all.dataset.rkall.split('|'), k = (P.rakitan || []).find((x) => x.code === a);
+      const items = rkLines(a, k ? rkBom(k) : null).filter((l) => l.src === src).map((l) => [a, src, l.code, v]);
+      needEdit(() => rkPakaiSave(items));
+    }
+  });
   $('view-mrp-rakitan').addEventListener('change', (e) => {
     const s = e.target.closest('[data-rkbom]'); if (!s) return;
     const k = (P.rakitan || []).find((x) => x.code === s.dataset.rkbom); if (!k) return;
@@ -4493,11 +4569,11 @@
   });
   $('rkExport').addEventListener('click', () => {
     const rows = [];
-    (P.rkList || []).forEach((k) => (k.b ? k.b.comps : []).forEach((c) => {
-      const m = MRP.master.get(c.code) || {}, fb = isFg(c.code) ? activeBom(c.code) : null;
-      rows.push({ 'KODE RAKITAN': k.code, 'NAMA RAKITAN': k.name, JENIS: k.jenis, BOM: k.b ? refOf(k.b) : '', 'BOM ID': k.b ? k.b.id : '', KOMPONEN: c.code, 'NAMA KOMPONEN': m.name || c.name || '',
-        KATEGORI: m.kat || '', 'QTY PER 1.000 PCS': round4((Number(c.qty) || 0) * (k.b.batch ? 1000 / k.b.batch : 0)), 'QTY PER PCS': round4(k.b.batch ? (Number(c.qty) || 0) / k.b.batch : 0), UoM: c.uom || m.uom || '',
-        'BOM KOMPONEN FG': fb ? refOf(fb) : '' });
+    (P.rkList || []).forEach((k) => (k.b ? rkLines(k.code, k.b) : []).forEach((l) => {
+      const m = MRP.master.get(l.code) || {};
+      rows.push({ 'KODE RAKITAN': k.code, 'NAMA RAKITAN': k.name, JENIS: k.jenis, BOM: k.b ? refOf(k.b) : '', SUMBER: l.src === 'RAKITAN' ? 'Kemasan rakitan' : 'FG ' + l.src,
+        'KODE MATERIAL': l.code, 'NAMA MATERIAL': m.name || l.name || '', KATEGORI: l.kind === 'ek' ? 'Ekstrak/bulk' : m.kat || '', 'QTY PER 1.000 PCS': round4(l.q * 1000), 'QTY PER PCS': round4(l.q),
+        UoM: l.uom || m.uom || '', DIGUNAKAN: P.pakai.has(k.code + '|' + l.src + '|' + l.code) ? 'Ya' : 'Tidak' });
     }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'BOM RAKITAN');
     XLSX.writeFile(wb, `BoM_Banded_2in1_KIT_${todayStr()}.xlsx`);

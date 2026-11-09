@@ -32,6 +32,7 @@ const MRP_CONFIG = {
   CONS_SHEET: 'PC_CP_MO',
   INCK_SHEET: 'KONFIRMASI_INCOMING',
   RAKITAN_SHEET: 'BOM_RAKITAN',
+  PAKAI_SHEET: 'BOM_RAKITAN_PAKAI',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -49,6 +50,9 @@ const MRP_HEAD = {
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo. Baris tanpa KODE MATERIAL = penanda MO ada di file tapi kosong.
   // Daftar produk rakitan (Banded / 2in1 / KIT) yang dikelola di menu "BoM Banded/2in1/KIT". BOM ID kosong = BOM pertama di DATABASE.
   BOM_RAKITAN: { head: ['KODE', 'BOM ID', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
+  // Material yang DIGUNAKAN per produk rakitan (hanya yang "Y" disimpan; tidak ada baris = Tidak digunakan).
+  // SUMBER = kode FG asal material (dipecah lewat BoM FG) atau RAKITAN untuk kemasan langsung di BoM rakitan.
+  BOM_RAKITAN_PAKAI: { head: ['KODE RAKITAN', 'SUMBER', 'KODE MATERIAL', 'DIGUNAKAN', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
   // Konfirmasi incoming: jadwal kirim PO (Monitoring PO) yang dikonfirmasi datang → Incoming di Proyeksi Stok. Kunci = NO PO + KODE + JADWAL KE.
   // BULAN/WEEK DATANG = perkiraan week barang datang yang dipilih saat konfirmasi (kosong = ikut tanggal jadwal PO)
   KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG', 'TANGGAL DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9, 10] },
@@ -83,7 +87,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -165,6 +169,7 @@ function doPost(e) {
     else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
     else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
+    else if (action === 'setPakai') res = setPakai_(ss, body.items || [], now);
     else if (action === 'saveRakitan') res = saveRakitan_(ss, body.rows || [], body.del || [], now);
     else if (action === 'setIncK') res = setIncK_(ss, body, now);
     else if (action === 'uploadCons') res = uploadCons_(ss, body.jenis, body.mos || [], body.rows || [], body.file || '', now);
@@ -311,6 +316,30 @@ function saveRakitan_(ss, rows, del, now) {
   if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
   log_(ss, now, 'BoM rakitan', `${rows.length} disimpan${(del || []).length ? ', ' + del.length + ' dihapus (' + del.join(', ') + ')' : ''}`);
   return { rakitan: readRakitan_(ss, tz) };
+}
+
+// pakai: [kodeRakitan, sumber, kodeMaterial, digunakan, diubah]
+function readPakai_(ss, tz) {
+  return rows_(ss.getSheetByName(MRP_CONFIG.PAKAI_SHEET), 5).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]) || 'Y', d_(r[4], tz, 'yyyy-MM-dd HH:mm')]);
+}
+// items: [[kodeRakitan, sumber, kodeMaterial, 'Y'|'N']] — Y disimpan, N dihapus
+function setPakai_(ss, items, now) {
+  const tz = ss.getSpreadsheetTimeZone();
+  const map = new Map(readPakai_(ss, tz).map(r => [r[0] + '|' + r[1] + '|' + r[2], r]));
+  let y = 0, n = 0;
+  items.forEach(it => {
+    const k = s_(it[0]) + '|' + s_(it[1]) + '|' + s_(it[2]);
+    if (!s_(it[0]) || !s_(it[2])) return;
+    if (s_(it[3]).toUpperCase() === 'Y') { map.set(k, [s_(it[0]), s_(it[1]), s_(it[2]), 'Y', now]); y++; } else { map.delete(k); n++; }
+  });
+  const all = [...map.values()].sort((a, b) => (a[0] + a[1] + a[2] < b[0] + b[1] + b[2] ? -1 : 1));
+  const sh = sheet_(ss, MRP_CONFIG.PAKAI_SHEET);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 5).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
+  const rk = [...new Set(items.map(it => s_(it[0])))].join(', ');
+  log_(ss, now, 'Material rakitan', `${rk}: ${y} Ya, ${n} Tidak`);
+  return { rakitanPakai: readPakai_(ss, tz) };
 }
 
 /* ================= Konfirmasi incoming (jadwal PO) ================= */
