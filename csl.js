@@ -1288,7 +1288,195 @@
     if (!C.loaded) { el.textContent = C.err ? 'Data CSL belum termuat' : 'Memuat data CSL…'; return; }
     el.textContent = `Dibaca dari CSL PPIC GTK ${String(C.readAt).slice(0, 16)} · SO s/d ${fDate(C.A.lastSo)} · DO s/d ${fDate(C.A.lastDo)} · ${nf0.format(C.lines.length)} baris SO`;
   }
+  /* =====================================================================
+     SELL IN — bukaan SO per SKU per bulan (bulan menurut tanggal SO)
+     ===================================================================== */
+  const SI = { tab: 'mx', ms: 'q' };
+  const SI_START = '2025-01';
+  const siRegOpts = () => [['ALL', 'Semua region'], ['OFFLINE', 'Offline (GTK)']].concat(REGS.map((r) => [r, 'Region ' + r]), [['ONLINE', 'Online (BIMS)'], ['?', 'Region belum diketahui']]);
+  const siRegOk = (L, reg) => reg === 'ALL' || (reg === 'OFFLINE' ? L.status === 'OFFLINE' : reg === 'ONLINE' ? L.status === 'ONLINE' : (L.region || '?') === reg);
+  const siG = (reg) => (reg === 'OFFLINE' || reg === 'ONLINE' ? reg : 'ALL');
+  const dim = (m) => new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
+  function siMonthsAll() {
+    const end = lastSoMonth();
+    const out = [];
+    for (let m = SI_START; m <= end; m = addMonth(m, 1)) out.push(m);
+    return out;
+  }
+  // Kumpulkan qty & Rp per SKU per bulan; "cut" = hari terakhir data pada bulan acuan (untuk banding periode yang sama)
+  function siData() {
+    const reg = $('siReg').value, dist = $('siDist').value, ql = $('siQ').value.trim().toLowerCase();
+    const months = siMonthsAll();
+    fillSel($('siMonth'), monthOpts(months), months[months.length - 1]);
+    const ref = $('siMonth').value || months[months.length - 1];
+    const lastSo = String(C.A.lastSo || '').slice(0, 10);
+    const partial = lastSo.slice(0, 7) === ref && +lastSo.slice(8, 10) < dim(ref);
+    const cut = partial ? +lastSo.slice(8, 10) : 31;
+    const sku = new Map();
+    const tot = new Map(), totC = new Map(), regT = new Map();
+    const get = (k) => { let o = sku.get(k); if (!o) sku.set(k, (o = { k, q: {}, r: {}, qc: {}, rc: {}, so: new Set(), dist: new Set(), first: '' })); return o; };
+    C.lines.forEach((L) => {
+      if (!L.m || L.m < SI_START || !siRegOk(L, reg) || (dist !== 'ALL' && L.dist !== dist)) return;
+      const o = get(L.kode);
+      o.q[L.m] = (o.q[L.m] || 0) + L.qty; o.r[L.m] = (o.r[L.m] || 0) + L.amt;
+      if (!o.first || L.m < o.first) o.first = L.m;
+      if (+L.date.slice(8, 10) <= cut) { o.qc[L.m] = (o.qc[L.m] || 0) + L.qty; o.rc[L.m] = (o.rc[L.m] || 0) + L.amt; }
+      if (L.m === ref) { o.so.add(L.no); o.dist.add(L.dist); const rg = L.status === 'ONLINE' ? 'Online' : (L.region || '?'); regT.set(rg, (regT.get(rg) || 0) + (SI.ms === 'q' ? L.qty : L.amt)); }
+    });
+    const mk = SI.ms === 'q' ? 'q' : 'r', mc = SI.ms === 'q' ? 'qc' : 'rc';
+    const avgN = (o, n, f) => { const ms = Array.from({ length: n }, (_, i) => addMonth(ref, -1 - i)).filter((m) => m >= SI_START); return ms.length ? sum(ms.map((m) => o[f][m] || 0)) / ms.length : null; };
+    const y = ref.slice(0, 4), ly = String(+y - 1);
+    const ytdOf = (o, f, yr, upto) => { let s = 0; for (let m = yr + '-01'; m <= upto; m = addMonth(m, 1)) s += o[f][m] || 0; return s; };
+    const hasLy = ly + '-01' >= SI_START;
+    let rows = [...sku.values()].map((o) => {
+      const v = (m) => o[mk][m] || 0;
+      const vc = (m) => (partial ? o[mc][m] || 0 : o[mk][m] || 0);   // periode yang sama (s/d tgl cut) untuk banding bulan berjalan
+      return {
+        k: o.k, n: nameOf(o.k), o, nSo: o.so.size, nDist: o.dist.size, first: o.first,
+        vals: months.map(v), cur: v(ref),
+        prev: addMonth(ref, -1) >= SI_START ? vc(addMonth(ref, -1)) : null,
+        l3: avgN(o, 3, mk), l6: avgN(o, 6, mk), l3c: avgN(o, 3, partial ? mc : mk),
+        ly: hasLy ? vc(addMonth(ref, -12)) : null,
+        ytd: ytdOf(o, mk, y, ref), ytdLy: hasLy ? ytdOf(o, mk, ly, addMonth(ref, -12)) - (partial ? (o[mk][addMonth(ref, -12)] || 0) - (o[mc][addMonth(ref, -12)] || 0) : 0) : null,
+        total: sum(months.map(v)),
+        l3n: [1, 2, 3].filter((i) => addMonth(ref, -i) >= SI_START && v(addMonth(ref, -i)) > 0).length,
+      };
+    }).filter((r) => r.total > 0);
+    if (ql) rows = rows.filter((r) => r.k.toLowerCase().includes(ql) || r.n.toLowerCase().includes(ql));
+    months.forEach((m, i) => tot.set(m, sum(rows.map((r) => r.vals[i]))));
+    const T = (f) => sum(rows.map((r) => r[f] || 0));
+    totC.set('cur', T('cur')); totC.set('prev', T('prev')); totC.set('l3', T('l3')); totC.set('l3c', T('l3c')); totC.set('l6', T('l6'));
+    totC.set('ly', T('ly')); totC.set('ytd', T('ytd')); totC.set('ytdLy', T('ytdLy'));
+    return { reg, dist, months, ref, partial, cut, rows, tot, totC, regT, hasLy, y, ly };
+  }
+  const siF = (v) => (SI.ms === 'q' ? fQ(v) : fJt(v));
+  const siTd = (v, cls = '') => `<td class="num${cls}"${SI.ms === 'r' && isNum(v) ? ` title="${fRp(v)}"` : ''}>${siF(v)}</td>`;
+  const siGr = (a, b) => (isNum(a) && isNum(b) && b > 0 ? a / b - 1 : null);
+  const grTd = (v) => `<td class="num si-gr${v === null ? '' : v >= 0.005 ? ' is-up' : v <= -0.005 ? ' is-down' : ''}">${v === null ? '–' : (v > 0 ? '+' : '') + nf1.format(v * 100) + '%'}</td>`;
+  const siUnit = () => (SI.ms === 'q' ? 'pcs' : 'Rp juta');
+  function renderSellIn() {
+    fillSel($('siReg'), siRegOpts(), 'ALL');
+    const reg = $('siReg').value;
+    const dists = [...new Set(C.lines.filter((L) => L.m >= SI_START && siRegOk(L, reg)).map((L) => L.dist).filter(Boolean))].sort();
+    fillSel($('siDist'), [['ALL', 'Semua distributor']].concat(dists.map((d) => [d, d])), 'ALL');
+    document.querySelectorAll('#siTab [data-t]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.t === SI.tab)));
+    document.querySelectorAll('#siMs [data-ms]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ms === SI.ms)));
+    const D = siData();
+    C.si = D;
+    ['mx', 'bl', 'an'].forEach((t) => { $('siPane-' + t).hidden = t !== SI.tab; });
+    const cutTxt = D.partial ? ` · ${monLabel(D.ref)} baru s/d tgl ${D.cut} — pembanding memakai periode yang sama (tgl 1–${D.cut})` : '';
+    $('siInfo').textContent = `${nf0.format(D.rows.length)} SKU · ${siUnit()} · bulan acuan ${monLabel(D.ref)}${cutTxt}`;
+    if (SI.tab === 'mx') siMatrix(D); else if (SI.tab === 'bl') siBulan(D); else siAnalisa(D);
+  }
+  function siMatrix(D) {
+    const ms = D.months, ri = ms.indexOf(D.ref);
+    const rows = D.rows.slice().sort((a, b) => b.cur - a.cur || b.total - a.total || a.k.localeCompare(b.k));
+    const mcls = (i) => (i === ri ? ' si-cur' : '') + (ms[i].endsWith('-01') ? ' m-start' : '');
+    const head = `<thead><tr><th class="pl-sticky pl-c1">Kode</th><th class="pl-sticky pl-c2">Nama produk</th>${ms.map((m, i) => `<th class="num${mcls(i)}">${monShort(m)}</th>`).join('')}<th class="num m-start" title="Rata-rata 3 bulan sebelum ${monLabel(D.ref)}">Avg L3M</th><th class="num" title="Rata-rata 6 bulan sebelum ${monLabel(D.ref)}">Avg L6M</th><th class="num" title="Januari s/d ${monLabel(D.ref)}">YTD ${D.y}</th><th class="num">Total</th></tr>`
+      + `<tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th class="pl-sticky pl-c2"></th>${ms.map((m, i) => `<th class="num${mcls(i)}">${siF(D.tot.get(m))}</th>`).join('')}<th class="num m-start">${siF(D.totC.get('l3'))}</th><th class="num">${siF(D.totC.get('l6'))}</th><th class="num">${siF(D.totC.get('ytd'))}</th><th class="num">${siF(sum([...D.tot.values()]))}</th></tr></thead>`;
+    const body = rows.slice(0, 600).map((r) => `<tr class="row" data-k="${esc(r.k)}" data-g="${siG(D.reg)}"><td class="pl-sticky pl-c1">${esc(r.k)}</td><td class="pl-sticky pl-c2" title="${esc(r.n)}">${esc(r.n)}</td>${r.vals.map((v, i) => siTd(v, mcls(i))).join('')}${siTd(r.l3, ' m-start')}${siTd(r.l6)}${siTd(r.ytd)}${siTd(r.total)}</tr>`).join('');
+    $('siTable').innerHTML = head + `<tbody>${body || `<tr><td colspan="${ms.length + 6}" class="csl-empty">Tidak ada SO untuk pilihan ini.</td></tr>`}</tbody>`;
+    const wrap = $('siTable').parentElement, th = $('siTable').querySelector('th.si-cur');
+    if (wrap && th) wrap.scrollLeft = Math.max(0, th.offsetLeft - wrap.clientWidth + 260);
+  }
+  function siBulan(D) {
+    const rows = D.rows.filter((r) => r.cur || r.prev || r.l3).sort((a, b) => b.cur - a.cur || (b.l3 || 0) - (a.l3 || 0));
+    const tc = D.totC.get('cur') || 0;
+    const s = D.partial ? ` (tgl 1–${D.cut})` : '';
+    const head = `<thead><tr><th class="pl-sticky pl-c1">Kode</th><th class="pl-sticky pl-c2">Nama produk</th><th class="num" title="Jumlah nomor SO">Jml SO</th><th class="num">Distr.</th>`
+      + `<th class="num si-cur m-start">${monLabel(D.ref)}</th><th class="num" title="Porsi dari total bulan ini">Porsi</th>`
+      + `<th class="num m-start">Bulan lalu${s}</th><th class="num">vs BL</th><th class="num m-start">Avg L3M${s}</th><th class="num">vs L3M</th><th class="num">Avg L6M</th>`
+      + `<th class="num m-start">${monShort(addMonth(D.ref, -12))}${s}</th><th class="num">vs LY</th><th class="num m-start">YTD ${D.y}</th><th class="num">YTD ${D.ly}</th><th class="num">vs YTD LY</th></tr>`;
+    const T = D.totC, codes = new Set(rows.map((r) => r.k));
+    const totRow = `<tr class="csl-tot"><th class="pl-sticky pl-c1">Total</th><th class="pl-sticky pl-c2"></th><th class="num">${nf0.format(new Set(C.lines.filter((L) => L.m === D.ref && siRegOk(L, D.reg) && (D.dist === 'ALL' || L.dist === D.dist) && codes.has(L.kode)).map((L) => L.no)).size)}</th><th></th>`
+      + `<th class="num si-cur m-start">${siF(tc)}</th><th class="num">100%</th><th class="num m-start">${siF(T.get('prev'))}</th>${grTd(siGr(tc, T.get('prev'))).replace(/td/g, 'th')}<th class="num m-start">${siF(T.get('l3c'))}</th>${grTd(siGr(tc, T.get('l3c'))).replace(/td/g, 'th')}<th class="num">${siF(T.get('l6'))}</th>`
+      + `<th class="num m-start">${D.hasLy ? siF(T.get('ly')) : '–'}</th>${grTd(D.hasLy ? siGr(tc, T.get('ly')) : null).replace(/td/g, 'th')}<th class="num m-start">${siF(T.get('ytd'))}</th><th class="num">${D.hasLy ? siF(T.get('ytdLy')) : '–'}</th>${grTd(D.hasLy ? siGr(T.get('ytd'), T.get('ytdLy')) : null).replace(/td/g, 'th')}</tr></thead>`;
+    const body = rows.slice(0, 600).map((r) => `<tr class="row" data-k="${esc(r.k)}" data-g="${siG(D.reg)}"><td class="pl-sticky pl-c1">${esc(r.k)}</td><td class="pl-sticky pl-c2" title="${esc(r.n)}">${esc(r.n)}</td><td class="num">${r.nSo || '–'}</td><td class="num">${r.nDist || '–'}</td>`
+      + `${siTd(r.cur, ' si-cur m-start')}<td class="num">${tc && r.cur ? fPct(r.cur / tc) : '–'}</td>${siTd(r.prev, ' m-start')}${grTd(siGr(r.cur, r.prev))}${siTd(r.l3c, ' m-start')}${grTd(siGr(r.cur, r.l3c))}${siTd(r.l6)}`
+      + `${siTd(r.ly, ' m-start')}${grTd(siGr(r.cur, r.ly))}${siTd(r.ytd, ' m-start')}${siTd(r.ytdLy)}${grTd(siGr(r.ytd, r.ytdLy))}</tr>`).join('');
+    $('siTable2').innerHTML = head + totRow + `<tbody>${body || '<tr><td colspan="16" class="csl-empty">Tidak ada SO untuk pilihan ini.</td></tr>'}</tbody>`;
+  }
+  function siAnalisa(D) {
+    const T = D.totC, tc = T.get('cur') || 0;
+    const gP = siGr(tc, T.get('prev')), g3 = siGr(tc, T.get('l3c')), gY = D.hasLy ? siGr(tc, T.get('ly')) : null, gYtd = D.hasLy ? siGr(T.get('ytd'), T.get('ytdLy')) : null;
+    const tone = (g) => (g === null ? '' : g >= 0 ? 'ok' : g <= -0.1 ? 'bad' : 'warn');
+    const pct = (g) => (g === null ? '–' : (g > 0 ? '+' : '') + nf1.format(g * 100) + '%');
+    const s = D.partial ? ` (tgl 1–${D.cut})` : '';
+    // Perkiraan akhir bulan: ikuti pola 3 bulan lalu (porsi tgl 1–cut terhadap sebulan penuh); kalau tidak ada, laju harian
+    const projByPat = D.partial && T.get('l3c') > 0;
+    const proj = !D.partial ? null : projByPat ? tc * T.get('l3') / T.get('l3c') : tc / D.cut * dim(D.ref);
+    const big = (v) => (SI.ms === 'q' ? fQ(v) + ' pcs' : fBig(v));
+    const active = D.rows.filter((r) => r.cur > 0);
+    // Pareto: berapa SKU membentuk 80% sell in bulan acuan
+    let acc = 0, n80 = 0;
+    active.slice().sort((a, b) => b.cur - a.cur).some((r) => { acc += r.cur; n80++; return acc >= tc * 0.8; });
+    $('siKpi').innerHTML = kpis([
+      { num: big(tc), lbl: `Sell in ${monLabel(D.ref)}${D.partial ? ' s/d tgl ' + D.cut : ''}` },
+      proj !== null ? { num: big(proj), lbl: 'Perkiraan akhir bulan', title: projByPat ? `Sell in s/d tgl ${D.cut} × (Avg L3M sebulan penuh ÷ Avg L3M tgl 1–${D.cut}). Mengikuti pola bukaan SO 3 bulan lalu. Hanya perkiraan.` : `Rata-rata per hari × ${dim(D.ref)} hari. Hanya perkiraan kasar.` } : null,
+      { num: pct(gP), lbl: 'vs bulan lalu' + s, tone: tone(gP) },
+      { num: pct(g3), lbl: 'vs Avg L3M' + s, tone: tone(g3) },
+      { num: pct(gY), lbl: `vs ${monShort(addMonth(D.ref, -12))}` + s, tone: tone(gY) },
+      { num: pct(gYtd), lbl: `YTD ${D.y} vs ${D.ly}`, tone: tone(gYtd) },
+      { num: `${nf0.format(active.length)} SKU`, lbl: `aktif · ${n80} SKU = 80% sell in`, title: 'Jumlah SKU yang ada SO di bulan acuan, dan berapa SKU teratas yang menyumbang 80% total.' },
+    ].filter(Boolean));
+    // Grafik total per bulan
+    const ms = D.months, vals = ms.map((m) => D.tot.get(m) || 0), mx = Math.max(1, ...vals);
+    const W = Math.max(640, ms.length * 52), H = 220, L0 = 6, B = 26, bw = (W - L0 * 2) / ms.length;
+    const yy = (v) => (H - B) * (1 - v / mx) + 8;
+    let svg = '';
+    ms.forEach((m, i) => {
+      const x = L0 + i * bw, v = vals[i], cur = m === D.ref;
+      svg += `<rect class="si-bar${cur ? ' is-cur' : ''}${cur && D.partial ? ' is-part' : ''}" x="${x + bw * 0.16}" y="${yy(v)}" width="${bw * 0.68}" height="${Math.max(0, H - B + 8 - yy(v))}" rx="3"><title>${monLabel(m)} · ${SI.ms === 'q' ? fQ(v) + ' pcs' : fRp(v)}${cur && D.partial ? ' (s/d tgl ' + D.cut + ')' : ''}</title></rect>`;
+      if (cur && proj !== null) svg += `<rect class="si-proj" x="${x + bw * 0.16}" y="${yy(Math.min(proj, mx * 1.0))}" width="${bw * 0.68}" height="${Math.max(0, yy(v) - yy(Math.min(proj, mx)))}" rx="3"><title>Perkiraan akhir bulan ${SI.ms === 'q' ? fQ(proj) + ' pcs' : fRp(proj)}</title></rect>`;
+      svg += `<text class="cslc-ax${cur ? ' is-sel' : ''}" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${monShort(m)}</text>`;
+    });
+    $('siChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="min-width:${ms.length * 44}px" role="img" aria-label="Total sell in per bulan">${svg}</svg>`;
+    // Daftar SKU
+    const minBase = (r) => (r.l3c || 0) > 0;
+    const delta = (r) => r.cur - (r.l3c || 0);
+    const up = D.rows.filter((r) => minBase(r) && delta(r) > 0).sort((a, b) => delta(b) - delta(a)).slice(0, 10);
+    const down = D.partial ? [] : D.rows.filter((r) => minBase(r) && delta(r) < 0 && r.cur > 0).sort((a, b) => delta(a) - delta(b)).slice(0, 10);
+    const lost = D.rows.filter((r) => r.l3n === 3 && !r.cur).sort((a, b) => (b.l3 || 0) - (a.l3 || 0)).slice(0, 15);
+    const fresh = D.rows.filter((r) => r.first === D.ref && D.ref > SI_START).sort((a, b) => b.cur - a.cur);
+    const top = active.slice().sort((a, b) => b.cur - a.cur).slice(0, 10);
+    const tr = (r, cells) => `<tr class="row" data-k="${esc(r.k)}" data-g="${siG(D.reg)}"><td>${esc(r.k)}</td><td title="${esc(r.n)}"><span class="si-nm">${esc(r.n)}</span></td>${cells}</tr>`;
+    const tbl = (h, rows, empty) => `<div class="table-wrap"><table class="po-table csl-table si-mini"><thead><tr><th>Kode</th><th>Nama produk</th>${h}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="6" class="csl-empty">${empty}</td></tr>`}</tbody></table></div>`;
+    const card = (t, sub, body) => `<article class="csl-card"><div class="csl-card-head"><h2>${t}</h2><p class="card-sub">${sub}</p></div>${body}</article>`;
+    const u = siUnit();
+    const regList = [...D.regT.entries()].sort((a, b) => b[1] - a[1]);
+    const regSum = sum(regList.map((x) => x[1])) || 1;
+    // Ringkasan kalimat
+    const notes = [];
+    if (g3 !== null) notes.push(`Sell in ${monLabel(D.ref)}${s} ${g3 >= 0 ? 'di atas' : 'di bawah'} rata-rata 3 bulan sebelumnya sebesar ${pct(Math.abs(g3)).replace('+', '')}.`);
+    if (proj !== null && T.get('l3') > 0) notes.push(`${projByPat ? 'Mengikuti pola bukaan SO 3 bulan lalu' : 'Dengan laju harian sekarang'}, akhir bulan diperkirakan ${big(proj)} (${pct(proj / T.get('l3') - 1)} terhadap Avg L3M satu bulan penuh).`);
+    if (gYtd !== null) notes.push(`YTD ${D.y} ${gYtd >= 0 ? 'naik' : 'turun'} ${pct(Math.abs(gYtd)).replace('+', '')} dibanding periode yang sama ${D.ly}.`);
+    if (top[0] && tc) notes.push(`${top[0].k} ${top[0].n} menyumbang ${fPct(top[0].cur / tc)} dari total; ${n80} SKU teratas membentuk 80% sell in.`);
+    if (lost.length) notes.push(`${lost.length} SKU yang rutin ada SO 3 bulan terakhir belum ada SO di ${monLabel(D.ref)}${D.partial ? ' sampai tgl ' + D.cut : ''} — cek ke sales/distributor.`);
+    if (fresh.length) notes.push(`${fresh.length} SKU baru pertama kali ada SO di bulan ini.`);
+    $('siAnalisa').innerHTML = `<article class="csl-card"><div class="csl-card-head"><h2>Total sell in per bulan</h2><p class="card-sub">${u}${D.partial ? ' · batang terang = perkiraan sisa bulan berjalan' : ''}</p></div><div class="si-chart-wrap">${$('siChart').innerHTML}</div>${notes.length ? `<ul class="si-notes">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</article>`
+      + `<div class="si-grid">`
+      + card('Top 10 SKU', `Kontribusi terbesar ${monLabel(D.ref)}`, tbl(`<th class="num">${monShort(D.ref)}</th><th class="num">Porsi</th><th class="num">vs L3M</th>`, top.map((r) => tr(r, `${siTd(r.cur)}<td class="num">${fPct(r.cur / tc)}</td>${grTd(siGr(r.cur, r.l3c))}`)), 'Belum ada SO.'))
+      + card('Porsi per region', `${monLabel(D.ref)} · ${u}`, `<div class="si-reg">${regList.map(([g, v]) => `<div class="si-reg-row"><span>${esc(g === '?' ? 'Belum diketahui' : g)}</span><span class="si-reg-bar"><i style="width:${(v / regSum * 100).toFixed(1)}%"></i></span><span class="num">${siF(v)} · ${fPct(v / regSum)}</span></div>`).join('') || '<p class="csl-empty">Belum ada SO.</p>'}</div>`)
+      + card('Naik paling tinggi', `Selisih terbesar terhadap Avg L3M${s}`, tbl(`<th class="num">${monShort(D.ref)}</th><th class="num">Avg L3M</th><th class="num">Selisih</th>`, up.map((r) => tr(r, `${siTd(r.cur)}${siTd(r.l3c)}${siTd(delta(r))}`)), 'Tidak ada SKU yang naik.'))
+      + card('Turun paling dalam', D.partial ? 'Ditampilkan setelah bulan penuh — di tengah bulan angka masih bisa bertambah' : 'Selisih terbesar di bawah Avg L3M (SKU yang masih ada SO)', tbl(`<th class="num">${monShort(D.ref)}</th><th class="num">Avg L3M</th><th class="num">Selisih</th>`, down.map((r) => tr(r, `${siTd(r.cur)}${siTd(r.l3c)}${siTd(delta(r))}`)), D.partial ? 'Lihat di daftar "Belum ada SO" di bawah.' : 'Tidak ada SKU yang turun.'))
+      + card('Rutin tapi belum ada SO', `Ada SO 3 bulan berturut-turut, ${monLabel(D.ref)} masih kosong`, tbl('<th class="num">Avg L3M</th><th class="num">Bulan lalu</th>', lost.map((r) => tr(r, `${siTd(r.l3)}${siTd(r.o[SI.ms === 'q' ? 'q' : 'r'][addMonth(D.ref, -1)] || 0)}`)), 'Semua SKU rutin sudah ada SO.'))
+      + card('SKU baru', `Pertama kali ada SO di ${monLabel(D.ref)}`, tbl(`<th class="num">${monShort(D.ref)}</th><th class="num">Jml SO</th><th class="num">Distr.</th>`, fresh.map((r) => tr(r, `${siTd(r.cur)}<td class="num">${r.nSo}</td><td class="num">${r.nDist}</td>`)), 'Tidak ada SKU baru.'))
+      + `</div>`;
+  }
+  function siExport() {
+    const D = C.si || siData(), u = SI.ms === 'q' ? 'PCS' : 'RP';
+    const rnd = (v) => (isNum(v) ? Math.round(v) : '');
+    const mx = [['KODE', 'NAMA'].concat(D.months, [`AVG L3M`, `AVG L6M`, `YTD ${D.y}`, 'TOTAL'])]
+      .concat(D.rows.slice().sort((a, b) => b.total - a.total).map((r) => [r.k, r.n].concat(r.vals.map(rnd), [rnd(r.l3), rnd(r.l6), rnd(r.ytd), rnd(r.total)])));
+    const s = D.partial ? ` (TGL 1-${D.cut})` : '';
+    const bl = [['KODE', 'NAMA', 'JML SO', 'JML DISTRIBUTOR', D.ref, 'BULAN LALU' + s, 'AVG L3M' + s, 'AVG L6M', addMonth(D.ref, -12) + s, `YTD ${D.y}`, `YTD ${D.ly}`]]
+      .concat(D.rows.filter((r) => r.cur || r.prev || r.l3).sort((a, b) => b.cur - a.cur).map((r) => [r.k, r.n, r.nSo, r.nDist, rnd(r.cur), rnd(r.prev), rnd(r.l3c), rnd(r.l6), rnd(r.ly), rnd(r.ytd), rnd(r.ytdLy)]));
+    const tag = [D.reg, D.dist === 'ALL' ? '' : D.dist.replace(/[^\w]+/g, '_').slice(0, 20)].filter(Boolean).join('_');
+    toExcel(`Sell_In_${u}_${tag}`, [[`Matriks ${u}`, mx], [`${D.ref} ${u}`, bl]]);
+  }
+
   const RENDER = {
+    'csl/sellin': renderSellIn,
     'csl/dashboard': renderDash, 'csl/region': renderRegion, 'csl/sku': renderSku, 'csl/os': renderOs, 'csl/weekly': renderWeekly,
     'csl/amount': renderAmount, 'csl/analisa': renderAnalisa, 'csl/suggest': renderSuggest, 'csl/musim': renderMusim, 'csl/update': renderUpdate, 'csl/cek': renderCek,
   };
@@ -1425,15 +1613,15 @@
   /* ---------- Event ---------- */
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
   const rerender = () => render(C.route);
-  ['cdMonth', 'cdPeriod', 'cdOs', 'crPeriod', 'crView', 'csGrp', 'csEnd', 'csSpan', 'coGrp', 'coMode', 'cwMonth', 'cwMode', 'caGrp', 'caMonth', 'cgMode', 'cgCols', 'cgGrp', 'cgMonth', 'cgAll', 'cmGrp', 'cmYear', 'ckMonth', 'ckGrp', 'ckReg']
+  ['cdMonth', 'cdPeriod', 'cdOs', 'crPeriod', 'crView', 'csGrp', 'csEnd', 'csSpan', 'coGrp', 'coMode', 'cwMonth', 'cwMode', 'caGrp', 'caMonth', 'cgMode', 'cgCols', 'cgGrp', 'cgMonth', 'cgAll', 'cmGrp', 'cmYear', 'ckMonth', 'ckGrp', 'ckReg', 'siMonth', 'siDist']
     .forEach((id) => on(id, 'change', rerender));
   let qT;
-  ['csQ', 'coQ', 'cwQ', 'caQ', 'cgQ', 'ckQ'].forEach((id) => on(id, 'input', () => { clearTimeout(qT); qT = setTimeout(rerender, 200); }));
+  ['csQ', 'coQ', 'cwQ', 'caQ', 'cgQ', 'ckQ', 'siQ'].forEach((id) => on(id, 'input', () => { clearTimeout(qT); qT = setTimeout(rerender, 200); }));
   on('cdChart', 'mousemove', chartHover);
   on('cdChart', 'mouseleave', () => { if ($('cdTip')) $('cdTip').hidden = true; if ($('cdCross')) $('cdCross').setAttribute('visibility', 'hidden'); });
   on('cdChart', 'click', (e) => { const r = e.target.closest('.cslc-hit'); if (!r || !C.chart) return; $('cdMonth').value = C.chart.months[+r.dataset.i]; renderDash(); });
   on('cdTable', 'click', (e) => { const th = e.target.closest('[data-m]'); if (!th) return; $('cdMonth').value = th.dataset.m; renderDash(); });
-  ['csTable', 'coTable', 'cgTable', 'cwBody', 'cmBody'].forEach((id) => on(id, 'click', (e) => {
+  ['csTable', 'coTable', 'cgTable', 'cwBody', 'cmBody', 'siTable', 'siTable2', 'siAnalisa'].forEach((id) => on(id, 'click', (e) => {
     if (e.target.closest('[data-season], thead')) return;
     const tr = e.target.closest('[data-k]'); if (tr) openSku(tr.dataset.k, tr.dataset.g);
   }));
@@ -1453,6 +1641,10 @@
     toExcel(`Rekap_SKU_${g}`, [['Rekap SKU', [['KODE', 'NAMA'].concat(...months.map((m) => [`${m} FCT`, `${m} SO`, `${m} DO`, `${m} DO-OS`]))]
       .concat(rows.map((r) => [r.k, r.n].concat(...r.v.map((x) => [x.fct, x.so, x.do, x.os]))))]]);
   });
+  on('siReg', 'change', () => { const d = $('siDist'); if (d) { d.value = 'ALL'; } rerender(); });
+  on('siTab', 'click', (e) => { const b = e.target.closest('[data-t]'); if (!b) return; SI.tab = b.dataset.t; renderSellIn(); });
+  on('siMs', 'click', (e) => { const b = e.target.closest('[data-ms]'); if (!b) return; SI.ms = b.dataset.ms; renderSellIn(); });
+  on('siExport', 'click', siExport);
   on('coCancel', 'change', () => { C.cancelSisa = $('coCancel').checked; compute(); renderOs(); renderHome(); });
   on('coExport', 'click', () => {
     const ls = osLines($('coGrp').value, $('coQ').value.trim());

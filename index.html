@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=9cc6e74e">
+<link rel="stylesheet" href="style.css?v=83ca981c">
 </head>
 <body>
 <div class="shell">
@@ -74,6 +74,7 @@
           <a class="menu-item sub" href="#/csl/dashboard" data-route="csl/dashboard">Dashboard CSL</a>
           <a class="menu-item sub" href="#/csl/region" data-route="csl/region">Review Region</a>
           <a class="menu-item sub" href="#/csl/sku" data-route="csl/sku">Rekap per SKU</a>
+          <a class="menu-item sub" href="#/csl/sellin" data-route="csl/sellin">Sell In</a>
           <a class="menu-item sub" href="#/csl/os" data-route="csl/os">Sisa SO</a>
           <a class="menu-item sub" href="#/csl/weekly" data-route="csl/weekly">Weekly Review</a>
           <a class="menu-item sub" href="#/csl/amount" data-route="csl/amount">Amount Check</a>
@@ -990,6 +991,34 @@
         <p class="hint">Pcs. FCT dari forecast; SO menurut bulan SO; DO = terkirim di bulan yang sama; DO-OS = SO bulan itu yang terkirim di bulan berikutnya.</p>
       </section>
 
+      <!-- ================= CSL: SELL IN ================= -->
+      <section id="view-csl-sellin" class="view" hidden>
+        <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
+        <div class="toolbar">
+          <div class="pj-seg" id="siTab" role="group" aria-label="Tampilan Sell In"><button type="button" data-t="mx" aria-pressed="true">Per SKU × bulan</button><button type="button" data-t="bl" aria-pressed="false">Bulan terpilih</button><button type="button" data-t="an" aria-pressed="false">Analisa</button></div>
+          <div class="pj-seg" id="siMs" role="group" aria-label="Ukuran"><button type="button" data-ms="q" aria-pressed="true">Qty (pcs)</button><button type="button" data-ms="r" aria-pressed="false">Nilai (Rp)</button></div>
+          <label class="tb-field tb-narrow"><span class="sr">Bulan acuan</span><select id="siMonth" title="Bulan acuan untuk L3M, L6M, YTD, dan analisa"></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Region</span><select id="siReg"></select></label>
+          <label class="tb-field tb-wide"><span class="sr">Distributor</span><select id="siDist"></select></label>
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="siQ" placeholder="Cari kode atau nama produk"></label>
+          <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="siExport">Unduh Excel</button></div>
+        </div>
+        <p class="mrp-count" id="siInfo"></p>
+        <div id="siPane-mx">
+          <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="siTable"></table></div>
+          <p class="hint">Bukaan SO per SKU menurut bulan tanggal SO, Januari 2025 sampai data terakhir. Kolom berwarna = bulan acuan. Avg L3M / L6M = rata-rata 3 / 6 bulan sebelum bulan acuan; YTD = Januari s/d bulan acuan. Klik baris untuk rincian SKU.</p>
+        </div>
+        <div id="siPane-bl" hidden>
+          <div class="table-wrap pl-wrap"><table class="po-table pl-table csl-table" id="siTable2"></table></div>
+          <p class="hint">Bila bulan acuan masih berjalan, pembanding (bulan lalu, L3M, tahun lalu, YTD tahun lalu) dihitung untuk tanggal yang sama supaya adil. Avg L6M tetap bulan penuh.</p>
+        </div>
+        <div id="siPane-an" hidden>
+          <div class="pl-kpis" id="siKpi"></div>
+          <div id="siChart" hidden></div>
+          <div id="siAnalisa"></div>
+        </div>
+      </section>
+
       <!-- ================= CSL: SISA SO ================= -->
       <section id="view-csl-os" class="view" hidden>
         <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
@@ -1210,9 +1239,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=74e9b466"></script>
-<script src="csl.js?v=9fbb7bf7"></script>
-<script src="help.js?v=aa2edc6a"></script>
+<script src="app.js?v=16966dbf"></script>
+<script src="csl.js?v=64415491"></script>
+<script src="help.js?v=47dc0f7b"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
