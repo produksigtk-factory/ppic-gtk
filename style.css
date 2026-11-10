@@ -1541,3 +1541,15 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .sk-rkmat[open] summary { margin-bottom: 6px; }
 .sk-rkmat .pl-mini { min-width: 0; width: 100%; font-size: 12.5px; }
 .sk-rkmat .pl-mini td { white-space: normal; }
+.rk-table tr.rk-sec td { background: #f1f4f2; font-weight: 600; font-size: 12.5px; color: var(--brand); padding-top: 7px; padding-bottom: 7px; }
+.rk-table tr.rk-sec td .muted { font-weight: 400; }
+.rk-table tr.rk-sec.rk-none td { color: var(--muted); font-weight: 400; }
+.rk-table tr.rk-fg { cursor: pointer; }
+.rk-table tr.rk-fg td { background: #fff; font-size: 13px; }
+.rk-table tr.rk-fg:hover td { background: #f7faf8; }
+.rk-table tr.rk-fg.is-open td { background: #f7faf8; }
+.rk-table tr.rk-fg .rk-meta { font-size: 11.5px; color: var(--muted); }
+.rk-car { display: inline-block; width: 12px; color: var(--brand); }
+.rk-table tr.rk-sub td:first-child { padding-left: 34px; }
+.rk-table tr.rk-sub td { font-size: 12.5px; }
+.rk-table tr.rk-fg td:first-child { white-space: nowrap; }
