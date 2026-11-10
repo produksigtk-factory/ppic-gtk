@@ -4591,7 +4591,7 @@
       const comps = [...groups].map(([src, ls]) => {
         const fgC = src === 'RAKITAN' ? null : src, fgB = ls[0] && ls[0].fgBom, ya = ls.filter((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)).length;
         (fgC ? fgSet : pmSet).add(fgC || ls.map((l) => l.code).join());
-        const gh = `<tr class="rk-src"><td colspan="6"><b>${fgC ? `Dari FG ${esc(fgC)}` : 'Kemasan rakitan'}</b> <span class="muted">${fgC ? esc(((MRP.master.get(fgC) || {}).name) || '') : ''}${fgB ? ` · BoM Ref ${esc(refOf(fgB))} (${normU(fgB.uom) === 'kg' ? 'batch ' + fmtQ(fgB.batch) + ' kg' : fmtQ(fgB.batch) + ' pcs = 1.000 kg'})` : ''} · ${ya}/${ls.length} digunakan</span></td>
+        const gh = `<tr class="rk-src"><td colspan="6"><b>${fgC ? `Dari FG ${esc(fgC)}` : 'PM tambahan'}</b> <span class="muted">${fgC ? esc(((MRP.master.get(fgC) || {}).name) || '') : 'langsung di BoM rakitan (di luar FG)'}${fgB ? ` · BoM Ref ${esc(refOf(fgB))} (${normU(fgB.uom) === 'kg' ? 'batch ' + fmtQ(fgB.batch) + ' kg' : fmtQ(fgB.batch) + ' pcs = 1.000 kg'})` : ''} · ${ya}/${ls.length} digunakan</span></td>
           <td class="rk-src-act">${ed ? `<button type="button" class="btn-link" data-rkall="${esc(k.code)}|${esc(src)}|Y">Ya semua</button> · <button type="button" class="btn-link" data-rkall="${esc(k.code)}|${esc(src)}|N">Tidak semua</button>` : ''}</td></tr>`;
         return gh + ls.map((l) => {
           const m = MRP.master.get(l.code) || {}, on = P.pakai.has(k.code + '|' + l.src + '|' + l.code);
@@ -4675,7 +4675,7 @@
     const rows = [];
     (P.rkList || []).forEach((k) => (k.b ? rkLines(k.code, k.b) : []).forEach((l) => {
       const m = MRP.master.get(l.code) || {};
-      rows.push({ 'KODE RAKITAN': k.code, 'NAMA RAKITAN': k.name, JENIS: k.jenis, BOM: k.b ? refOf(k.b) : '', SUMBER: l.src === 'RAKITAN' ? 'Kemasan rakitan' : 'FG ' + l.src,
+      rows.push({ 'KODE RAKITAN': k.code, 'NAMA RAKITAN': k.name, JENIS: k.jenis, BOM: k.b ? refOf(k.b) : '', SUMBER: l.src === 'RAKITAN' ? 'PM tambahan' : 'FG ' + l.src,
         'KODE MATERIAL': l.code, 'NAMA MATERIAL': m.name || l.name || '', KATEGORI: l.kind === 'ek' ? 'Ekstrak/bulk' : m.kat || '', 'QTY PER 1.000 PCS': round4(l.q * 1000), 'QTY PER PCS': round4(l.q),
         UoM: l.uom || m.uom || '', DIGUNAKAN: P.pakai.has(k.code + '|' + l.src + '|' + l.code) ? 'Ya' : 'Tidak' });
     }));
@@ -4704,9 +4704,23 @@
       .sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }));
     $('skRkRows').innerHTML = rk.map((k) => { const b = bomById(k.code, k.bom); return `<tr class="${k.aktif ? '' : 'is-off'}"><td class="mono"><a href="#/mrp/rakitan">${esc(k.code)}</a></td><td>${esc(k.name)}</td>
       <td><span class="badge rk-${rkJenis(k.name).toLowerCase()}">${rkJenis(k.name)}</span></td><td>${b ? esc(refOf(b)) + ` <span class="muted">${esc(b.id)}</span>` : '<span class="pl-bad">BoM tidak ditemukan</span>'}</td>
-      <td>pcs</td><td>${k.aktif ? 'Ya' : '<span class="muted">Tidak</span>'}</td><td>${esc(k.note || '')}</td><td class="muted">${esc(k.time || '')}</td></tr>`; }).join('')
-      || `<tr class="empty"><td colspan="8">${(P.rakitan || []).length ? 'Tidak ada yang cocok dengan filter.' : 'Belum ada produk rakitan.'}</td></tr>`;
+      <td>pcs</td><td>${skRkMat(k, b)}</td><td>${k.aktif ? 'Ya' : '<span class="muted">Tidak</span>'}</td><td>${esc(k.note || '')}</td><td class="muted">${esc(k.time || '')}</td></tr>`; }).join('')
+      || `<tr class="empty"><td colspan="9">${(P.rakitan || []).length ? 'Tidak ada yang cocok dengan filter.' : 'Belum ada produk rakitan.'}</td></tr>`;
     $('skRkInfo').textContent = `${nf.format((P.rakitan || []).filter((k) => k.aktif).length)} produk rakitan aktif · diambil dari menu BoM Banded/2in1/KIT; ubah di sana`;
+  }
+  // Material yang dipotong stoknya untuk 1 produk rakitan = baris "Ya" di menu BoM Banded/2in1/KIT (pecahan FG + PM tambahan)
+  function skRkMat(k, b) {
+    if (!b) return '<span class="muted">–</span>';
+    const all = rkLines(k.code, b), ya = all.filter((l) => P.pakai && P.pakai.has(k.code + '|' + l.src + '|' + l.code));
+    if (!ya.length) return `<span class="pl-bad">Belum ada yang Ya</span> <span class="muted">(0/${all.length})</span> · <a href="#/mrp/rakitan">atur</a>`;
+    const nFg = ya.filter((l) => l.src !== 'RAKITAN').length, nPm = ya.length - nFg;
+    const grp = new Map(); ya.forEach((l) => { if (!grp.has(l.src)) grp.set(l.src, []); grp.get(l.src).push(l); });
+    const order = [...grp.keys()].sort((a, c) => (a === 'RAKITAN') - (c === 'RAKITAN'));
+    return `<details class="sk-rkmat"><summary><b>${ya.length}</b> material <span class="muted">(${nFg} pecahan FG · ${nPm} PM tambahan, dari ${all.length})</span></summary>
+      <table class="po-table pl-mini"><thead><tr><th>Kode</th><th>Material</th><th>Kategori</th><th class="num">Qty / 1.000 pcs</th></tr></thead><tbody>
+      ${order.map((src) => `<tr class="rk-src"><td colspan="4"><b>${src === 'RAKITAN' ? 'PM tambahan' : 'Dari FG ' + esc(src)}</b> <span class="muted">${src === 'RAKITAN' ? '' : esc(((MRP.master.get(src) || {}).name) || '')}</span></td></tr>`
+        + grp.get(src).map((l) => { const m = MRP.master.get(l.code) || {}; return `<tr><td class="mono">${esc(l.code)}</td><td>${esc(m.name || l.name || '')}</td><td>${l.kind === 'ek' ? '<span class="badge b-wait">Ekstrak/bulk</span>' : esc(m.kat || '')}</td><td class="num">${fmtQ(l.q * 1000)} ${esc(normU(m.uom || l.uom || ''))}</td></tr>`; }).join('')).join('')}
+      </tbody></table></details>`;
   }
   $('skQ').addEventListener('input', renderSku);
   $('skJenis').addEventListener('change', renderSku);
