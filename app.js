@@ -2748,6 +2748,111 @@
     MRP.lastFlat = { p, bom, need, flat, tree };
   }
 
+  /* ---------- Tambah BoM: upload export BoM Odoo → BOM_LIST & BOM_DETAIL di DATABASE PPIC GTK ---------- */
+  const bomNum = (v) => { if (typeof v === 'number') return v; const t = String(v || '').trim(); if (!t) return 0; const x = Number(/,\d{1,6}$/.test(t) && !/\.\d{3},/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '')); return isFinite(x) ? x : 0; };
+  function parseOdooBom(rows) {
+    const hi = rows.findIndex((r, i) => i < 10 && r.some((v) => String(v).trim() === 'bom_lines/product_id/code'));
+    if (hi < 0) throw new Error('Kolom bom_lines/product_id/code tidak ditemukan. Gunakan export BoM Odoo (mrp.bom) dengan kolom seperti contoh.');
+    const h = rows[hi].map((v) => String(v).trim());
+    const col = (...names) => { for (const n of names) { const i = h.indexOf(n); if (i >= 0) return i; } return -1; };
+    const c = {
+      id: col('id'), code: col('product_id/code', 'product_tmpl_id/default_code', 'product_id/default_code'), name: col('product_id/name', 'product_tmpl_id/name'),
+      batch: col('product_qty'), ref: col('code'), lc: col('bom_lines/product_id/code', 'bom_lines/product_id/default_code'), ln: col('bom_lines/product_id/name'),
+      lq: col('bom_lines/product_qty'), lu: col('bom_lines/product_id/uom_po_id', 'bom_lines/product_uom_id', 'bom_lines/product_id/uom_id'),
+    };
+    const miss = ['code', 'batch', 'lc', 'lq'].filter((k) => c[k] < 0);
+    if (miss.length) throw new Error('Kolom wajib tidak ada: ' + miss.map((k) => ({ code: 'product_id/code', batch: 'product_qty', lc: 'bom_lines/product_id/code', lq: 'bom_lines/product_qty' })[k]).join(', '));
+    const out = [];
+    let cur = null;
+    for (let i = hi + 1; i < rows.length; i++) {
+      const r = rows[i], g = (k) => (c[k] >= 0 ? String(r[c[k]] === undefined || r[c[k]] === null ? '' : r[c[k]]).trim() : '');
+      if (g('code') || (c.id >= 0 && g('id'))) {
+        cur = { odoo: g('id').replace(/^__export__\./, ''), code: g('code'), name: g('name'), batch: bomNum(r[c.batch]), ref: g('ref'), lines: [] };
+        out.push(cur);
+      }
+      if (!cur || !g('lc')) continue;
+      cur.lines.push([g('lc'), g('ln'), bomNum(r[c.lq]), g('lu')]);
+    }
+    return out.filter((b) => b.code);
+  }
+  function bomCheck(b) {
+    const same = (MRP.byProduct.get(b.code) || []);
+    const warn = [], info = [];
+    const dupRef = same.filter((x) => (x.ref || '').trim().toLowerCase() === (b.ref || '').trim().toLowerCase());
+    const dupOdoo = b.odoo ? MRP.boms.filter((x) => (x.note || '').includes(b.odoo)) : [];
+    if (dupRef.length) warn.push(`Produk ${b.code} dengan Reference "${b.ref || '(kosong)'}" sudah ada: ${dupRef.map((x) => x.id).join(', ')}`);
+    if (dupOdoo.length) warn.push(`BoM Odoo ${b.odoo} sudah pernah di-upload: ${dupOdoo.map((x) => x.id).join(', ')}`);
+    if (!dupRef.length && same.length) info.push(`Versi baru — sudah ada ${same.length} versi (${same.map((x) => x.lbl || x.ref).join(', ')})`);
+    if (!same.length) info.push('Produk baru di DATABASE');
+    // UoM BoM: ikut versi yang sudah ada; produk baru → Pcs bila ada komponen Pcs (FG), selain itu Kg (ekstrak/bulk)
+    b.uom = same.length ? same[0].uom : (b.lines.some((l) => normU(l[3]) === 'pcs' || normU(l[3]) === 'unit') ? 'Pcs' : 'Kg');
+    if (!b.name) b.name = ((MRP.master.get(b.code) || {}).name) || (same[0] && same[0].name) || '';
+    const noMaster = [], badU = [], zero = [];
+    b.lines.forEach((l) => {
+      const m = MRP.master.get(l[0]);
+      l[4] = m ? m.kat : (MRP.byProduct.has(l[0]) ? 'Ekstrak/bulk' : '');
+      if (!m && !MRP.byProduct.has(l[0])) noMaster.push(l[0]);
+      if (m && m.uom && l[3] && normU(m.uom) !== normU(l[3])) badU.push(`${l[0]} (${l[3]} vs master ${m.uom})`);
+      if (!l[2]) zero.push(l[0]);
+    });
+    if (noMaster.length) warn.push(`Belum ada di MASTER_MATERIAL: ${noMaster.join(', ')}`);
+    if (badU.length) warn.push(`UoM beda dengan master: ${badU.join(', ')}`);
+    if (zero.length) warn.push(`Qty 0 (tidak disimpan): ${zero.join(', ')}`);
+    if (!(b.batch > 0)) warn.push('Qty batch kosong / 0');
+    b.dup = dupRef.length > 0 || dupOdoo.length > 0;
+    b.bad = !(b.batch > 0) || !b.lines.some((l) => l[2]);
+    return { warn, info };
+  }
+  function bomAddDialog() {
+    const st = { list: [], file: '' };
+    const paint = () => {
+      const el = $('bomUpList'); if (!el) return;
+      if (!st.list.length) { el.innerHTML = ''; return; }
+      el.innerHTML = `<p class="dlg-lead">${st.list.length} BoM di file · centang yang akan ditambahkan. Yang sudah ada (produk + Reference sama, atau BoM Odoo yang sama) <b>tidak dicentang</b>; centang bila memang ingin ditambah sebagai versi baru.</p>`
+        + st.list.map((b, i) => `<div class="bomup${b.dup ? ' is-dup' : ''}${b.bad ? ' is-bad' : ''}">
+          <label class="bomup-h"><input type="checkbox" data-bi="${i}"${b.on ? ' checked' : ''}${b.bad ? ' disabled' : ''}>
+            <b>${esc(b.code)}</b> ${esc(b.name)} <span class="muted">· Ref <b>${esc(b.ref || '(kosong)')}</b> · batch ${fmtQ(b.batch)} ${esc(b.uom)} · ${b.lines.filter((l) => l[2]).length} komponen</span></label>
+          ${b.chk.warn.map((w) => `<p class="bomup-w">⚠ ${esc(w)}</p>`).join('')}${b.chk.info.map((w) => `<p class="bomup-i">${esc(w)}</p>`).join('')}
+          <details><summary>Lihat komponen</summary><table class="po-table pl-mini"><thead><tr><th>Kode</th><th>Material</th><th>Kategori</th><th class="num">Qty</th><th>UoM</th></tr></thead><tbody>
+          ${b.lines.map((l) => `<tr${l[2] ? '' : ' class="muted"'}><td class="mono">${esc(l[0])}</td><td>${esc(l[1])}</td><td>${esc(l[4] || '–')}</td><td class="num">${fmtQ(l[2])}</td><td>${esc(l[3])}</td></tr>`).join('')}
+          </tbody></table></details></div>`).join('');
+      $('dlgOk').disabled = !st.list.some((b) => b.on);
+      $('dlgOk').textContent = `Tambahkan ${st.list.filter((b) => b.on).length} BoM`;
+    };
+    openDialog({
+      title: 'Tambah BoM dari export Odoo', ok: 'Tambahkan', wide: true,
+      body: `<p class="dlg-lead">Upload file export BoM Odoo (Bill of Materials → Export: product_id/code, product_qty, code, bom_lines/…). Satu file boleh berisi beberapa BoM. Disimpan sebagai BoM baru di DATABASE PPIC GTK (BOM_LIST &amp; BOM_DETAIL); BoM lama tidak diubah.</p>
+        <label class="file-drop" for="bomUpFile"><input type="file" id="bomUpFile" accept=".xls,.xlsx"><span class="file-btn">Pilih file BoM Odoo</span><span class="file-name" id="bomUpName">Belum ada file</span></label>
+        <div id="bomUpList"></div>`,
+      onSubmit: async () => {
+        const sel = st.list.filter((b) => b.on);
+        if (!sel.length) throw new Error('Pilih minimal satu BoM.');
+        const res = await mrpApi('addBoms', { file: st.file, boms: sel.map((b) => ({ code: b.code, name: b.name, batch: b.batch, uom: b.uom, ref: b.ref, odoo: b.odoo, lines: b.lines.filter((l) => l[2]).map((l) => [l[0], l[1], l[2], l[3], l[4] === 'Ekstrak/bulk' ? '' : l[4]]) })) });
+        await loadMrp('fresh');
+        return `${(res.added || []).length} BoM ditambahkan: ${(res.added || []).map((x) => x[0] + ' ' + x[1]).join(', ')}`;
+      },
+    });
+    $('dlgOk').disabled = true;
+    const seq = dlgSeq, body = $('dlgBody');
+    body.addEventListener('change', async (e) => {
+      if (seq !== dlgSeq) return;
+      const cb = e.target.closest('[data-bi]');
+      if (cb) { st.list[Number(cb.dataset.bi)].on = cb.checked; paint(); return; }
+      if (e.target.id !== 'bomUpFile') return;
+      const f = e.target.files[0]; if (!f) return;
+      $('bomUpName').textContent = f.name; st.file = f.name; $('dlgError').textContent = '';
+      try {
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
+        st.list = parseOdooBom(rows);
+        if (!st.list.length) throw new Error('Tidak ada BoM yang terbaca di file ini.');
+        st.list.forEach((b) => { b.chk = bomCheck(b); b.on = !b.dup && !b.bad; });
+      } catch (err) { st.list = []; $('dlgError').textContent = err.message; }
+      paint();
+    });
+  }
+  $('bAdd').addEventListener('click', () => needEdit(bomAddDialog));
+
   $('bq').addEventListener('input', () => renderBomList());
   $('bKat').addEventListener('change', () => renderBomList());
   $('bList').addEventListener('click', (e) => {

@@ -1553,3 +1553,14 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .rk-table tr.rk-sub td:first-child { padding-left: 34px; }
 .rk-table tr.rk-sub td { font-size: 12.5px; }
 .rk-table tr.rk-fg td:first-child { white-space: nowrap; }
+/* Tambah BoM dari Odoo */
+.bomup { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.bomup.is-dup { border-color: #e7c66b; background: #fffbea; }
+.bomup.is-bad { opacity: .7; }
+.bomup-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; cursor: pointer; }
+.bomup-w { margin: 6px 0 0; color: #8a5a00; font-size: 12.5px; }
+.bomup-i { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+.bomup details { margin-top: 6px; font-size: 12.5px; }
+.bomup summary { cursor: pointer; color: var(--brand); }
+#bAdd { width: 100%; }
+.bomup .pl-mini { min-width: 0; width: 100%; }
