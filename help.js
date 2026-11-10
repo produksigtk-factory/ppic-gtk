@@ -97,6 +97,7 @@
     ['Analisa Forecast', 'Tanpa nol', 'AVG > 0', 'Statistik yang hanya memakai bulan dengan SO > 0 (bulan tanpa penjualan diabaikan).', ''],
     ['Analisa Forecast', 'ADI', 'Average Demand Interval', 'Jumlah bulan ÷ jumlah bulan yang ada SO. 1 = laku tiap bulan; makin besar = makin jarang laku.', ''],
     ['Analisa Forecast', 'CV / CV²', 'Coefficient of Variation', 'σ ÷ rata-rata (tanpa nol); CV² = kuadratnya. Makin besar = jumlah SO per bulan makin tidak stabil.', ''],
+    ['CSL', 'Excel CSL', 'INPUT SODO, (GTK), (BIMS)', 'Sumber data CSL. Di Update Data CSL pilih file Excel CSL utuh: SO & DO dibaca dari INPUT SODO (region, kota, week ikut Excel), forecast dari kolom FCT di (GTK) = offline dan (BIMS) = online. Bulan yang isinya tidak berubah tidak dikirim ulang.', 'csl/update|Update Data CSL'],
     ['CSL', 'Sell In', 'Bukaan SO', 'Jumlah qty / nilai SO yang dibuka per SKU, dikelompokkan menurut bulan tanggal SO (sejak Januari 2025).', 'csl/sellin|Sell In'],
     ['CSL', 'Avg L3M / L6M', 'Last 3 / 6 months', 'Rata-rata 3 / 6 bulan sebelum bulan acuan (bulan acuan sendiri tidak ikut dihitung).', 'csl/sellin|Sell In'],
     ['CSL', 'YTD', 'Year to date', 'Total Januari sampai bulan acuan pada tahun yang sama. YTD tahun lalu = periode yang sama tahun sebelumnya.', 'csl/sellin|Sell In'],

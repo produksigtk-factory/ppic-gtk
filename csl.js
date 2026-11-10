@@ -54,7 +54,7 @@
     P: {}, paramRows: [], dist: new Map(), kota: [], master: new Map(), names: {}, weeks: [],
     months: [], cache: new Map(), fct: new Map(), fctRows: [], nilai: new Map(), nilaiRows: [], log: [],
     sheetUrl: '', dbUrl: '', readAt: '',
-    lines: [], orphans: [], A: null, cancelSisa: false, lastOrphans: [],
+    lines: [], orphans: [], A: null, cancelSisa: false, excelDiff: [], excelGap: [],
     excl: { OFFLINE: new Set(), ONLINE: new Set() },
     route: '',
   };
@@ -121,13 +121,13 @@
     C.paramRows = d.params || [];
     C.P = {};
     C.paramRows.forEach((r) => { C.P[r[0]] = r[1]; });
-    C.cancelSisa = String(P('CANCEL_SISA', 'TIDAK')).toUpperCase() === 'YA';
+    C.cancelSisa = false;   // ikut Excel CSL: DO Cancelled tidak dihitung sisa
     C.dist = new Map((d.dist || []).map((r) => [r[0].trim(), { kode: r[1], region: String(r[2] || '').toUpperCase() }]));
     C.kota = (d.kota || []).filter((r) => r[0]).map((r) => [r[0].toUpperCase(), r[1]]);
     C.master = new Map((d.master || []).map((r) => [r[0], r[1]]));
     C.names = d.names || {};
     C.weeks = (d.weeks || []).map((r) => ({ bulan: r[0], week: r[1], start: r[2], end: r[3] }));
-    C.months = (d.months || []).map((r) => ({ bulan: r[0], ver: r[1], so: Number(r[2]) || 0, do: Number(r[3]) || 0, at: r[4] }));
+    C.months = (d.months || []).map((r) => ({ bulan: r[0], ver: r[1], so: Number(r[2]) || 0, do: Number(r[3]) || 0, at: r[4], hash: r[5] || '' }));
     setFct(d.fct || []);
     setNilai(d.nilai || []);
     C.log = d.log || [];
@@ -218,7 +218,8 @@
         const k = no + '|' + kode;
         let L = map.get(k);
         if (!L) {
-          L = { no, kode, date: String(hd[0]).slice(0, 10), m: String(hd[0]).slice(0, 7) || m, dist: hd[1], ref: hd[2], qty: 0, amt: 0, dos: [] };
+          L = { no, kode, date: String(hd[0]).slice(0, 10), m: String(hd[0]).slice(0, 7) || m, dist: hd[1], ref: hd[2], qty: 0, amt: 0, dos: [],
+            xl: hd.length > 3 && hd[5] ? { dkode: hd[3], kota: hd[4], region: hd[5], status: hd[6], week: hd[7] } : null };
           map.set(k, L); lines.push(L);
         }
         L.qty += Number(qty) || 0;
@@ -239,12 +240,14 @@
     });
     lines.forEach((L) => {
       L.price = L.qty ? L.amt / L.qty : 0;
-      const di = C.dist.get(String(L.dist || '').trim());
-      L.distKode = di ? di.kode : '';
-      L.region = di ? di.region : '';
-      L.status = L.region === online ? 'ONLINE' : 'OFFLINE';
-      L.kota = kotaOf(L.ref);
-      L.week = weekOf(L.date);
+      // Region, status, kota, week dari Excel CSL (INPUT SODO); data lama tanpa kolom itu memakai DATABASE
+      const x = L.xl;
+      const di = x ? null : C.dist.get(String(L.dist || '').trim());
+      L.distKode = x ? x.dkode : di ? di.kode : '';
+      L.region = x ? x.region : di ? di.region : '';
+      L.status = x && x.status ? (x.status === 'ONLINE' ? 'ONLINE' : 'OFFLINE') : L.region === online ? 'ONLINE' : 'OFFLINE';
+      L.kota = x ? x.kota : kotaOf(L.ref);
+      L.week = x && x.week ? x.week : weekOf(L.date);
     });
     C.lines = lines;
     C.lineMap = map;
@@ -317,8 +320,8 @@
   // Forecast pcs per kelompok
   function fctOf(m, kode, g) {
     const f = (r) => C.fct.get(`${m}|${kode}|${r}`) || 0;
-    if (g === 'ALL') return sum(REGS.map(f)) + f('ONLINE');
-    if (g === 'OFFLINE') return sum(REGS.map(f));
+    if (g === 'ALL') return sum(REGS.map(f)) + f('GTK') + f('ONLINE');
+    if (g === 'OFFLINE') return sum(REGS.map(f)) + f('GTK');   // (GTK) dari Excel = total offline
     return f(g);
   }
   function nilaiOf(m, g) {
@@ -980,14 +983,16 @@
     const over = L.filter((x) => x.doQ + x.osQ > x.qty + 1e-6);
     const noDate = L.filter((x) => x.noDateQ > 0);
     return [
-      { id: 'dist', label: 'Distributor belum terdaftar', desc: 'Nama distributor di SO tidak ada di DATABASE PPIC GTK → DISTRIBUTOR, jadi region tidak diketahui (dihitung Offline, region "?"). Tambahkan nama persis seperti di Odoo.',
+      { id: 'dist', label: 'Distributor belum terdaftar', desc: 'Baris SO tanpa REGION (kolom H INPUT SODO kosong), jadi dihitung Offline dengan region "?". Lengkapi di Excel lalu upload ulang.',
         head: ['Nama distributor (Odoo)', 'Baris SO', 'Nilai SO', 'SO terakhir'], rows: [...dist.entries()].sort((a, b) => b[1].amt - a[1].amt).map(([k, o]) => [esc(k || '(kosong)'), nf0.format(o.n), fRp(o.amt), fDate(o.last)]) },
-      { id: 'ref', label: 'Order ref tanpa kota', desc: 'Order ref tidak memuat satu pun KODE REF di DATABASE → KOTA_REF.',
+      { id: 'ref', label: 'Order ref tanpa kota', desc: 'Baris SO tanpa KOTA (kolom G INPUT SODO kosong).',
         head: ['Bagian akhir order ref', 'Contoh order ref', 'Baris SO', 'SO terakhir'], rows: [...ref.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, o]) => [esc(k || '(kosong)'), esc(o.ex), nf0.format(o.n), fDate(o.last)]) },
       { id: 'code', label: 'Kode tidak ada di MASTER', desc: 'Kode produk di SO yang belum ada di MASTER_MATERIAL (nama diambil dari SO).',
         head: ['Kode', 'Nama di SO', 'Baris SO', 'Qty'], rows: [...code.entries()].map(([k, o]) => [esc(k), esc(C.names[k] || ''), nf0.format(o.n), nf0.format(o.q)]) },
-      { id: 'orphan', label: 'DO tanpa SO', desc: 'DO yang SO-nya belum ada di data. Dari upload terakhir di sesi ini: tidak disimpan — upload SO-nya dulu lalu upload ulang DO.',
-        head: ['No SO', 'Baris DO'], rows: (C.lastOrphans || []).map((r) => [esc(r[0]), nf0.format(r[1])]) },
+      { id: 'excel', label: 'Beda dengan hitungan Excel', desc: 'Dari upload Excel terakhir di sesi ini: baris yang DO / DO-OS / SISA SO hitungan website tidak sama dengan kolom DO, DO-OS, SISA SO di INPUT SODO.',
+        head: ['No SO', 'Tanggal', 'Kode', 'Website DO · OS · Sisa', 'Excel DO · OS · Sisa'], rows: (C.excelDiff || []).slice(0, 500).map((d) => [esc(d.no), fDate(d.date), esc(d.kode), d.web.map((v) => nf0.format(v)).join(' · '), d.xl.map((v) => nf0.format(v)).join(' · ')]) },
+      { id: 'gap', label: 'SO (GTK)/(BIMS) ≠ INPUT SODO', desc: 'Dari upload Excel terakhir di sesi ini: total SO per bulan di sheet (GTK)/(BIMS) berbeda dengan INPUT SODO. Biasanya ada SKU yang belum masuk daftar (GTK)/(BIMS), jadi forecast-nya juga belum ada.',
+        head: ['Bulan', 'Kelompok', 'SO INPUT SODO', 'SO di sheet rekap'], rows: (C.excelGap || []).map((x) => [monLabel(x[0]), x[1] === 'ONLINE' ? '(BIMS)' : '(GTK)', nf0.format(x[2]), nf0.format(x[3])]) },
       { id: 'nodo', label: 'SO belum ada DO', desc: 'Baris SO lebih dari 3 hari tanpa DO sama sekali (tidak terhitung terkirim maupun sisa).',
         head: ['No SO', 'Tanggal', 'Distributor', 'Kode', 'Qty', 'Nilai'], rows: noDo.slice(0, 500).map((x) => [esc(x.no), fDate(x.date), esc(x.dist), esc(x.kode), nf0.format(x.qty), fRp(x.amt)]) },
       { id: 'over', label: 'DO melebihi SO', desc: 'Total qty Delivered lebih besar dari qty SO.',
@@ -1012,260 +1017,180 @@
   }
 
   /* =====================================================================
-     UPDATE DATA: upload SO / DO / forecast
+     UPDATE DATA: upload satu file Excel CSL (INPUT SODO, (GTK), (BIMS))
      ===================================================================== */
-  const U = { so: null, do: null, fc: null };
-  async function readRows(file) {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-    return { wb, rows: (name) => XLSX.utils.sheet_to_json(wb.Sheets[name || wb.SheetNames[0]], { header: 1, defval: '', raw: true }) };
-  }
+  const U = { x: null };
   // Tanggal dari Excel: angka serial, "2026-10-31", "2026-10-31 06:42:26", "31/10/2026"
   function toDT(v) {
     if (v === '' || v === null || v === undefined) return '';
+    if (v instanceof Date) { const p = (x) => String(x).padStart(2, '0'); const s = `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`; return v.getHours() || v.getMinutes() ? `${s} ${p(v.getHours())}:${p(v.getMinutes())}` : s; }
     if (typeof v === 'number') {
       const ms = Math.round((v - 25569) * 86400000), d = new Date(ms);
       const p = (x) => String(x).padStart(2, '0');
       const s = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
-      return v % 1 ? `${s} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` : s;
+      return d.getUTCHours() || d.getUTCMinutes() ? `${s} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` : s;
     }
     const t = String(v).trim();
     let m = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
-    if (m) return m[4] ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : `${m[1]}-${m[2]}-${m[3]}`;
+    if (m) return m[4] && m[4] + m[5] !== '0000' ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : `${m[1]}-${m[2]}-${m[3]}`;
     m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
     if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` + (m[4] ? ` ${m[4].padStart(2, '0')}:${m[5]}` : '');
     return '';
   }
-  function shiftWib(dt) {
-    if (!/\d{2}:\d{2}$/.test(dt)) return dt;
-    const d = new Date(dt.replace(' ', 'T') + ':00Z');
-    d.setUTCHours(d.getUTCHours() + 7);
-    const p = (x) => String(x).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
-  }
   const numOf = (v) => { if (typeof v === 'number') return v; const x = Number(String(v).replace(/\s/g, '').replace(/,(?=\d{3}\b)/g, '')); return isFinite(x) ? x : 0; };
-  function findHead(rows, test) {
-    for (let i = 0; i < Math.min(rows.length, 15); i++) if (test(rows[i].map((x) => String(x).trim().toLowerCase()))) return i;
-    return -1;
+  const up = (v) => String(v === null || v === undefined ? '' : v).trim().toUpperCase();
+  const XL_SHEETS = ['INPUT SODO', '(GTK)', '(BIMS)'];
+  // Sidik isi per bulan (FNV-1a 2×32 bit) — bulan yang sidiknya sama dengan di Google Sheet tidak dikirim ulang
+  function hashOf(str) {
+    let h1 = 0x811c9dc5, h2 = 0x01000193 ^ str.length;
+    for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619); h2 = Math.imul(h2 ^ c, 2246822519); }
+    return 'h' + (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
   }
-  const colOf = (h, fn) => h.findIndex(fn);
-
-  async function parseSO(file) {
-    const { rows } = await readRows(file);
-    const r = rows();
-    const hi = findHead(r, (h) => h.some((x) => x.endsWith('product_uom_qty') || x.endsWith('date_order')));
-    let c;
-    if (hi >= 0) {
-      const h = r[hi].map((x) => String(x).trim().toLowerCase());
-      c = {
-        date: colOf(h, (x) => x.endsWith('date_order')), dist: colOf(h, (x) => x.endsWith('partner_id')), ref: colOf(h, (x) => x.endsWith('client_order_ref')),
-        no: colOf(h, (x) => x.endsWith('order_id/name') || x === 'name' || x.endsWith('order reference')), kode: colOf(h, (x) => x.endsWith('product_id/code') || x.endsWith('default_code')),
-        nama: colOf(h, (x) => x.endsWith('product_id/name')), qty: colOf(h, (x) => x.endsWith('product_uom_qty')), price: colOf(h, (x) => x.endsWith('price_unit')),
-      };
-    } else c = { date: 1, dist: 2, ref: 3, no: 4, kode: 5, nama: 6, qty: 7, price: 8 };   // urutan kolom export Odoo (B..I), seperti VBA
-    const miss = Object.entries(c).filter(([k, v]) => v < 0 && k !== 'nama').map(([k]) => k);
-    if (miss.length) throw new Error('Kolom tidak ditemukan: ' + miss.join(', ') + '. Pakai export sale.order dari Odoo.');
-    const out = [];
-    let last = { date: '', dist: '', ref: '', no: '' };
+  function parseSodo(r) {
+    const hi = r.findIndex((x, i) => i < 30 && up(x[0]) === 'NO SO' && x.some((v) => up(v) === 'QTY SO'));
+    if (hi < 0) throw new Error('Sheet INPUT SODO: baris judul (NO SO … QTY SO) tidak ditemukan.');
+    const h = r[hi].map(up);
+    const at = (name, from = 0) => h.indexOf(name, from);
+    const c = { no: 0, date: at('INPUT'), week: at('WEEK'), ref: at('ORDER REF'), dist: at('NAMA'), dkode: at('KODE'), kota: at('KOTA'), region: at('REGION'), status: at('STATUS') };
+    c.kode = at('KODE', c.dkode + 1); c.nama = at('NAMA', c.dist + 1); c.qty = at('QTY SO'); c.price = at('PRICE/PCS');
+    c.xDo = at('DO'); c.xOs = at('DO-OS'); c.xSisa = at('SISA SO');
+    const miss = Object.entries(c).filter(([, v]) => v < 0).map(([k]) => k);
+    if (miss.length) throw new Error('Sheet INPUT SODO: kolom tidak ditemukan (' + miss.join(', ') + ').');
+    const slots = [];
+    h.forEach((v, i) => { if (v === 'NO DO') slots.push(i); });
+    const so = [], dos = [], diff = [];
     let bad = 0;
-    r.slice(hi + 1).forEach((x) => {
-      const kode = String(x[c.kode] || '').trim();
-      const no = String(x[c.no] || '').trim();
-      if (no && no !== last.no) last = { no, date: toDT(x[c.date]).slice(0, 10), dist: String(x[c.dist] || '').trim(), ref: String(x[c.ref] || '').trim() };
-      if (!kode) return;
-      const rec = [no || last.no, (toDT(x[c.date]) || last.date).slice(0, 10), String(x[c.dist] || '').trim() || last.dist, String(x[c.ref] || '').trim() || last.ref, kode, c.nama >= 0 ? String(x[c.nama] || '').trim() : '', numOf(x[c.qty]), numOf(x[c.price])];
-      if (!rec[0] || !/^\d{4}-\d{2}-\d{2}$/.test(rec[1])) { bad++; return; }
-      out.push(rec);
-    });
-    return { rows: out, bad, file: file.name };
+    for (let i = hi + 1; i < r.length; i++) {
+      const x = r[i];
+      if (!x) continue;
+      const no = String(x[c.no] || '').trim(), kode = String(x[c.kode] || '').trim();
+      if (!no || !kode) continue;
+      const date = toDT(x[c.date]).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { bad++; continue; }
+      const m = date.slice(0, 7);
+      so.push([no, date, String(x[c.dist] || '').trim(), String(x[c.ref] || '').trim(), kode, String(x[c.nama] || '').trim(), numOf(x[c.qty]), numOf(x[c.price]),
+        String(x[c.dkode] || '').trim(), String(x[c.kota] || '').trim(), up(x[c.region]), up(x[c.status]), String(x[c.week] || '').trim()]);
+      let dq = 0, oq = 0, sq = 0;
+      slots.forEach((s) => {
+        const nd = String(x[s] || '').trim(); if (!nd) return;
+        const dt = toDT(x[s + 1]), q = numOf(x[s + 3]), st = String(x[s + 4] || '').trim();
+        dos.push([m, nd, dt, no, kode, String(x[s + 2] || '').trim(), q, st]);
+        const S = up(st);
+        if (S === 'DELIVERED') { if (dt && dt.slice(0, 7) !== m) oq += q; else dq += q; } else if (S !== 'CANCELLED' && S !== 'CANCEL') sq += q;
+      });
+      const ex = [numOf(x[c.xDo]), numOf(x[c.xOs]), numOf(x[c.xSisa])];
+      if (Math.abs(ex[0] - dq) > 0.01 || Math.abs(ex[1] - oq) > 0.01 || Math.abs(ex[2] - sq) > 0.01) diff.push({ no, kode, date, web: [dq, oq, sq], xl: ex });
+    }
+    return { so, dos, diff, bad };
   }
-  async function parseDO(file) {
-    const { rows } = await readRows(file);
-    const r = rows();
-    const hi = findHead(r, (h) => h.some((x) => x.endsWith('product_qty') || x === 'date_done'));
-    let c;
-    if (hi >= 0) {
-      const h = r[hi].map((x) => String(x).trim().toLowerCase());
-      c = {
-        no: colOf(h, (x) => x === 'name' || x === 'reference'), date: colOf(h, (x) => x === 'date_done' || x.endsWith('/date_done')), kode: colOf(h, (x) => x.endsWith('product_id/code')),
-        batch: colOf(h, (x) => x.includes('prodlot') || x.includes('lot_id')), qty: colOf(h, (x) => x.endsWith('product_qty') || x.endsWith('quantity_done')),
-        so: colOf(h, (x) => x.endsWith('sale_line_id/order_id') || x === 'origin'), st: colOf(h, (x) => x === 'state' || x === 'status'),
-      };
-    } else c = { no: 1, date: 2, kode: 3, batch: 4, qty: 5, so: 6, st: 7 };
-    const miss = Object.entries(c).filter(([k, v]) => v < 0 && k !== 'batch').map(([k]) => k);
-    if (miss.length) throw new Error('Kolom tidak ditemukan: ' + miss.join(', ') + '. Pakai export stock.picking.out dari Odoo.');
-    const utc = String(P('JAM_ODOO_UTC', '')).toUpperCase() === 'YA';
-    const out = [];
-    let last = { no: '', date: '', st: '', so: '' };
-    r.slice(hi + 1).forEach((x) => {
-      const no = String(x[c.no] || '').trim();
-      if (no) last = { no, date: toDT(x[c.date]), st: String(x[c.st] || '').trim(), so: String(x[c.so] || '').trim() };
-      const kode = String(x[c.kode] || '').trim();
-      if (!kode || !last.no) return;
-      let dt = no ? last.date : (toDT(x[c.date]) || last.date);
-      if (utc) dt = shiftWib(dt);
-      out.push([last.no, dt, String(x[c.so] || '').trim() || last.so, kode, c.batch >= 0 ? String(x[c.batch] || '').trim() : '', numOf(x[c.qty]), String(x[c.st] || '').trim() || last.st]);
+  // (GTK) / (BIMS): KODE di kolom A; tiap bulan 4 kolom FCT, SO, DO, DO-OS; nama bulan & tahun di baris atas
+  function parseRekap(r, region, sheet) {
+    const hi = r.findIndex((x, i) => i < 30 && up(x[0]) === 'KODE' && x.some((v) => up(v) === 'FCT'));
+    if (hi < 0) throw new Error(`Sheet ${sheet}: baris judul (KODE … FCT) tidak ditemukan.`);
+    const h = r[hi].map(up);
+    const monIdx = (v) => { const t = up(v); return t.length >= 3 ? MON.findIndex((x) => x.toUpperCase() === t || x.toUpperCase().startsWith(t.slice(0, 3))) : -1; };
+    const cols = [];
+    h.forEach((v, c) => {
+      if (v !== 'FCT') return;
+      for (let k = hi - 1; k >= Math.max(0, hi - 4); k--) {
+        const row = r[k] || [], mi = monIdx(row[c + 1]), y = numOf(row[c + 2]);
+        if (mi >= 0 && y > 2000) { cols.push([c, `${y}-${String(mi + 1).padStart(2, '0')}`]); return; }
+      }
     });
-    return { rows: out, file: file.name, utc };
+    if (!cols.length) throw new Error(`Sheet ${sheet}: nama bulan & tahun di atas kolom FCT tidak terbaca.`);
+    const fct = [], so = {};
+    for (let i = hi + 1; i < r.length; i++) {
+      const x = r[i]; if (!x) continue;
+      const kode = String(x[0] || '').trim();
+      if (!kode || /\s/.test(kode)) continue;
+      cols.forEach(([c, m]) => {
+        const f = numOf(x[c]); if (f) fct.push([m, kode, region, f]);
+        const q = numOf(x[c + 1]); if (q) so[m] = (so[m] || 0) + q;
+      });
+    }
+    return { fct, so };
   }
-  function checkSO(p) {
-    const nos = new Set(p.rows.map((r) => r[0]));
-    const exist = new Set(C.lines.map((L) => L.no));
-    const months = [...new Set(p.rows.map((r) => r[1].slice(0, 7)))].sort();
-    const unkDist = [...new Set(p.rows.map((r) => r[2]).filter((d) => !C.dist.has(d)))];
-    const unkCode = [...new Set(p.rows.map((r) => r[4]).filter((k) => !C.master.has(k)))];
-    const amt = sum(p.rows.map((r) => r[6] * r[7]));
-    const nEx = [...nos].filter((n) => exist.has(n)).length;
-    let html = `<p class="ok">${nf0.format(nos.size)} SO · ${nf0.format(p.rows.length)} baris · ${fRp(amt)} · bulan ${months.map(monShort).join(', ')}${nEx ? ` · ${nf0.format(nEx)} SO sudah ada → diganti` : ''}.</p>`;
-    if (p.bad) html += `<p class="err">${p.bad} baris dilewati karena No SO / tanggal kosong.</p>`;
-    if (unkDist.length) html += `<p class="warn">Distributor belum ada di DATABASE (region tidak diketahui): ${unkDist.slice(0, 6).map(esc).join('; ')}${unkDist.length > 6 ? ` dan ${unkDist.length - 6} lagi` : ''}.</p>`;
-    if (unkCode.length) html += `<p class="warn">Kode belum ada di MASTER_MATERIAL: ${unkCode.slice(0, 10).map(esc).join(', ')}${unkCode.length > 10 ? '…' : ''}.</p>`;
+  async function parseExcel(file) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', sheets: XL_SHEETS, cellFormula: false, cellHTML: false, cellText: false, dense: true });
+    const miss = XL_SHEETS.filter((n) => !wb.Sheets[n]);
+    if (miss.length) throw new Error(`Sheet ${miss.join(', ')} tidak ada di file ini. Pilih file Excel CSL yang berisi INPUT SODO, (GTK), dan (BIMS).`);
+    const rows = (n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '', raw: true, blankrows: false });
+    const s = parseSodo(rows('INPUT SODO'));
+    const g = parseRekap(rows('(GTK)'), 'GTK', '(GTK)');
+    const b = parseRekap(rows('(BIMS)'), 'ONLINE', '(BIMS)');
+    // Kelompokkan per bulan SO + sidik isinya
+    const by = new Map();
+    s.so.forEach((r) => { const m = r[1].slice(0, 7); if (!by.has(m)) by.set(m, { so: [], do: [] }); by.get(m).so.push(r); });
+    s.dos.forEach((r) => { if (by.has(r[0])) by.get(r[0]).do.push(r); });
+    const old = new Map(C.months.map((x) => [x.bulan, x.hash || '']));
+    const months = [...by.keys()].sort().map((m) => {
+      const o = by.get(m);
+      const hash = hashOf(JSON.stringify(o.so) + '|' + JSON.stringify(o.do));
+      return { m, so: o.so, do: o.do, hash, changed: old.get(m) !== hash };
+    });
+    // Cocokkan SO per bulan: INPUT SODO vs (GTK)/(BIMS)
+    const soIn = {};
+    s.so.forEach((r) => { const k = r[1].slice(0, 7) + '|' + (r[11] === 'ONLINE' ? 'ONLINE' : 'OFFLINE'); soIn[k] = (soIn[k] || 0) + r[6]; });
+    const soGap = [];
+    months.forEach(({ m }) => [['OFFLINE', g.so], ['ONLINE', b.so]].forEach(([grp, rek]) => {
+      const a = soIn[m + '|' + grp] || 0, x = rek[m] || 0;
+      if (Math.abs(a - x) > 0.5) soGap.push([m, grp, a, x]);
+    }));
+    return { file: file.name, months, nSo: s.so.length, nDo: s.dos.length, bad: s.bad, diff: s.diff, fct: g.fct.concat(b.fct), soGap,
+      removed: C.months.map((x) => x.bulan).filter((m) => !by.has(m)) };
+  }
+  function checkExcel(p) {
+    const ch = p.months.filter((x) => x.changed);
+    const fm = [...new Set(p.fct.map((r) => r[0]))].sort();
+    const pcs = (rg) => nf0.format(sum(p.fct.filter((r) => r[2] === rg).map((r) => r[3])));
+    let html = `<p class="ok">INPUT SODO: ${nf0.format(p.nSo)} baris SO · ${nf0.format(p.nDo)} baris DO · ${monShort(p.months[0].m)} – ${monShort(p.months[p.months.length - 1].m)} (${p.months.length} bulan).</p>`;
+    html += `<p class="ok">Forecast: (GTK) ${pcs('GTK')} pcs · (BIMS) ${pcs('ONLINE')} pcs · ${fm.length ? monShort(fm[0]) + ' – ' + monShort(fm[fm.length - 1]) : 'kosong'}. Forecast di Google Sheet diganti seluruhnya.</p>`;
+    html += ch.length ? `<p>Yang dikirim: <b>${ch.length} bulan berubah</b> (${ch.map((x) => monShort(x.m)).join(', ')}) · ${nf0.format(sum(ch.map((x) => x.so.length)))} baris SO. ${p.months.length - ch.length} bulan lain sama persis, dilewati.</p>`
+      : '<p>Data SO-DO sama persis dengan Google Sheet — hanya forecast yang diperbarui.</p>';
+    if (p.removed.length) html += `<p class="warn">Bulan ${p.removed.map(monShort).join(', ')} tidak ada di file → dihapus dari Google Sheet.</p>`;
+    if (p.bad) html += `<p class="err">${p.bad} baris INPUT SODO dilewati karena tanggal SO kosong / tidak terbaca.</p>`;
+    html += p.diff.length ? `<p class="warn">${nf0.format(p.diff.length)} baris: hitungan DO / DO-OS / SISA website berbeda dengan kolom Excel (contoh ${p.diff.slice(0, 3).map((d) => esc(d.no + ' ' + d.kode)).join(', ')}). Rinciannya ada di Pemeriksaan Data setelah disimpan.</p>`
+      : '<p class="ok">DO, DO-OS, dan SISA SO cocok dengan kolom Excel di semua baris.</p>';
+    if (p.soGap.length) html += `<p class="warn">Total SO di (GTK)/(BIMS) beda dengan INPUT SODO di ${p.soGap.length} bulan-kelompok (mis. ${p.soGap.slice(0, 2).map((x) => `${monShort(x[0])} ${x[1] === 'ONLINE' ? 'BIMS' : 'GTK'}: ${nf0.format(x[2])} vs ${nf0.format(x[3])}`).join('; ')}) — biasanya ada SKU yang belum masuk daftar (GTK)/(BIMS).</p>`;
     return html;
   }
-  function checkDO(p) {
-    const nos = new Set(p.rows.map((r) => r[0]));
-    const exist = new Set(C.lines.map((L) => L.no));
-    const upSo = U.so ? new Set(U.so.rows.map((r) => r[0])) : new Set();
-    const orph = [...new Set(p.rows.map((r) => r[2]).filter((s) => !exist.has(s) && !upSo.has(s)))];
-    const st = {};
-    p.rows.forEach((r) => { st[r[6] || '(kosong)'] = (st[r[6] || '(kosong)'] || 0) + 1; });
-    const dates = p.rows.map((r) => r[1]).filter(Boolean).sort();
-    let html = `<p class="ok">${nf0.format(nos.size)} DO · ${nf0.format(p.rows.length)} baris · ${Object.entries(st).map(([k, v]) => `${esc(k)} ${nf0.format(v)}`).join(', ')}${dates.length ? ` · kirim ${fDate(dates[0].slice(0, 10))} – ${fDate(dates[dates.length - 1].slice(0, 10))}` : ''}.</p>`;
-    html += p.utc ? '<p class="hint">Jam date_done digeser +7 jam ke WIB (PARAMETER JAM_ODOO_UTC = YA).</p>'
-      : String(P('JAM_ODOO_UTC', '')).toUpperCase() !== 'TIDAK' ? '<p class="warn">Zona jam Odoo belum dipastikan (Pengaturan → Jam date_done). Saat ini jam dipakai apa adanya.</p>' : '';
-    if (orph.length) html += `<p class="warn">${orph.length} SO belum ada di data (DO-nya tidak akan disimpan): ${orph.slice(0, 8).map(esc).join(', ')}${orph.length > 8 ? '…' : ''}. Upload SO-nya dulu.</p>`;
-    return html;
-  }
-  // Kirim bertahap: tiap bagian berisi SO/DO utuh, maksimal ±4.000 baris
-  function chunkBy(rows, keyIdx, max) {
-    const groups = new Map();
-    rows.forEach((r) => { const k = r[keyIdx]; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
-    const out = [];
-    let cur = [];
-    [...groups.values()].forEach((g) => { if (cur.length && cur.length + g.length > max) { out.push(cur); cur = []; } cur = cur.concat(g); });
-    if (cur.length) out.push(cur);
-    return out;
-  }
-  async function sendChunks(kind, p, btn, resEl) {
-    const action = kind === 'so' ? 'upsertSO' : 'upsertDO';
-    // SO diurutkan per bulan supaya penulisan di Sheet sebagian besar berupa tambahan di bawah
-    const rows = p.rows.slice().sort((a, b) => (kind === 'so' ? a[1].localeCompare(b[1]) : 0));
-    const parts = chunkBy(rows, kind === 'so' ? 0 : 0, 4000);
-    btn.disabled = true;
-    let saved = 0;
-    const orphans = new Map();
-    const t0 = Date.now();
+  async function sendExcel() {
+    const p = U.x; if (!p) return;
+    const btn = $('cuXSend'), res = $('cuXResult');
+    btn.disabled = true; res.className = 'send-result';
+    const ch = p.months.filter((x) => x.changed);
+    // Bagi per kelompok bulan, ±9.000 baris SO+DO per kiriman
+    const parts = []; let cur = [], n = 0;
+    ch.forEach((x) => { const k = x.so.length + x.do.length; if (cur.length && n + k > 9000) { parts.push(cur); cur = []; n = 0; } cur.push(x); n += k; });
+    if (cur.length) parts.push(cur);
+    const t0 = Date.now(), sec = () => Math.round((Date.now() - t0) / 1000);
     try {
       for (let i = 0; i < parts.length; i++) {
-        resEl.className = 'send-result';
-        resEl.textContent = `Menyimpan bagian ${i + 1} dari ${parts.length}… (${Math.round((Date.now() - t0) / 1000)} detik)`;
-        const res = await api(action, { rows: parts[i], file: p.file, part: parts.length > 1 ? `bagian ${i + 1}/${parts.length}` : '' });
-        saved += res.saved || 0;
-        (res.orphans || []).forEach(([k, n]) => orphans.set(k, (orphans.get(k) || 0) + n));
+        res.textContent = `Menyimpan ${parts[i].map((x) => monShort(x.m)).join(', ')} (bagian ${i + 1} dari ${parts.length})… ${sec()} detik`;
+        const hash = {}; parts[i].forEach((x) => { hash[x.m] = x.hash; });
+        await api('replaceMonths', { months: parts[i].map((x) => x.m), so: [].concat(...parts[i].map((x) => x.so)), do: [].concat(...parts[i].map((x) => x.do)), hash, file: p.file });
       }
-      if (kind === 'do') C.lastOrphans = [...orphans.entries()];
-      resEl.className = 'send-result ok';
-      resEl.textContent = `Tersimpan ${nf0.format(saved)} baris${orphans.size ? ` · ${orphans.size} SO tidak ditemukan (lihat Pemeriksaan Data → DO tanpa SO)` : ''}. Memuat ulang data…`;
-      U[kind] = null;
-      await load();
-      resEl.textContent = `Tersimpan ${nf0.format(saved)} baris${orphans.size ? ` · ${orphans.size} SO tidak ditemukan` : ''}.`;
-      toast(`${kind === 'so' ? 'SO' : 'DO'} tersimpan: ${nf0.format(saved)} baris.`);
+      res.textContent = `Menyimpan forecast & merapikan… ${sec()} detik`;
+      await api('finishExcel', { keep: p.months.map((x) => x.m), fct: p.fct, file: p.file, nSo: p.nSo, changed: ch.length, note: p.diff.length ? `${p.diff.length} baris beda hitungan Excel` : '' });
+      C.excelDiff = p.diff; C.excelGap = p.soGap;
+      res.className = 'send-result ok';
+      res.textContent = `Tersimpan dalam ${sec()} detik. Memuat ulang data…`;
+      U.x = null;
+      await load({ fresh: true });
+      res.textContent = `Tersimpan: ${ch.length} bulan diperbarui${p.removed.length ? `, ${p.removed.length} bulan dihapus` : ''}, forecast ${nf0.format(p.fct.length)} baris (${sec()} detik).`;
+      toast('Data CSL diperbarui dari Excel.');
     } catch (err) {
-      resEl.className = 'send-result err';
-      resEl.textContent = `Gagal di bagian berikutnya: ${err.message} — bagian yang sudah tersimpan tetap ada; upload ulang file yang sama aman (data diganti, tidak dobel).`;
+      res.className = 'send-result err';
+      res.textContent = `Gagal: ${err.message} — bulan yang sudah tersimpan tetap aman; upload ulang file yang sama (yang sudah sama akan dilewati).`;
       btn.disabled = false;
     }
   }
-
-  // Forecast pcs: BULAN, KODE, (NAMA), R1..R4, ONLINE
-  function monthFrom(v) {
-    if (typeof v === 'number') return toDT(v).slice(0, 7);
-    const t = String(v || '').trim().toUpperCase();
-    let m = t.match(/^(\d{4})-(\d{1,2})/);
-    if (m) return `${m[1]}-${m[2].padStart(2, '0')}`;
-    m = t.match(/([A-Z]+)\s+(\d{4})/);
-    if (m) { const i = MON.findIndex((x) => x.toUpperCase().startsWith(m[1].slice(0, 3))); if (i >= 0) return `${m[2]}-${String(i + 1).padStart(2, '0')}`; }
-    return '';
-  }
-  async function parseFc(file) {
-    const { wb, rows } = await readRows(file);
-    const name = wb.SheetNames.find((n) => /fct|forecast|pcs/i.test(n)) || wb.SheetNames[0];
-    const r = rows(name);
-    const hi = findHead(r, (h) => h.includes('kode') && (h.includes('r1') || h.includes('online')));
-    if (hi < 0) throw new Error('Judul kolom tidak ditemukan. Pakai format: BULAN, KODE, NAMA, R1, R2, R3, R4, ONLINE.');
-    const h = r[hi].map((x) => String(x).trim().toUpperCase());
-    const ci = { m: h.indexOf('BULAN'), k: h.indexOf('KODE') };
-    const regs = REGS.concat(['ONLINE']).map((g) => [g, h.indexOf(g)]).filter((x) => x[1] >= 0);
-    const out = [];
-    const months = new Set();
-    let bad = 0;
-    r.slice(hi + 1).forEach((x) => {
-      const k = String(x[ci.k] || '').trim();
-      if (!k) return;
-      const m = ci.m >= 0 ? monthFrom(x[ci.m]) : $('cuTplMonth').value;
-      if (!m) { bad++; return; }
-      months.add(m);
-      regs.forEach(([g, i]) => { const v = numOf(x[i]); if (v) out.push([m, k, g, v]); });
-    });
-    if (!months.size) throw new Error('Tidak ada baris forecast.');
-    return { rows: out, months: [...months].sort(), bad, file: file.name };
-  }
-  function checkFc(p) {
-    const per = {};
-    p.rows.forEach((r) => { per[r[2]] = (per[r[2]] || 0) + r[3]; });
-    const unk = [...new Set(p.rows.map((r) => r[1]).filter((k) => !C.master.has(k)))];
-    let html = `<p class="ok">${p.months.map(monLabel).join(', ')} · ${nf0.format(new Set(p.rows.map((r) => r[1])).size)} SKU · ${REGS.concat(['ONLINE']).map((g) => `${g} ${nf0.format(per[g] || 0)}`).join(' · ')} pcs. Forecast bulan tersebut diganti seluruhnya.</p>`;
-    if (p.bad) html += `<p class="err">${p.bad} baris tanpa BULAN yang valid dilewati.</p>`;
-    if (unk.length) html += `<p class="warn">Kode belum ada di MASTER_MATERIAL: ${unk.slice(0, 10).map(esc).join(', ')}${unk.length > 10 ? '…' : ''}.</p>`;
-    return html;
-  }
-  function downloadFcTpl() {
-    const m = $('cuTplMonth').value;
-    const from = addMonth(m, -12);
-    const codes = [...C.A.codes].filter((k) => C.A.soList.some((x) => x >= from && skuV(x, k, 'ALL', 'so')) || fctOf(m, k, 'ALL')).sort();
-    const aoa = [['BULAN', 'KODE', 'NAMA', 'R1', 'R2', 'R3', 'R4', 'ONLINE']]
-      .concat(codes.map((k) => [m, k, nameOf(k)].concat(REGS.concat(['ONLINE']).map((g) => C.fct.get(`${m}|${k}|${g}`) || ''))));
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 9 }, { wch: 10 }, { wch: 60 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'FCT PCS');
-    XLSX.writeFile(wb, `Format_Forecast_${m}.xlsx`);
-  }
-  function bindFile(inp, nameEl, checkEl, sendBtn, resEl, kind, parser, checker) {
-    $(inp).addEventListener('change', async () => {
-      const f = $(inp).files[0];
-      $(resEl).textContent = '';
-      if (!f) return;
-      $(nameEl).textContent = f.name;
-      $(checkEl).innerHTML = '<p>Membaca file…</p>';
-      $(sendBtn).disabled = true;
-      try {
-        const p = await parser(f);
-        U[kind] = p;
-        $(checkEl).innerHTML = checker(p);
-        $(sendBtn).disabled = !p.rows.length;
-      } catch (err) {
-        U[kind] = null;
-        $(checkEl).innerHTML = `<p class="err">${esc(err.message)}</p>`;
-      }
-      $(inp).value = '';
-    });
-  }
   function renderUpdate() {
-    const opts = [...new Set(C.A.monthsAll.concat([curMonth(), addMonth(curMonth(), 1), addMonth(curMonth(), 2)]))].sort().reverse();
-    fillSel($('cuTplMonth'), opts.map((m) => [m, monLabel(m)]), addMonth(curMonth(), 1));
-    const utc = String(P('JAM_ODOO_UTC', '')).toUpperCase();
-    const last = (a) => (C.log.find((r) => r[1] === a) || [])[0];
+    const last = (C.log.find((r) => r[1] === 'Upload Excel CSL') || []);
     $('cuParams').innerHTML = `
-      <label class="field"><span>Jam <em>date_done</em> di export DO</span><select data-param="JAM_ODOO_UTC">
-        <option value="BELUM DICEK"${utc !== 'YA' && utc !== 'TIDAK' ? ' selected' : ''}>Belum dicek (dipakai apa adanya)</option>
-        <option value="YA"${utc === 'YA' ? ' selected' : ''}>UTC — geser +7 jam ke WIB</option>
-        <option value="TIDAK"${utc === 'TIDAK' ? ' selected' : ''}>Sudah WIB</option></select></label>
-      <label class="field"><span>DO Cancelled</span><select data-param="CANCEL_SISA">
-        <option value="TIDAK"${!C.cancelSisa ? ' selected' : ''}>Dipisah (tidak dihitung sisa)</option>
-        <option value="YA"${C.cancelSisa ? ' selected' : ''}>Dihitung sisa SO (seperti Excel lama)</option></select></label>
       <label class="field"><span>Target CSL (%)</span><input type="number" min="0" max="200" step="0.1" data-param="TARGET_CSL" value="${nf2.format(pNum('TARGET_CSL', 1) * 100).replace(',', '.')}"></label>
-      <dl class="csl-dl"><div><dt>Upload SO terakhir</dt><dd>${esc(last('Upload SO') || '–')}</dd></div><div><dt>Upload DO terakhir</dt><dd>${esc(last('Upload DO') || '–')}</dd></div>
+      <dl class="csl-dl"><div><dt>Upload Excel terakhir</dt><dd>${esc(last[0] || '–')}${last[2] ? ` · ${esc(last[2])}` : ''}</dd></div>
       <div><dt>SO tersimpan</dt><dd>${nf0.format(C.lines.length)} baris · ${C.A.soList.length} bulan</dd></div><div><dt>Data sampai</dt><dd>SO ${fDate(C.A.lastSo)} · DO ${fDate(C.A.lastDo)}</dd></div></dl>`;
     $('cuLog').innerHTML = C.log.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td class="num">${isNum(r[3]) ? nf0.format(r[3]) : ''}</td><td>${esc(r[4])}</td></tr>`).join('') || '<tr><td colspan="5" class="csl-empty">Belum ada riwayat.</td></tr>';
   }
@@ -1550,12 +1475,12 @@
     const t = todayStr(), hari = pNum('SISA_HARI', 2);
     const age = (d) => Math.floor((new Date(t + 'T00:00:00') - new Date(d + 'T00:00:00')) / 86400000);
     const wd = UI.workdaysSince || (() => 0);
-    [['Upload SO', 'SO'], ['Upload DO', 'DO']].forEach(([a, f]) => {
-      const ts = (C.log.find((r) => r[1] === a) || [])[0];
+    {
+      const ts = (C.log.find((r) => r[1] === 'Upload Excel CSL' || r[1] === 'Upload SO') || [])[0];
       const n = ts ? wd(String(ts).slice(0, 10)) : Infinity;
-      if (n >= 2) T.push({ id: 'csl-basi-' + f, proj: 'CSL', level: n >= 3 ? 'urgent' : 'check', title: `Upload export ${f} dari Odoo`, count: n === Infinity ? 0 : n, unit: n === Infinity ? '' : 'hari kerja',
-        desc: ts ? `Terakhir di-upload ${String(ts).slice(0, 16)}. CSL dan sisa SO bisa sudah tidak sesuai Odoo.` : 'Belum ada upload lewat website.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [f + String(ts).slice(0, 10)], items: [] });
-    });
+      if (n >= 2) T.push({ id: 'csl-basi-X', proj: 'CSL', level: n >= 3 ? 'urgent' : 'check', title: 'Upload Excel CSL terbaru', count: n === Infinity ? 0 : n, unit: n === Infinity ? '' : 'hari kerja',
+        desc: ts ? `Terakhir di-upload ${String(ts).slice(0, 16)}. CSL dan sisa SO bisa sudah tidak sesuai Excel.` : 'Belum ada upload lewat website.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: ['X' + String(ts).slice(0, 10)], items: [] });
+    }
     // SO yang masih ada sisa lebih dari N hari
     // > 60 hari dipisah: kemungkinan sisa lama yang sudah batal di Odoo tetapi DO-nya belum di-cancel
     const STALE = 60;
@@ -1600,11 +1525,8 @@
     // Forecast bulan depan
     const day = +t.slice(8, 10), cur = t.slice(0, 7), next = addMonth(cur, 1);
     const has = (m) => C.fctRows.some((r) => r[0] === m);
-    if (!has(cur)) T.push({ id: 'csl-fct-' + cur, proj: 'CSL', level: 'urgent', title: `Upload forecast ${monLabel(cur)}`, count: 0, unit: '', desc: 'Forecast bulan berjalan belum ada; FC vs SO dan suggest tidak bisa dihitung.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [cur], items: [] });
-    else if (day >= 20 && !has(next)) T.push({ id: 'csl-fct-' + next, proj: 'CSL', level: 'check', title: `Siapkan forecast ${monLabel(next)}`, count: 0, unit: '', desc: 'Forecast bulan depan belum di-upload. Pakai Suggest Forecast sebagai bahan.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [next], items: [] });
-    const nilaiM = day >= 20 ? next : cur;
-    if (!REGS.concat(['ONLINE']).some((g) => C.nilai.has(nilaiM + '|' + g))) T.push({ id: 'csl-rp-' + nilaiM, proj: 'CSL', level: 'info', title: `Isi forecast Rupiah ${monLabel(nilaiM)}`, count: 0, unit: '', desc: 'FCT Rupiah per region untuk Review Region belum diisi.', link: '#/csl/region', linkLabel: 'Review Region', keys: [nilaiM], items: [] });
-    if (!['YA', 'TIDAK'].includes(String(P('JAM_ODOO_UTC', '')).toUpperCase())) T.push({ id: 'csl-jam', proj: 'CSL', level: 'info', title: 'Pastikan zona jam export DO Odoo', count: 0, unit: '', desc: 'Bandingkan jam satu DO di layar Odoo dengan export, lalu pilih UTC atau WIB di Pengaturan supaya DO akhir bulan masuk bulan yang benar.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: ['jam'], items: [] });
+    if (!has(cur)) T.push({ id: 'csl-fct-' + cur, proj: 'CSL', level: 'urgent', title: `Upload forecast ${monLabel(cur)}`, count: 0, unit: '', desc: 'Forecast bulan berjalan belum ada. Isi kolom FCT di sheet (GTK)/(BIMS) Excel CSL lalu upload.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [cur], items: [] });
+    else if (day >= 20 && !has(next)) T.push({ id: 'csl-fct-' + next, proj: 'CSL', level: 'check', title: `Siapkan forecast ${monLabel(next)}`, count: 0, unit: '', desc: 'Forecast bulan depan belum ada. Isi kolom FCT di sheet (GTK)/(BIMS) Excel CSL lalu upload.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [next], items: [] });
     return T;
   }
   window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { csl: cslTasks });
@@ -1675,24 +1597,23 @@
   on('cmBody', 'click', (e) => { const b = e.target.closest('[data-season]'); if (b) editSeason(b.dataset.season); });
   on('ckTabs', 'click', (e) => { const b = e.target.closest('[data-t]'); if (!b) return; CK.tab = b.dataset.t; renderCek(); });
 
-  bindFile('cuSoFile', 'cuSoName', 'cuSoCheck', 'cuSoSend', 'cuSoResult', 'so', parseSO, checkSO);
-  bindFile('cuDoFile', 'cuDoName', 'cuDoCheck', 'cuDoSend', 'cuDoResult', 'do', parseDO, checkDO);
-  bindFile('cuFcFile', 'cuFcName', 'cuFcCheck', 'cuFcSend', 'cuFcResult', 'fc', parseFc, checkFc);
-  on('cuSoSend', 'click', () => { if (U.so) sendChunks('so', U.so, $('cuSoSend'), $('cuSoResult')); });
-  on('cuDoSend', 'click', () => { if (U.do) sendChunks('do', U.do, $('cuDoSend'), $('cuDoResult')); });
-  on('cuFcSend', 'click', async () => {
-    const p = U.fc; if (!p) return;
-    const btn = $('cuFcSend'), res = $('cuFcResult');
-    btn.disabled = true; res.className = 'send-result'; res.textContent = 'Menyimpan…';
+  on('cuXFile', 'change', async () => {
+    const inp = $('cuXFile'), f = inp.files[0];
+    $('cuXResult').textContent = '';
+    if (!f) return;
+    $('cuXName').textContent = f.name;
+    $('cuXCheck').innerHTML = '<p>Membaca file… (file besar bisa 10–30 detik)</p>';
+    $('cuXSend').disabled = true;
+    await new Promise((r) => setTimeout(r, 30));
+    const t0 = Date.now();
     try {
-      const d = await api('saveFct', { months: p.months, rows: p.rows, file: p.file });
-      setFct(d.fct || []); aggregate();
-      res.className = 'send-result ok'; res.textContent = `Tersimpan ${nf0.format(d.saved)} baris forecast.`;
-      U.fc = null;
-      toast('Forecast tersimpan.');
-    } catch (err) { res.className = 'send-result err'; res.textContent = err.message; btn.disabled = false; }
+      U.x = await parseExcel(f);
+      $('cuXCheck').innerHTML = checkExcel(U.x) + `<p class="hint">Dibaca dalam ${Math.round((Date.now() - t0) / 100) / 10} detik.</p>`;
+      $('cuXSend').disabled = false;
+    } catch (err) { U.x = null; $('cuXCheck').innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+    inp.value = '';
   });
-  on('cuTpl', 'click', downloadFcTpl);
+  on('cuXSend', 'click', sendExcel);
   on('cuParams', 'change', async (e) => {
     const el = e.target.closest('[data-param]'); if (!el) return;
     const key = el.dataset.param;
@@ -1702,7 +1623,6 @@
     try {
       const res = await api('saveParam', { key, value });
       C.paramRows = res.params; C.P = {}; C.paramRows.forEach((r) => { C.P[r[0]] = r[1]; });
-      if (key === 'CANCEL_SISA') { C.cancelSisa = value === 'YA'; compute(); }
       toast('Pengaturan tersimpan.');
       renderUpdate(); renderHome();
     } catch (err) { toast(err.message); }

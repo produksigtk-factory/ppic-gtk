@@ -5,7 +5,7 @@
  *
  * - doGet  ?action=meta   : parameter, master (DATABASE PPIC GTK), daftar bulan + versi, forecast, log
  * - doGet  ?action=months&m=2026-09,2026-10 : baris SO & DO milik bulan SO tersebut (ringkas)
- * - doPost {action:...}   : upsertSO, upsertDO, saveFct, saveNilai, saveParam
+ * - doPost {action:...}   : replaceMonths, finishExcel (upload Excel CSL: INPUT SODO, (GTK), (BIMS)), saveNilai, saveParam
  *
  * SO_LINES dan DO_LINES selalu tersimpan urut per BULAN (bulan SO) supaya satu bulan
  * bisa dibaca sebagai satu blok baris. Setiap bulan punya VERSI di tab MONTHS; website
@@ -26,11 +26,11 @@ const CSL_CONFIG = {
   ],
 };
 const CSL_HEAD = {
-  SO_LINES: { head: ['BULAN', 'NO SO', 'TANGGAL SO', 'DISTRIBUTOR', 'ORDER REF', 'KODE', 'NAMA PRODUK', 'QTY SO', 'HARGA/PCS', 'DIUPLOAD'], text: [1, 2, 3, 4, 5, 6, 7, 10] },
+  SO_LINES: { head: ['BULAN', 'NO SO', 'TANGGAL SO', 'DISTRIBUTOR', 'ORDER REF', 'KODE', 'NAMA PRODUK', 'QTY SO', 'HARGA/PCS', 'DIUPLOAD', 'KODE DIST', 'KOTA', 'REGION', 'STATUS', 'WEEK'], text: [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15] },
   DO_LINES: { head: ['BULAN SO', 'NO DO', 'TANGGAL DO', 'NO SO', 'KODE', 'BATCH', 'QTY DO', 'STATUS', 'DIUPLOAD'], text: [1, 2, 3, 4, 5, 6, 8, 9] },
   FORECAST: { head: ['BULAN', 'KODE', 'REGION', 'QTY FCT (PCS)', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 5, 6] },
   FCT_NILAI: { head: ['BULAN', 'REGION', 'NILAI FCT (RP)', 'SUMBER', 'DIUBAH'], text: [1, 2, 4, 5] },
-  MONTHS: { head: ['BULAN', 'VERSI', 'BARIS SO', 'BARIS DO', 'DIUBAH'], text: [1, 2, 5] },
+  MONTHS: { head: ['BULAN', 'VERSI', 'BARIS SO', 'BARIS DO', 'DIUBAH', 'HASH'], text: [1, 2, 5, 6] },
   PARAMETER: { head: ['PARAMETER', 'NILAI', 'KETERANGAN'], text: [1] },
   PRODUK_SO: { head: ['KODE', 'NAMA DI SO'], text: [1, 2] },
   TUGAS: { head: ['ID', 'SIGNATURE', 'CATATAN', 'DITANDAI', 'JUDUL'], text: [1, 2, 3, 4, 5] },
@@ -58,7 +58,7 @@ function readMeta_(ss, fresh) {
   const D = dbMaster_(fresh);
   ms.database = Date.now() - t0;
   const params = rows_(sheet_(ss, 'PARAMETER'), 3).map(r => [s_(r[0]), r[1], s_(r[2])]);
-  const months = rows_(sheet_(ss, 'MONTHS'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4])]);
+  const months = rows_(sheet_(ss, 'MONTHS'), 6).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4]), s_(r[5])]);
   const fct = rows_(sheet_(ss, 'FORECAST'), 4).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3])]);
   const nilai = rows_(sheet_(ss, 'FCT_NILAI'), 5).map(r => [s_(r[0]), s_(r[1]), n_(r[2]), s_(r[3]), s_(r[4])]);
   ms.csl = Date.now() - t0 - ms.database;
@@ -149,10 +149,11 @@ function readMonths_(ss, list) {
   list.forEach(m => { out[m] = { so: { h: {}, l: [] }, do: { h: {}, l: [] } }; });
   const ver = {};
   rows_(sheet_(ss, 'MONTHS'), 2).forEach(r => { ver[s_(r[0])] = s_(r[1]); });
-  blocks_(sheet_(ss, 'SO_LINES'), 9, want).forEach(r => {
+  blocks_(sheet_(ss, 'SO_LINES'), 15, want).forEach(r => {
     const m = out[s_(r[0])]; if (!m) return;
     const no = s_(r[1]);
-    if (!m.so.h[no]) m.so.h[no] = [s_(r[2]), s_(r[3]), s_(r[4])];
+    // [tanggal, distributor, order ref, kode dist, kota, region, status, week] — 5 terakhir dari Excel CSL
+    if (!m.so.h[no]) m.so.h[no] = [s_(r[2]), s_(r[3]), s_(r[4]), s_(r[10]), s_(r[11]), s_(r[12]), s_(r[13]), s_(r[14])];
     m.so.l.push([no, s_(r[5]), n_(r[7]), n_(r[8])]);
   });
   blocks_(sheet_(ss, 'DO_LINES'), 8, want).forEach(r => {
@@ -213,9 +214,8 @@ function doPost(e) {
     let res;
     switch (b.action) {
       case 'verify': res = { ok: true }; break;
-      case 'upsertSO': res = upsertSO_(ss, b, now); break;
-      case 'upsertDO': res = upsertDO_(ss, b, now); break;
-      case 'saveFct': res = saveFct_(ss, b, now); break;
+      case 'replaceMonths': res = replaceMonths_(ss, b, now); break;
+      case 'finishExcel': res = finishExcel_(ss, b, now); break;
       case 'saveNilai': res = saveNilai_(ss, b, now); break;
       case 'saveParam': res = saveParam_(ss, b, now); break;
       case 'saveTask': res = saveTask_(ss, b, now); break;
@@ -230,87 +230,58 @@ function doPost(e) {
   }
 }
 
-// rows: [[noSO, tanggal yyyy-MM-dd, distributor, orderRef, kode, nama, qty, harga]]
-// Semua baris lama dengan NO SO yang ada di kiriman diganti.
-function upsertSO_(ss, b, now) {
-  const sh = sheet_(ss, 'SO_LINES');
-  const rows = (b.rows || []).map(r => {
+/* ---------- Upload Excel CSL ----------
+ * Website membaca sheet INPUT SODO, (GTK), (BIMS) dari file Excel CSL, lalu:
+ * 1) replaceMonths: bulan SO yang isinya berubah dikirim utuh; semua baris SO & DO bulan itu diganti.
+ *    so: [[noSO, tanggal, distributor, orderRef, kode, nama, qty, harga, kodeDist, kota, region, status, week]]
+ *    do: [[bulanSO, noDO, tanggal, noSO, kode, batch, qty, status]]
+ *    hash: {bulan: sidik isi} — dipakai website untuk melewati bulan yang tidak berubah.
+ * 2) finishExcel: bulan yang tidak ada lagi di file dihapus, FORECAST diganti seluruhnya dari (GTK)/(BIMS).
+ */
+function replaceMonths_(ss, b, now) {
+  const months = new Set((b.months || []).map(s_));
+  if (!months.size) throw new Error('Tidak ada bulan yang dikirim.');
+  const so = (b.so || []).map(r => {
     const t = s_(r[1]).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) throw new Error('Tanggal SO tidak valid: ' + s_(r[0]) + ' ' + s_(r[1]));
-    return [t.slice(0, 7), s_(r[0]), t, s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), num_(r[6]), num_(r[7]), now];
+    return [t.slice(0, 7), s_(r[0]), t, s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), num_(r[6]), num_(r[7]), now, s_(r[8]), s_(r[9]), s_(r[10]), s_(r[11]), s_(r[12])];
   }).filter(r => r[1] && r[5]);
-  const nos = new Set(rows.map(r => r[1]));
-  const old = readAll_(sh, 10);
-  const touched = new Set(rows.map(r => r[0]));
-  const oldMonthOf = {};
-  const keep = old.filter(r => {
-    if (!nos.has(s_(r[1]))) return true;
-    touched.add(s_(r[0])); oldMonthOf[s_(r[1])] = s_(r[0]);
-    return false;
-  });
-  const all = keep.concat(rows);
+  so.forEach(r => { if (!months.has(r[0])) throw new Error('SO ' + r[1] + ' bulan ' + r[0] + ' tidak termasuk bulan kiriman.'); });
+  const dos = (b.do || []).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), num_(r[6]), s_(r[7]), now])
+    .filter(r => months.has(r[0]) && r[1] && r[4]);
+  const sh = sheet_(ss, 'SO_LINES'), old = readAll_(sh, 15);
+  const all = old.filter(r => !months.has(s_(r[0]))).concat(so);
   all.sort((a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]) || cmp_(a[5], c[5]));
-  writeFrom_(sh, old, all, 10);
-  // SO yang pindah bulan: ikutkan DO-nya
-  const moved = {};
-  rows.forEach(r => { const o = oldMonthOf[r[1]]; if (o && o !== r[0]) moved[r[1]] = r[0]; });
-  if (Object.keys(moved).length) {
-    const dsh = sheet_(ss, 'DO_LINES'), dOld = readAll_(dsh, 9);
-    const dNew = dOld.map(r => { const m = moved[s_(r[3])]; if (m) { touched.add(s_(r[0])); touched.add(m); const x = r.slice(); x[0] = m; return x; } return r; });
-    dNew.sort(doCmp_);
-    writeFrom_(dsh, dOld, dNew, 9);
-  }
-  const months = bumpMonths_(ss, touched, now);
+  writeFrom_(sh, old, all, 15);
+  const dsh = sheet_(ss, 'DO_LINES'), dOld = readAll_(dsh, 9);
+  const dAll = dOld.filter(r => !months.has(s_(r[0]))).concat(dos);
+  dAll.sort(doCmp_);
+  writeFrom_(dsh, dOld, dAll, 9);
+  const res = bumpMonths_(ss, months, now, b.hash || {});
   produk_(ss);
-  addProduk_(ss, rows.map(r => [r[5], r[6]]));
-  log_(ss, now, 'Upload SO', b.file || '', rows.length, `${nos.size} SO · bulan ${[...touched].sort().join(', ')}${b.part ? ' · ' + b.part : ''}`);
-  return { ok: true, saved: rows.length, so: nos.size, touched: [...touched], months };
+  addProduk_(ss, so.map(r => [r[5], r[6]]));
+  return { ok: true, saved: so.length, savedDo: dos.length, months: res };
 }
 
-// rows: [[noDO, tanggal yyyy-MM-dd[ HH:mm], noSO, kode, batch, qty, status]]
-// Semua baris lama dengan NO DO yang ada di kiriman diganti. DO yang SO-nya belum ada tidak disimpan.
-function upsertDO_(ss, b, now) {
-  const soSh = sheet_(ss, 'SO_LINES'), nSo = soSh.getLastRow() - 1;
-  const soMonth = {};
-  if (nSo > 0) soSh.getRange(2, 1, nSo, 2).getValues().forEach(r => { soMonth[s_(r[1])] = s_(r[0]); });
-  const orphans = {};
-  let orphanRows = 0;
-  const rows = [];
-  (b.rows || []).forEach(r => {
-    const noDO = s_(r[0]), noSO = s_(r[2]);
-    if (!noDO || !s_(r[3])) return;
-    const m = soMonth[noSO];
-    if (!m) { orphans[noSO || '(kosong)'] = (orphans[noSO || '(kosong)'] || 0) + 1; orphanRows++; return; }
-    rows.push([m, noDO, s_(r[1]), noSO, s_(r[3]), s_(r[4]), num_(r[5]), s_(r[6]), now]);
+function finishExcel_(ss, b, now) {
+  const keep = new Set((b.keep || []).map(s_));
+  if (!keep.size) throw new Error('File tidak berisi bulan SO.');
+  const gone = new Set();
+  [['SO_LINES', 15, (a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]) || cmp_(a[5], c[5])], ['DO_LINES', 9, doCmp_]].forEach(([name, ncol]) => {
+    const sh = sheet_(ss, name), old = readAll_(sh, ncol);
+    const all = old.filter(r => { const m = s_(r[0]); if (keep.has(m)) return true; gone.add(m); return false; });
+    if (all.length !== old.length) writeFrom_(sh, old, all, ncol);
   });
-  const nos = new Set(rows.map(r => r[1]));
-  const sh = sheet_(ss, 'DO_LINES');
-  const old = readAll_(sh, 9);
-  const touched = new Set(rows.map(r => r[0]));
-  const keep = old.filter(r => { if (!nos.has(s_(r[1]))) return true; touched.add(s_(r[0])); return false; });
-  const all = keep.concat(rows);
-  all.sort(doCmp_);
-  writeFrom_(sh, old, all, 9);
-  const months = bumpMonths_(ss, touched, now);
-  const orph = Object.keys(orphans);
-  log_(ss, now, 'Upload DO', b.file || '', rows.length,
-    `${nos.size} DO · bulan SO ${[...touched].sort().join(', ') || '-'}${orph.length ? ` · ${orphanRows} baris tanpa SO (${orph.slice(0, 5).join(', ')}${orph.length > 5 ? '…' : ''})` : ''}${b.part ? ' · ' + b.part : ''}`);
-  return { ok: true, saved: rows.length, dos: nos.size, orphans: orph.map(k => [k, orphans[k]]), orphanRows, touched: [...touched], months };
-}
-
-// Forecast pcs: bulan yang dikirim diganti seluruhnya. rows: [[bulan, kode, region, qty]]
-function saveFct_(ss, b, now) {
-  const months = new Set((b.months || []).map(s_));
-  if (!months.size) throw new Error('Tidak ada bulan forecast.');
-  const sh = sheet_(ss, 'FORECAST');
-  const old = readAll_(sh, 6);
-  const add = (b.rows || []).map(r => [s_(r[0]), s_(r[1]), s_(r[2]).toUpperCase(), num_(r[3]), s_(b.file) || 'Upload', now])
-    .filter(r => months.has(r[0]) && r[1] && r[2] && r[3] !== '' && r[3] !== 0);
-  const all = old.filter(r => !months.has(s_(r[0]))).concat(add);
-  all.sort((a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]) || cmp_(a[2], c[2]));
-  writeFrom_(sh, old, all, 6);
-  log_(ss, now, 'Upload forecast', b.file || '', add.length, 'bulan ' + [...months].sort().join(', '));
-  return { ok: true, saved: add.length, fct: all.map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3])]) };
+  const months = bumpMonths_(ss, gone, now, {});
+  // Forecast: diganti seluruhnya dari (GTK) dan (BIMS). rows: [[bulan, kode, region, qty]]
+  const fsh = sheet_(ss, 'FORECAST'), fOld = readAll_(fsh, 6);
+  const fNew = (b.fct || []).map(r => [s_(r[0]), s_(r[1]), s_(r[2]).toUpperCase(), num_(r[3]), s_(b.file) || 'Excel CSL', now])
+    .filter(r => r[0] && r[1] && r[2] && r[3] !== '' && r[3] !== 0);
+  fNew.sort((a, c) => cmp_(a[0], c[0]) || cmp_(a[1], c[1]) || cmp_(a[2], c[2]));
+  writeFrom_(fsh, fOld, fNew, 6);
+  log_(ss, now, 'Upload Excel CSL', b.file || '', n_(b.nSo) || 0,
+    `${b.changed || 0} bulan berubah dari ${keep.size} bulan${gone.size ? ' · dihapus ' + [...gone].sort().join(', ') : ''} · forecast ${fNew.length} baris${b.note ? ' · ' + b.note : ''}`);
+  return { ok: true, months, removed: [...gone], fct: fNew.map(r => [r[0], r[1], r[2], n_(r[3])]) };
 }
 
 // Forecast Rupiah per region (manual). rows: [[bulan, region, nilai]] — nilai kosong = hapus
@@ -362,7 +333,8 @@ function saveTask_(ss, b, now) {
 }
 
 /* ======================= BANTU ======================= */
-function bumpMonths_(ss, touched, now) {
+function bumpMonths_(ss, touched, now, hash) {
+  hash = hash || {};
   const sh = sheet_(ss, 'MONTHS');
   const count = (name) => {
     const s = sheet_(ss, name), n = s.getLastRow() - 1, c = {};
@@ -370,14 +342,14 @@ function bumpMonths_(ss, touched, now) {
     return c;
   };
   const cSo = count('SO_LINES'), cDo = count('DO_LINES');
-  const old = readAll_(sh, 5);
+  const old = readAll_(sh, 6);
   const map = new Map(old.map(r => [s_(r[0]), r]));
   const ver = String(Date.now());
-  touched.forEach(m => { if (m) map.set(m, [m, ver, cSo[m] || 0, cDo[m] || 0, now]); });
+  touched.forEach(m => { if (m) map.set(m, [m, ver, cSo[m] || 0, cDo[m] || 0, now, s_(hash[m])]); });
   [...map.keys()].forEach(m => { if (!cSo[m] && !cDo[m]) map.delete(m); });
   const all = [...map.values()].sort((a, c) => cmp_(a[0], c[0]));
-  writeFrom_(sh, old, all, 5);
-  return all.map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4])]);
+  writeFrom_(sh, old, all, 6);
+  return all.map(r => [s_(r[0]), s_(r[1]), n_(r[2]), n_(r[3]), s_(r[4]), s_(r[5])]);
 }
 function doCmp_(a, c) { return cmp_(a[0], c[0]) || cmp_(a[3], c[3]) || cmp_(a[1], c[1]) || cmp_(a[4], c[4]); }
 function cmp_(a, c) { a = s_(a); c = s_(c); return a < c ? -1 : a > c ? 1 : 0; }
@@ -414,7 +386,7 @@ function sheet_(ss, name) {
       sh.setFrozenRows(1);
     }
   }
-  if (def && sh.getMaxRows() > 1 && !String(sh.getRange(2, def.text[0]).getNumberFormat()).startsWith('@')) {
+  if (def && sh.getMaxRows() > 1 && !String(sh.getRange(2, def.text[def.text.length - 1]).getNumberFormat()).startsWith('@')) {
     def.text.forEach(c => sh.getRange(2, c, sh.getMaxRows() - 1, 1).setNumberFormat('@'));
   }
   return sh;

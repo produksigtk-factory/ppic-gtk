@@ -72,17 +72,11 @@
         </button>
         <div class="submenu">
           <a class="menu-item sub" href="#/csl/dashboard" data-route="csl/dashboard">Dashboard CSL</a>
-          <a class="menu-item sub" href="#/csl/region" data-route="csl/region">Review Region</a>
           <a class="menu-item sub" href="#/csl/sku" data-route="csl/sku">Rekap per SKU</a>
           <a class="menu-item sub" href="#/csl/sellin" data-route="csl/sellin">Sell In</a>
           <a class="menu-item sub" href="#/csl/os" data-route="csl/os">Sisa SO</a>
-          <a class="menu-item sub" href="#/csl/weekly" data-route="csl/weekly">Weekly Review</a>
-          <a class="menu-item sub" href="#/csl/amount" data-route="csl/amount">Amount Check</a>
-          <a class="menu-item sub" href="#/csl/analisa" data-route="csl/analisa">Analisa Forecast</a>
-          <a class="menu-item sub" href="#/csl/suggest" data-route="csl/suggest">Suggest Forecast</a>
-          <a class="menu-item sub" href="#/csl/musim" data-route="csl/musim">Seasonal</a>
-          <a class="menu-item sub" href="#/csl/update" data-route="csl/update">Update Data CSL</a>
           <a class="menu-item sub" href="#/csl/cek" data-route="csl/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="cslBadge" hidden></span></a>
+          <a class="menu-item sub" href="#/csl/update" data-route="csl/update">Update Data CSL</a>
         </div>
       </div>
 
@@ -1116,26 +1110,11 @@
         <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
         <div class="up-grid">
           <div class="update-card">
-            <h2>Upload SO</h2>
-            <p class="lead">Export Odoo <em>sale.order</em> apa adanya. SO yang ada di file diganti seluruh barisnya; SO lain tetap. Upload SO dulu, baru DO.</p>
-            <label class="file-drop" for="cuSoFile"><input type="file" id="cuSoFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file SO</span><span class="file-name" id="cuSoName">Belum ada file</span></label>
-            <div class="check" id="cuSoCheck"></div>
-            <div class="send-row"><button class="btn" id="cuSoSend" disabled>Simpan SO ke Google Sheet</button><p class="send-result" id="cuSoResult" aria-live="polite"></p></div>
-          </div>
-          <div class="update-card">
-            <h2>Upload DO</h2>
-            <p class="lead">Export Odoo <em>stock.picking.out</em> apa adanya. DO yang ada di file diganti (status ikut terbarui). DO yang SO-nya belum pernah di-upload tidak disimpan dan dilaporkan.</p>
-            <label class="file-drop" for="cuDoFile"><input type="file" id="cuDoFile" accept=".xls,.xlsx,.csv"><span class="file-btn">Pilih file DO</span><span class="file-name" id="cuDoName">Belum ada file</span></label>
-            <div class="check" id="cuDoCheck"></div>
-            <div class="send-row"><button class="btn" id="cuDoSend" disabled>Simpan DO ke Google Sheet</button><p class="send-result" id="cuDoResult" aria-live="polite"></p></div>
-          </div>
-          <div class="update-card">
-            <h2>Upload forecast (pcs)</h2>
-            <p class="lead">Kolom BULAN, KODE, R1, R2, R3, R4, ONLINE (pcs). Bulan yang ada di file diganti seluruhnya. Forecast Rupiah per region diisi manual di menu <a href="#/csl/region">Review Region</a>.</p>
-            <div class="csl-tpl"><label class="field"><span>Format untuk bulan</span><select id="cuTplMonth"></select></label><button class="btn btn-ghost btn-sm" id="cuTpl">Unduh format</button></div>
-            <label class="file-drop" for="cuFcFile"><input type="file" id="cuFcFile" accept=".xls,.xlsx,.xlsm"><span class="file-btn">Pilih file forecast</span><span class="file-name" id="cuFcName">Belum ada file</span></label>
-            <div class="check" id="cuFcCheck"></div>
-            <div class="send-row"><button class="btn" id="cuFcSend" disabled>Simpan forecast ke Google Sheet</button><p class="send-result" id="cuFcResult" aria-live="polite"></p></div>
+            <h2>Upload Excel CSL</h2>
+            <p class="lead">Pilih file Excel CSL utuh (.xlsm / .xlsx). Website membaca sheet <b>INPUT SODO</b> (SO &amp; DO), <b>(GTK)</b> dan <b>(BIMS)</b> (forecast). Simpan (Save) file di Excel dulu supaya hasil rumusnya ikut tersimpan. Data di Google Sheet selalu disamakan dengan file ini; bulan yang isinya tidak berubah dilewati.</p>
+            <label class="file-drop" for="cuXFile"><input type="file" id="cuXFile" accept=".xlsm,.xlsx,.xlsb,.xls"><span class="file-btn">Pilih file Excel CSL</span><span class="file-name" id="cuXName">Belum ada file</span></label>
+            <div class="check" id="cuXCheck"></div>
+            <div class="send-row"><button class="btn" id="cuXSend" disabled>Simpan ke Google Sheet</button><p class="send-result" id="cuXResult" aria-live="polite"></p></div>
           </div>
           <div class="update-card">
             <h2>Pengaturan</h2>
@@ -1240,8 +1219,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
 <script src="app.js?v=16966dbf"></script>
-<script src="csl.js?v=64415491"></script>
-<script src="help.js?v=47dc0f7b"></script>
+<script src="csl.js?v=6986e7dc"></script>
+<script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
 </html>
