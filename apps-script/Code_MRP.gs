@@ -180,7 +180,7 @@ function doPost(e) {
     else if (action === 'setIncK') res = setIncK_(ss, body, now);
     else if (action === 'uploadCons') res = uploadCons_(ss, body.jenis, body.mos || [], body.rows || [], body.file || '', now);
     else if (action === 'uploadGantung') res = uploadGantung_(ss, body.date, body.rows || [], body.file || '', now);
-    else if (action === 'addBoms') res = addBoms_(body.boms || [], body.file || '', now, ss);
+    else if (action === 'addBoms') res = addBoms_(body.boms || [], body.file || '', now, ss, body.master || []);
     else if (action === 'addAdj') res = addAdj_(ss, body, now);
     else if (action === 'addInc') res = addInc_(ss, body, now);
     else if (action === 'delRow') res = delRow_(ss, body.kind, body.id, now);
@@ -196,9 +196,23 @@ function doPost(e) {
 /* ---------- Tambah BoM ke DATABASE PPIC GTK (upload export BoM Odoo dari website) ----------
  * boms: [{ code, name, batch, uom, ref, odoo, lines: [[kodeMaterial, namaMaterial, qty, uom, kategori]] }]
  * BOM ID baru = nomor BOM-xxxx terbesar + 1. BoM lama tidak diubah. Catatan berisi id Odoo & nama file. */
-function addBoms_(boms, file, now, ss) {
+function addBoms_(boms, file, now, ss, master) {
   if (!boms.length) throw new Error('Tidak ada BoM yang dikirim.');
   const db = SpreadsheetApp.openById(MRP_CONFIG.DATABASE_ID);
+  // Material / produk baru → MASTER_MATERIAL [kode, nama, UoM, kategori]; kode yang sudah ada dilewati
+  let addedMaster = [];
+  if (master && master.length) {
+    const ms = db.getSheetByName(MRP_CONFIG.MASTER_SHEET);
+    if (!ms) throw new Error('Tab MASTER_MATERIAL tidak ditemukan di DATABASE PPIC GTK.');
+    const have = new Set(rows_(ms, 1).map(r => s_(r[0])));
+    const M = [];
+    master.forEach(m => { const k = s_(m[0]); if (k && !have.has(k)) { have.add(k); M.push([k, s_(m[1]), s_(m[2]), s_(m[3])]); } });
+    if (M.length) {
+      const r0 = ms.getLastRow() + 1;
+      ms.getRange(r0, 1, M.length, 4).setNumberFormat('@').setValues(M);
+      addedMaster = M.map(r => r[0]);
+    }
+  }
   const bl = db.getSheetByName(MRP_CONFIG.BOM_SHEET), bd = db.getSheetByName(MRP_CONFIG.BOM_DETAIL_SHEET);
   if (!bl || !bd) throw new Error('Tab BOM_LIST / BOM_DETAIL tidak ditemukan di DATABASE PPIC GTK.');
   let max = 0;
@@ -222,8 +236,9 @@ function addBoms_(boms, file, now, ss) {
   put(bl, L, [1, 2, 3, 5, 6, 8]);
   put(bd, D, [1, 2, 3, 5, 6, 7, 9, 10]);
   try { CacheService.getScriptCache().remove('mrp_db_n'); } catch (e) { /* abaikan */ }
-  log_(ss, now, 'Tambah BoM', `${ids.length} BoM dari ${file || 'upload'}: ` + ids.map(x => `${x[0]} ${x[1]}${x[2] ? ' (' + x[2] + ')' : ''}`).join(', '));
-  return { added: ids };
+  log_(ss, now, 'Tambah BoM', `${ids.length} BoM dari ${file || 'upload'}: ` + ids.map(x => `${x[0]} ${x[1]}${x[2] ? ' (' + x[2] + ')' : ''}`).join(', ')
+    + (addedMaster.length ? ` · master baru: ${addedMaster.join(', ')}` : ''));
+  return { added: ids, addedMaster };
 }
 
 // Simpan beberapa sel rencana sekaligus (dari edit per sel di website). kg kosong/0 tanpa BOM = baris dihapus.

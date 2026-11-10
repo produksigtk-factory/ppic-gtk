@@ -2795,7 +2795,7 @@
       if (m && m.uom && l[3] && normU(m.uom) !== normU(l[3])) badU.push(`${l[0]} (${l[3]} vs master ${m.uom})`);
       if (!l[2]) zero.push(l[0]);
     });
-    if (noMaster.length) warn.push(`Belum ada di MASTER_MATERIAL: ${noMaster.join(', ')}`);
+    if (noMaster.length) warn.push(`Belum ada di MASTER_MATERIAL: ${noMaster.join(', ')} — bisa ikut ditambahkan (lihat daftar di bawah)`);
     if (badU.length) warn.push(`UoM beda dengan master: ${badU.join(', ')}`);
     if (zero.length) warn.push(`Qty 0 (tidak disimpan): ${zero.join(', ')}`);
     if (!(b.batch > 0)) warn.push('Qty batch kosong / 0');
@@ -2804,7 +2804,20 @@
     return { warn, info };
   }
   function bomAddDialog() {
-    const st = { list: [], file: '' };
+    const st = { list: [], file: '', mats: new Map() };
+    const KATS = [...new Set(['RM (Raw)', 'PM (Pack)', 'Ekstrak', 'FG', 'Service'].concat([...MRP.master.values()].map((m) => m.kat).filter(Boolean)))];
+    const UOMS = [...new Set(['Kg', 'Pcs', 'Rol', 'Set', 'Liter(s)'].concat([...MRP.master.values()].map((m) => m.uom).filter(Boolean)))];
+    const paintMat = () => {
+      const el = $('bomUpMat'); if (!el) return;
+      if (!st.mats.size) { el.innerHTML = st.list.length ? '<p class="bomup-i">Semua kode sudah ada di MASTER_MATERIAL.</p>' : ''; return; }
+      el.innerHTML = `<div class="bomup bomup-mat"><p class="bomup-h"><b>${st.mats.size} kode belum ada di MASTER_MATERIAL</b> <span class="muted">· yang dicentang ikut ditambahkan ke MASTER_MATERIAL (hanya bila dipakai BoM yang dicentang). Periksa nama, UoM, dan kategorinya.</span></p>
+        <table class="po-table pl-mini"><thead><tr><th></th><th>Kode</th><th>Nama</th><th>UoM</th><th>Kategori</th><th>Asal</th></tr></thead><tbody>
+        ${[...st.mats.values()].map((m) => `<tr><td><input type="checkbox" data-mon="${esc(m.code)}"${m.on ? ' checked' : ''} aria-label="Tambahkan ${esc(m.code)}"></td><td class="mono">${esc(m.code)}</td>
+          <td><input type="text" class="bomup-in" data-mnm="${esc(m.code)}" value="${esc(m.name)}"></td>
+          <td><select data-muom="${esc(m.code)}">${UOMS.map((u) => `<option${normU(u) === normU(m.uom) ? ' selected' : ''}>${esc(u)}</option>`).join('')}${UOMS.some((u) => normU(u) === normU(m.uom)) || !m.uom ? '' : `<option selected>${esc(m.uom)}</option>`}</select></td>
+          <td><select data-mkat="${esc(m.code)}">${KATS.map((k) => `<option${k === m.kat ? ' selected' : ''}>${esc(k)}</option>`).join('')}</select></td><td class="muted">${esc(m.role)}</td></tr>`).join('')}
+        </tbody></table></div>`;
+    };
     const paint = () => {
       const el = $('bomUpList'); if (!el) return;
       if (!st.list.length) { el.innerHTML = ''; return; }
@@ -2823,13 +2836,20 @@
       title: 'Tambah BoM dari export Odoo', ok: 'Tambahkan', wide: true,
       body: `<p class="dlg-lead">Upload file export BoM Odoo (Bill of Materials → Export: product_id/code, product_qty, code, bom_lines/…). Satu file boleh berisi beberapa BoM. Disimpan sebagai BoM baru di DATABASE PPIC GTK (BOM_LIST &amp; BOM_DETAIL); BoM lama tidak diubah.</p>
         <label class="file-drop" for="bomUpFile"><input type="file" id="bomUpFile" accept=".xls,.xlsx"><span class="file-btn">Pilih file BoM Odoo</span><span class="file-name" id="bomUpName">Belum ada file</span></label>
-        <div id="bomUpList"></div>`,
+        <div id="bomUpList"></div><div id="bomUpMat"></div>`,
       onSubmit: async () => {
         const sel = st.list.filter((b) => b.on);
         if (!sel.length) throw new Error('Pilih minimal satu BoM.');
-        const res = await mrpApi('addBoms', { file: st.file, boms: sel.map((b) => ({ code: b.code, name: b.name, batch: b.batch, uom: b.uom, ref: b.ref, odoo: b.odoo, lines: b.lines.filter((l) => l[2]).map((l) => [l[0], l[1], l[2], l[3], l[4] === 'Ekstrak/bulk' ? '' : l[4]]) })) });
+        const used = new Set(); sel.forEach((b) => { used.add(b.code); b.lines.forEach((l) => { if (l[2]) used.add(l[0]); }); });
+        const mats = [...st.mats.values()].filter((m) => m.on && used.has(m.code));
+        const bad = mats.filter((m) => !m.name);
+        if (bad.length) throw new Error('Nama material baru masih kosong: ' + bad.map((m) => m.code).join(', '));
+        const katOf = (code, k) => { const m = st.mats.get(code); return m && m.on ? m.kat : k === 'Ekstrak/bulk' ? '' : k; };
+        const res = await mrpApi('addBoms', { file: st.file, master: mats.map((m) => [m.code, m.name, m.uom, m.kat]),
+          boms: sel.map((b) => ({ code: b.code, name: b.name, batch: b.batch, uom: b.uom, ref: b.ref, odoo: b.odoo, lines: b.lines.filter((l) => l[2]).map((l) => { const m = st.mats.get(l[0]); return [l[0], m && m.on ? m.name : l[1], l[2], m && m.on ? m.uom : l[3], katOf(l[0], l[4])]; }) })) });
         await loadMrp('fresh');
-        return `${(res.added || []).length} BoM ditambahkan: ${(res.added || []).map((x) => x[0] + ' ' + x[1]).join(', ')}`;
+        const nm = (res.addedMaster || []).length;
+        return `${(res.added || []).length} BoM ditambahkan: ${(res.added || []).map((x) => x[0] + ' ' + x[1]).join(', ')}${nm ? ` · ${nm} material baru masuk MASTER_MATERIAL` : ''}`;
       },
     });
     $('dlgOk').disabled = true;
@@ -2838,6 +2858,12 @@
       if (seq !== dlgSeq) return;
       const cb = e.target.closest('[data-bi]');
       if (cb) { st.list[Number(cb.dataset.bi)].on = cb.checked; paint(); return; }
+      const t = e.target, mk = t.dataset.mon || t.dataset.mnm || t.dataset.muom || t.dataset.mkat;
+      if (mk && st.mats.has(mk)) {
+        const m = st.mats.get(mk);
+        if (t.dataset.mon) m.on = t.checked; else if (t.dataset.mnm) m.name = t.value.trim(); else if (t.dataset.muom) m.uom = t.value; else m.kat = t.value;
+        return;
+      }
       if (e.target.id !== 'bomUpFile') return;
       const f = e.target.files[0]; if (!f) return;
       $('bomUpName').textContent = f.name; st.file = f.name; $('dlgError').textContent = '';
@@ -2847,8 +2873,18 @@
         st.list = parseOdooBom(rows);
         if (!st.list.length) throw new Error('Tidak ada BoM yang terbaca di file ini.');
         st.list.forEach((b) => { b.chk = bomCheck(b); b.on = !b.dup && !b.bad; });
-      } catch (err) { st.list = []; $('dlgError').textContent = err.message; }
-      paint();
+        // Kode yang belum ada di MASTER_MATERIAL: produk BoM & komponen → bisa langsung ditambahkan
+        st.mats = new Map();
+        st.list.forEach((b) => {
+          if (!MRP.master.has(b.code) && !st.mats.has(b.code)) st.mats.set(b.code, { code: b.code, name: b.name, uom: b.uom, kat: normU(b.uom) === 'kg' ? 'Ekstrak' : 'FG', role: 'produk BoM', on: true });
+          b.lines.forEach((l) => {
+            if (MRP.master.has(l[0]) || st.mats.has(l[0])) return;
+            const u = normU(l[3]);
+            st.mats.set(l[0], { code: l[0], name: l[1], uom: l[3], kat: MRP.byProduct.has(l[0]) ? 'Ekstrak' : u === 'kg' || u === 'liter(s)' ? 'RM (Raw)' : 'PM (Pack)', role: 'komponen', on: true });
+          });
+        });
+      } catch (err) { st.list = []; st.mats = new Map(); $('dlgError').textContent = err.message; }
+      paint(); paintMat();
     });
   }
   $('bAdd').addEventListener('click', () => needEdit(bomAddDialog));
