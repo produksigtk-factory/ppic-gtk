@@ -1536,3 +1536,4 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .si-reg-bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
 .si-reg-bar i { display: block; height: 100%; background: var(--brand); border-radius: 5px; }
 @media (max-width: 700px) { .si-grid { grid-template-columns: 1fr; } .si-reg-row { grid-template-columns: 80px 1fr 110px; } }
+.pj-unused { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; line-height: 16px; background: #eef0f2; color: var(--muted); vertical-align: 1px; }
