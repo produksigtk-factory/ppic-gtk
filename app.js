@@ -3272,6 +3272,11 @@
     });
     return out;
   }
+  // PM dobel: kode yang ada di PM tambahan (langsung di BoM rakitan) dan juga di pecahan salah satu FG
+  function rkDobel(lines) {
+    const pm = new Set(lines.filter((l) => l.src === 'RAKITAN').map((l) => l.code));
+    return new Set(lines.filter((l) => l.src !== 'RAKITAN' && pm.has(l.code)).map((l) => l.code));
+  }
   function needRakitan(code, pcs, bom) {
     const leaves = new Map(), made = new Map(), fg = new Map();
     const add = (m, c, x) => m.set(c, (m.get(c) || 0) + x);
@@ -4699,16 +4704,23 @@
       const ynBtn = (src) => (ed ? `<button type="button" class="btn-link" data-rkall="${esc(k.code)}|${esc(src)}|Y">Ya semua</button> · <button type="button" class="btn-link" data-rkall="${esc(k.code)}|${esc(src)}|N">Tidak semua</button>` : '');
       const compRow = (l, hide, fgKey) => {
         const m = MRP.master.get(l.code) || {}, on = P.pakai.has(k.code + '|' + l.src + '|' + l.code);
+        if (l.dobLbl) return `<tr class="rk-comp rk-sub rk-dobl${on ? ' is-on' : ''}"><td></td><td>${esc(l.dobLbl)}</td><td></td>
+            <td class="num">${fq(l.q * 1000)}</td><td class="num">${fq(l.q)}</td><td>${esc(l.uom || m.uom || '')}</td>
+            <td>${ed ? `<span class="rk-yn" role="group"><button type="button" data-rkp="${esc(k.code)}|${esc(l.src)}|${esc(l.code)}|Y" aria-pressed="${on}">Ya</button><button type="button" data-rkp="${esc(k.code)}|${esc(l.src)}|${esc(l.code)}|N" aria-pressed="${!on}">Tidak</button></span>`
+              : (on ? '<b class="rk-ya">Ya</b>' : '<span class="muted">Tidak</span>')}</td></tr>`;
         return `<tr class="rk-comp${on ? ' is-on' : ''}${fgKey ? ' rk-sub' : ''}"${fgKey ? ` data-fgrow="${esc(fgKey)}"` : ''}${hide ? ' hidden' : ''}><td class="mono">${esc(l.code)}</td><td>${esc(m.name || l.name || '')}${l.noBom ? ' <span class="pl-bad">(FG tanpa BoM)</span>' : ''}</td><td>${l.kind === 'ek' ? '<span class="badge b-wait">Ekstrak/bulk</span>' : esc(m.kat || '')}</td>
             <td class="num">${fq(l.q * 1000)}</td><td class="num">${fq(l.q)}</td><td>${esc(l.uom || m.uom || '')}</td>
             <td>${ed ? `<span class="rk-yn" role="group"><button type="button" data-rkp="${esc(k.code)}|${esc(l.src)}|${esc(l.code)}|Y" aria-pressed="${on}">Ya</button><button type="button" data-rkp="${esc(k.code)}|${esc(l.src)}|${esc(l.code)}|N" aria-pressed="${!on}">Tidak</button></span>`
               : (on ? '<b class="rk-ya">Ya</b>' : '<span class="muted">Tidak</span>')}</td></tr>`;
       };
-      const fgSrcs = srcs.filter((x) => x !== 'RAKITAN'), pmLs = groups.get('RAKITAN') || [];
+      const dob = rkDobel(lines);
+      const fgSrcs = srcs.filter((x) => x !== 'RAKITAN'), pmAll = groups.get('RAKITAN') || [], pmLs = pmAll.filter((l) => !dob.has(l.code));
+      const isYa = (l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code);
       let comps = '';
       if (fgSrcs.length) comps += `<tr class="rk-sec"><td colspan="7">FG <span class="muted">· dipecah ke bahan baku & kemasannya — klik FG untuk melihat dan memilih Ya/Tidak</span></td></tr>`;
       fgSrcs.forEach((src) => {
-        const ls = groups.get(src), fgB = ls[0] && ls[0].fgBom, ya = ls.filter((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)).length;
+        const lsAll = groups.get(src), ls = lsAll.filter((l) => !dob.has(l.code)), nDob = lsAll.length - ls.length;
+        const fgB = lsAll[0] && lsAll[0].fgBom, ya = ls.filter(isYa).length;
         fgSet.add(src);
         const key = k.code + '|' + src, open = P.rkOpen.has(key);
         const c = b.comps.find((x) => x.code === src), qFg = c && b.batch ? (Number(c.qty) || 0) / b.batch * 1000 : 0;
@@ -4716,14 +4728,26 @@
           <td>${esc(((MRP.master.get(src) || {}).name) || (c && c.name) || '')}<div class="rk-meta">${fgB ? `BoM Ref ${esc(refOf(fgB))} (${normU(fgB.uom) === 'kg' ? 'batch ' + fmtQ(fgB.batch) + ' kg' : fmtQ(fgB.batch) + ' pcs = 1.000 kg'})` : '<span class="pl-bad">FG tanpa BoM</span>'}</div></td>
           <td>FG</td><td class="num"><b>${fq(qFg)}</b></td><td class="num">${fq(qFg / 1000)}</td><td>${esc((c && c.uom) || 'Pcs')}</td>
           <td><b class="${ya ? '' : 'pl-bad'}">${ya}/${ls.length} Ya</b>${open && ed ? `<div class="rk-src-act">${ynBtn(src)}</div>` : ''}</td></tr>`;
-        comps += ls.map((l) => compRow(l, !open, key)).join('');
+        comps += ls.map((l) => compRow(l, !open, key)).join('')
+          + (nDob ? `<tr class="rk-comp rk-sub rk-dobnote" data-fgrow="${esc(key)}"${open ? '' : ' hidden'}><td colspan="7" class="muted">+ ${nDob} PM yang juga ada di PM tambahan → lihat bagian <b>PM dobel</b> di bawah</td></tr>` : '');
       });
-      if (pmLs.length) {
-        pmSet.add(pmLs.map((l) => l.code).join());
+      if (pmAll.length) {
+        pmSet.add(pmAll.map((l) => l.code).join());
         const ya = pmLs.filter((l) => P.pakai.has(k.code + '|' + l.src + '|' + l.code)).length;
-        comps += `<tr class="rk-sec"><td colspan="6">PM tambahan <span class="muted">· langsung di BoM rakitan (di luar FG) · ${ya}/${pmLs.length} Ya</span></td><td class="rk-src-act">${ynBtn('RAKITAN')}</td></tr>`
-          + pmLs.map((l) => compRow(l, false, '')).join('');
-      } else if (b) comps += `<tr class="rk-sec rk-none"><td colspan="7">PM tambahan <span class="muted">· tidak ada di BoM Odoo produk ini</span></td></tr>`;
+        comps += `<tr class="rk-sec"><td colspan="6">PM tambahan <span class="muted">· hanya di BoM rakitan (di luar FG) · ${ya}/${pmLs.length} Ya</span></td><td class="rk-src-act">${pmLs.length ? ynBtn('RAKITAN') : ''}</td></tr>`
+          + (pmLs.length ? pmLs.map((l) => compRow(l, false, '')).join('') : '<tr class="rk-comp"><td colspan="7" class="muted">Semua PM tambahan juga ada di FG — lihat PM dobel.</td></tr>');
+      }
+      if (dob.size) {
+        const dl = lines.filter((l) => dob.has(l.code)), ya = dl.filter(isYa).length;
+        comps += `<tr class="rk-sec rk-dob"><td colspan="6">PM dobel <span class="muted">· ada di pecahan FG dan juga di PM tambahan — pilih yang benar-benar dipakai supaya tidak terhitung dua kali · ${ya}/${dl.length} Ya</span></td><td class="rk-src-act">${ynBtn('DOBEL')}</td></tr>`;
+        [...dob].forEach((code) => {
+          const ls = dl.filter((l) => l.code === code).sort((x, y) => (x.src === 'RAKITAN') - (y.src === 'RAKITAN'));
+          const m = MRP.master.get(code) || {}, nYa2 = ls.filter(isYa).length;
+          comps += `<tr class="rk-dobh"><td class="mono"><b>${esc(code)}</b></td><td colspan="5"><b>${esc(m.name || ls[0].name || '')}</b> <span class="muted">· ${esc(m.kat || '')}</span></td><td>${nYa2 > 1 ? '<b class="pl-bad">dihitung ' + nYa2 + '×</b>' : nYa2 ? '<b class="rk-ya">1 Ya</b>' : '<span class="muted">Tidak dipakai</span>'}</td></tr>`
+            + ls.map((l) => compRow(Object.assign({}, l, { dobLbl: l.src === 'RAKITAN' ? 'PM tambahan' : 'dari FG ' + l.src }), false, '')).join('');
+        });
+      }
+      if (!pmAll.length && b) comps += `<tr class="rk-sec rk-none"><td colspan="7">PM tambahan <span class="muted">· tidak ada di BoM Odoo produk ini</span></td></tr>`;
       k.nYa = nYa; k.nLines = lines.length;
       return `<tbody class="rk-group">${head}${comps}</tbody>`;
     }).join('') || `<tbody><tr class="empty"><td colspan="7">${(P.rakitan || []).length ? 'Tidak ada yang cocok.' : (P.hasRakitan ? 'Belum ada kode. Klik "Tambah kode" (mode edit).' : 'Apps Script MRP perlu diperbarui (versi dengan BoM rakitan).')}</td></tr></tbody>`;
@@ -4793,7 +4817,8 @@
     const all = e.target.closest('[data-rkall]');
     if (all) {
       const [a, src, v] = all.dataset.rkall.split('|'), k = (P.rakitan || []).find((x) => x.code === a);
-      const items = rkLines(a, k ? rkBom(k) : null).filter((l) => l.src === src).map((l) => [a, src, l.code, v]);
+      const L = rkLines(a, k ? rkBom(k) : null), dob = rkDobel(L);
+      const items = L.filter((l) => (src === 'DOBEL' ? dob.has(l.code) : l.src === src && !dob.has(l.code))).map((l) => [a, l.src, l.code, v]);
       needEdit(() => rkPakaiSave(items));
     }
   });

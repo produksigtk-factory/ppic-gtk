@@ -1564,3 +1564,8 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .bomup summary { cursor: pointer; color: var(--brand); }
 #bAdd { width: 100%; }
 .bomup .pl-mini { min-width: 0; width: 100%; }
+.rk-table tr.rk-sec.rk-dob td { background: #fff6dc; color: #7a5200; }
+.rk-table tr.rk-dobh td { background: #fffbef; font-size: 13px; }
+.rk-table tr.rk-dobl td { font-size: 12.5px; }
+.rk-table tr.rk-dobl td:nth-child(2) { padding-left: 24px; color: var(--muted); }
+.rk-table tr.rk-dobnote td { font-size: 12px; font-style: italic; }
