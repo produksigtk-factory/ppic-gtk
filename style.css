@@ -1718,3 +1718,14 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .kp-dl dt { color: var(--muted); font-size: 13px; }
 .kp-dl dd { margin: 0; }
 @media (max-width: 900px) { .kp-grid { grid-template-columns: 48px repeat(7, minmax(84px, 1fr)); overflow-x: auto; } }
+/* Kalender Produksi — tampilan Week */
+.kp-grid.is-week { grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(170px, 1.1fr); }
+.kp-wday { height: auto; min-height: 340px; max-height: 70vh; }
+.kp-wdn { flex-direction: column; align-items: flex-start; gap: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.kp-wdn b { font-size: 13.5px; }
+.kp-wun { background: #fffbef; border-style: dashed; }
+.kp-mo2 { white-space: normal; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
+.kp-l1 { display: flex; justify-content: space-between; gap: 6px; }
+.kp-l2 { color: var(--muted); font-size: 11px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 1100px) { .kp-grid.is-week { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .kp-grid.is-week { grid-template-columns: 1fr 1fr; } }

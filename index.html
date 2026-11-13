@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=82439929">
+<link rel="stylesheet" href="style.css?v=32e1c083">
 </head>
 <body>
 <div class="shell">
@@ -583,10 +583,12 @@
         <div class="ph-tb">
           <div class="ph-wknav" role="group" aria-label="Pilih bulan">
             <button type="button" class="ph-nav" id="kpPrev" aria-label="Bulan sebelumnya">‹</button>
-            <label class="ph-wk"><span class="sr">Bulan</span><select id="kpMonth"></select></label>
+            <label class="ph-wk" id="kpMonthL"><span class="sr">Bulan</span><select id="kpMonth"></select></label>
+            <label class="ph-wk" id="kpWeekL" hidden><span class="sr">Week</span><select id="kpWeek"></select></label>
             <button type="button" class="ph-nav" id="kpNext" aria-label="Bulan berikutnya">›</button>
             <button type="button" class="btn btn-ghost btn-sm" id="kpThis">Bulan ini</button>
           </div>
+          <div class="pj-seg" id="kpView" role="group" aria-label="Tampilan kalender"><button type="button" data-v="week" aria-pressed="false">Week</button><button type="button" data-v="month" aria-pressed="true">Month</button></div>
           <label class="ph-sel"><span class="sr">Jenis MO</span><select id="kpJenis"><option value="all">Semua MO</option><option value="sku">MO produk (SKU)</option><option value="ek">MO ekstrak</option></select></label>
           <label class="tb-search ph-q"><span class="sr">Cari MO</span><input type="search" id="kpQ" placeholder="Cari No. MO, kode, nama produk"></label>
         </div>
@@ -1281,7 +1283,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=9d2251f1"></script>
+<script src="app.js?v=6c7c9d38"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

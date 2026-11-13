@@ -5033,7 +5033,22 @@
   }
   const kpQtyTxt = (list) => { const kg = list.filter((r) => planUnit(r.code) !== 'pcs').reduce((t, r) => t + (Number(r.kg !== '' ? r.kg : r.qty) || 0), 0), pcs = list.filter((r) => planUnit(r.code) === 'pcs').reduce((t, r) => t + (Number(r.qty) || 0), 0);
     return [kg ? fmtKg(kg) + ' kg' : '', pcs ? fmtQ(pcs) + ' pcs' : ''].filter(Boolean).join(' · '); };
+  function kpWeekSel() {
+    const sel = $('kpWeek');
+    if (!sel.options.length) {
+      const cur = weekOfDate(todayStr());
+      sel.innerHTML = P.weeks.map((w) => `<option value="${w.bulan}|${w.week}">${esc(wLabel(w))} ${w.bulan.slice(0, 4)} · ${fmtDate(w.start).slice(0, 6)}–${fmtDate(w.end).slice(0, 6)}</option>`).join('');
+      if (cur) sel.value = cur.bulan + '|' + cur.week;
+    }
+    return P.weekBy.get(sel.value) || null;
+  }
   function renderKalender() {
+    const view = P.kpView || 'month';
+    document.querySelectorAll('#kpView [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === view)));
+    $('kpMonthL').hidden = view !== 'month'; $('kpWeekL').hidden = view !== 'week';
+    $('kpThis').textContent = view === 'week' ? 'Week ini' : 'Bulan ini';
+    if (view === 'week') { kpRenderWeek(); return; }
+    $('kpGrid').classList.remove('is-week');
     const m = kpMonth(); if (!m) return;
     const q = $('kpQ').value.trim().toLowerCase(), jenis = $('kpJenis').value, today = todayStr();
     const all = [...P.konf.values()].filter((r) => jenis === 'all' || (jenis === 'ek' ? kfIsEk(r.code) : !kfIsEk(r.code)));
@@ -5067,6 +5082,28 @@
     const nHit = q ? inMonth.filter(hit).length : 0;
     $('kpInfo').textContent = q ? `${nf.format(nHit)} MO cocok di ${monLabel(m)}` : 'Hanya untuk review. Ubah tanggal produksi di menu Plotting Harian.';
   }
+  // Tampilan Week: 7 hari dengan kartu MO lengkap + MO week ini yang belum bertanggal
+  function kpRenderWeek() {
+    const wk = kpWeekSel(); if (!wk) return;
+    const q = $('kpQ').value.trim().toLowerCase(), jenis = $('kpJenis').value, today = todayStr();
+    const all = [...P.konf.values()].filter((r) => jenis === 'all' || (jenis === 'ek' ? kfIsEk(r.code) : !kfIsEk(r.code)));
+    const hit = (r) => !q || (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q);
+    const days = dayList(wk), inWk = all.filter((r) => r.tgl && days.includes(r.tgl)), un = all.filter((r) => r.bulan === wk.bulan && r.week === wk.week && !r.tgl);
+    $('kpKpi').innerHTML = kpis([
+      { num: nf.format(inWk.length), lbl: `MO bertanggal di ${wLabel(wk)}` },
+      { num: kpQtyTxt(inWk) || '–', lbl: 'total produksi terjadwal' },
+      { num: nf.format(new Set(inWk.map((r) => r.tgl)).size), lbl: 'hari produksi' },
+      { num: nf.format(un.length), lbl: 'MO week ini belum bertanggal', tone: un.length ? 'warn' : '' },
+    ]);
+    const card = (r) => `<button type="button" class="kp-mo kp-mo2${kfIsEk(r.code) ? ' is-ek' : ''}${q ? (hit(r) ? ' is-hit' : ' is-dim') : ''}" data-no="${esc(r.no)}" title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}"><span class="kp-l1"><b>${esc(r.no)}</b><small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></span><span class="kp-l2">${esc(r.code)} · ${esc(r.name)}</span></button>`;
+    $('kpGrid').classList.add('is-week');
+    $('kpGrid').innerHTML = days.map((d) => {
+      const L = inWk.filter((r) => r.tgl === d).sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true }));
+      return `<div class="kp-day kp-wday${d === today ? ' is-today' : ''}${L.length ? '' : ' is-empty'}"><div class="kp-dn kp-wdn"><b>${esc(dayLbl(d))}</b><small>${L.length ? `${L.length} MO · ${kpQtyTxt(L)}` : 'Tidak ada MO'}</small></div><div class="kp-list">${L.map(card).join('')}</div></div>`;
+    }).join('')
+      + `<div class="kp-day kp-wday kp-wun"><div class="kp-dn kp-wdn"><b>Belum bertanggal</b><small>${un.length} MO · ${kpQtyTxt(un) || '–'}</small></div><div class="kp-list">${un.sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true })).map(card).join('') || '<p class="ph-empty">Semua MO week ini sudah bertanggal.</p>'}</div></div>`;
+    $('kpInfo').textContent = q ? `${nf.format(inWk.concat(un).filter(hit).length)} MO cocok di ${wLabel(wk)}` : 'Hanya untuk review. Ubah tanggal produksi di menu Plotting Harian.';
+  }
   function kpMoDialog(no) {
     const r = P.konf.get(no); if (!r) return;
     const b = r.bom ? bomById(r.code, r.bom) : null;
@@ -5085,8 +5122,19 @@
     });
   }
   $('kpMonth').addEventListener('change', renderKalender);
-  ['kpPrev', 'kpNext'].forEach((id, k) => $(id).addEventListener('click', () => { const sel = $('kpMonth'), i = sel.selectedIndex + (k ? 1 : -1); if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; renderKalender(); } }));
-  $('kpThis').addEventListener('click', () => { const sel = $('kpMonth'), cur = todayStr().slice(0, 7); if ([...sel.options].some((o) => o.value === cur)) { sel.value = cur; renderKalender(); } });
+  $('kpWeek').addEventListener('change', renderKalender);
+  $('kpView').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-v]'); if (!b) return;
+    // jaga posisi: Month → Week ke week pertama bulan itu (atau week ini bila di bulan yang sama); Week → Month ke bulan week itu
+    if (b.dataset.v === 'week' && P.kpView !== 'week') { kpWeekSel(); const m = $('kpMonth').value, cur = weekOfDate(todayStr()); const w = cur && cur.bulan === m ? cur : (P.monthWeeks.get(m) || [])[0]; if (w) $('kpWeek').value = w.bulan + '|' + w.week; }
+    if (b.dataset.v === 'month' && P.kpView === 'week') { const w = P.weekBy.get($('kpWeek').value); if (w && [...$('kpMonth').options].some((o) => o.value === w.bulan)) $('kpMonth').value = w.bulan; }
+    P.kpView = b.dataset.v; renderKalender();
+  });
+  ['kpPrev', 'kpNext'].forEach((id, k) => $(id).addEventListener('click', () => { const sel = $((P.kpView || 'month') === 'week' ? 'kpWeek' : 'kpMonth'), i = sel.selectedIndex + (k ? 1 : -1); if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; renderKalender(); } }));
+  $('kpThis').addEventListener('click', () => {
+    if ((P.kpView || 'month') === 'week') { const w = weekOfDate(todayStr()); if (w) { kpWeekSel(); $('kpWeek').value = w.bulan + '|' + w.week; renderKalender(); } return; }
+    const sel = $('kpMonth'), cur = todayStr().slice(0, 7); if ([...sel.options].some((o) => o.value === cur)) { sel.value = cur; renderKalender(); }
+  });
   $('kpQ').addEventListener('input', renderKalender);
   $('kpJenis').addEventListener('change', renderKalender);
   $('kpGrid').addEventListener('click', (e) => {
