@@ -4522,6 +4522,117 @@
   }
   $('kfCheck').addEventListener('click', (e) => { if (e.target.closest('[data-kfreopen]') && P.kfProp) needEdit(() => kfReview1(P.kfProp)); });
   $('kfManBtn').addEventListener('click', () => needEdit(kfManDialog));
+  /* ---------- Upload manual (Excel: KODE, TONASE, TANGGAL) → baris MAN + ekstrak manual, review 2 langkah ---------- */
+  const mxDate = (v) => {
+    if (v === '' || v === null || v === undefined) return '';
+    if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 86400000)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
+    const t = String(v).trim(); let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
+    if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+    return '';
+  };
+  const mxNum = (v) => { if (typeof v === 'number') return v; let t = String(v || '').trim().replace(/\s/g, ''); if (!t) return 0;
+    if (t.includes('.') && t.includes(',')) t = t.lastIndexOf(',') > t.lastIndexOf('.') ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+    else if (t.includes(',')) t = /^\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    const x = Number(t); return isFinite(x) ? x : 0; };
+  function manTemplate() {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([['KODE', 'TONASE', 'TANGGAL'], ['GNAA002', 1500, '18/11/2026']]);
+    ws['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'MANUAL');
+    const info = [['PETUNJUK'], ['KODE', 'Kode SKU / ekstrak (harus punya BoM di DATABASE PPIC).'], ['TONASE', 'Dalam kg. Dikonversi ke pcs (dibulatkan ke atas), lalu kg dihitung ulang dari pcs (2 desimal). Untuk Banded/2in1/KIT angka ini dibaca sebagai pcs. Untuk kode ekstrak = kg.'],
+      ['TANGGAL', 'Wajib. Tanggal produksi (dd/mm/yyyy). Plotting Week ikut tanggal.'], ['Ekstrak', 'SKU yang butuh ekstrak otomatis dibuatkan produksi ekstrak manual dengan tanggal yang sama, sebesar kebutuhan ekstrak (tanpa pembulatan).'], ['Hapus baris contoh sebelum upload.'], [], ['KODE', 'NAMA', 'JENIS', 'BoM DEFAULT', 'BATCH (pcs per 1.000 kg)']];
+    [...P.skus.values()].sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true })).forEach((s) => { const b = activeBom(s.code); info.push([s.code, s.name || '', s.rakitan ? 'Rakitan (pcs)' : s.jenis || '', b ? refOf(b) : '', b && !kfIsEk(s.code) ? b.batch : '']); });
+    const wi = XLSX.utils.aoa_to_sheet(info); wi['!cols'] = [{ wch: 14 }, { wch: 60 }, { wch: 14 }, { wch: 14 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, wi, 'PETUNJUK');
+    XLSX.writeFile(wb, 'Format_Konfirmasi_Manual.xlsx');
+  }
+  function parseManXl(wb) {
+    const sn = wb.SheetNames.find((n) => /manual/i.test(n)) || wb.SheetNames[0];
+    const a = sheetRows(wb, sn);
+    const hi = a.findIndex((r, i) => i < 10 && r.some((x) => /^kode$/i.test(txt(x))) && r.some((x) => /^tonase/i.test(txt(x))));
+    if (hi < 0) throw new Error('Kolom KODE, TONASE, TANGGAL tidak ditemukan. Pakai tombol "Format manual" untuk mengunduh format.');
+    const h = a[hi].map((x) => txt(x).toLowerCase()), iK = h.findIndex((x) => x === 'kode'), iT = h.findIndex((x) => x.startsWith('tonase')), iD = h.findIndex((x) => x.startsWith('tanggal'));
+    const out = [], bad = [];
+    const existing = kfRows().filter((r) => isMan(r.no));
+    a.slice(hi + 1).forEach((r, k) => {
+      const line = hi + k + 2, code = normCode(r[iK]), ton = mxNum(r[iT]), tgl = iD >= 0 ? mxDate(r[iD]) : '';
+      if (!code && !ton) return;
+      const err = !code ? 'KODE kosong' : !MRP.byProduct.has(code) ? `${code} tidak punya BoM di DATABASE` : !(ton > 0) ? 'TONASE kosong / 0' : !tgl ? 'TANGGAL kosong / tidak terbaca' : !weekOfDate(tgl) ? `Tanggal ${tgl} belum ada di PEMBAGIAN_WEEK` : '';
+      if (err) { bad.push({ line, code, t: err }); return; }
+      const w = weekOfDate(tgl), name = (P.skus.get(code) || {}).name || (MRP.master.get(code) || {}).name || ((MRP.byProduct.get(code) || [])[0] || {}).name || '';
+      let qty, uom, pcs = '', mode;
+      if (kfIsEk(code)) { qty = ton; uom = 'Kg'; mode = 'ek'; }
+      else if (planUnit(code) === 'pcs') { qty = Math.ceil(ton - 1e-9); uom = 'Pcs'; mode = 'pcs'; }
+      else { const b = activeBom(code); if (!b || !b.batch) { bad.push({ line, code, t: 'BoM tanpa batch, tidak bisa dikonversi' }); return; } pcs = Math.ceil(ton * b.batch / 1000 - 1e-9); qty = pcs; uom = 'Pcs'; mode = 'kg'; }
+      const c = kfCalc(code, qty, uom);
+      const dup = existing.find((x) => x.code === code && x.tgl === tgl && Math.abs((Number(x.qty) || 0) - qty) < 1e-6);
+      out.push({ line, code, name, ton, tgl, bulan: w.bulan, week: w.week, qty, uom, mode, c, dup: dup ? dup.no : '', on: !dup });
+    });
+    return { sheet: sn, rows: out, bad };
+  }
+  function manReview1(p, file) {
+    const tr = (x, i) => `<tr${x.dup ? ' class="kfr-dup"' : ''}><td><input type="checkbox" data-mxi="${i}"${x.on ? ' checked' : ''}></td><td><span class="pl-code">${esc(x.code)}</span><span class="pl-name">${esc(x.name)}</span>${x.dup ? `<div class="kfr-warn">⚠ Mirip ${esc(x.dup)} (kode, tanggal & qty sama)</div>` : ''}</td>
+      <td class="num">${x.mode === 'pcs' ? fmtQ(x.ton) + ' <small class="muted">pcs</small>' : fmtQ(x.ton) + ' <small class="muted">kg</small>'}</td>
+      <td class="num">${x.mode === 'kg' ? `<b>${fmtQ(x.qty)}</b> pcs` : x.mode === 'pcs' ? `<b>${fmtQ(x.qty)}</b> pcs` : '–'}</td>
+      <td class="num">${x.c.kg !== '' ? `<b>${fmtKg(x.c.kg)}</b>` : '<span class="muted">pcs</span>'}</td>
+      <td>${esc(dayLbl(x.tgl))} <small class="muted">${esc(x.week)} ${monShort(x.bulan)}</small></td>
+      <td>${x.c.ek ? `${esc(ekShortK(x.c.ek))}<div><b>${fmtQ(x.c.ekKg)}</b> kg <small class="muted">manual baru</small></div>` : x.mode === 'ek' ? '<span class="muted">(produksi ekstrak)</span>' : '<span class="muted">–</span>'}</td></tr>`;
+    openDialog({
+      title: 'Review upload manual · langkah 1 dari 2', ok: 'Lanjut ke konfirmasi', wide: true,
+      body: `<p class="dlg-lead">File <b>${esc(file)}</b> (sheet ${esc(p.sheet)}). Tonase → pcs (dibulatkan ke atas) → kg dari pcs (2 desimal). SKU yang butuh ekstrak dibuatkan ekstrak manual di tanggal yang sama. Belum ada yang disimpan.</p>
+        <div class="kfr-sum"><span class="kfr-pill is-new">${p.rows.length} baris terbaca</span>${p.rows.filter((x) => x.c.ek).length ? `<span class="kfr-pill">${p.rows.filter((x) => x.c.ek).length} + ekstrak manual</span>` : ''}${p.rows.filter((x) => x.dup).length ? `<span class="kfr-pill is-upd">${p.rows.filter((x) => x.dup).length} mirip yang sudah ada</span>` : ''}${p.bad.length ? `<span class="kfr-pill is-bad">${p.bad.length} ditolak</span>` : ''}</div>
+        ${p.rows.length ? `<div class="mx-wrap"><table class="po-table pl-mini kfr-t"><thead><tr><th></th><th>Produk</th><th class="num">Tonase</th><th class="num">Pcs</th><th class="num">Konversi kg</th><th>Tanggal</th><th>Ekstrak</th></tr></thead><tbody>${p.rows.map(tr).join('')}</tbody></table></div>` : ''}
+        ${p.bad.length ? `<details class="kfr-sec is-bad" open><summary><b>Ditolak — tidak disimpan</b> <span>${p.bad.length} baris</span></summary><ul class="kfr-ul">${p.bad.map((b) => `<li>Baris ${b.line}${b.code ? ' · ' + esc(b.code) : ''}: ${esc(b.t)}</li>`).join('')}</ul></details>` : ''}`,
+      onSubmit: async () => { const sel = p.rows.filter((x) => x.on); if (!sel.length) throw new Error('Tidak ada baris yang dipilih.'); setTimeout(() => manReview2(p, file), 0); return ''; },
+    });
+    const seq = dlgSeq, paint = () => { const n = p.rows.filter((x) => x.on).length; $('dlgOk').textContent = `Lanjut ke konfirmasi (${n})`; $('dlgOk').disabled = !n; };
+    $('dlgBody').addEventListener('change', (e) => { if (seq !== dlgSeq) return; const c = e.target.closest('[data-mxi]'); if (c) { p.rows[Number(c.dataset.mxi)].on = c.checked; paint(); } });
+    paint();
+  }
+  function manReview2(p, file) {
+    const sel = p.rows.filter((x) => x.on), nEk = sel.filter((x) => x.c.ek).length;
+    const kg = sel.reduce((t, x) => t + (Number(x.c.kg) || 0), 0);
+    openDialog({
+      title: 'Konfirmasi simpan · langkah 2 dari 2', ok: 'Simpan ke Google Sheet',
+      body: `<ul class="kfr-ul kfr-big"><li><b>${sel.length}</b> baris produksi manual (total ${fmtKg(kg)} kg)</li>${nEk ? `<li><b>${nEk}</b> produksi ekstrak manual dibuat otomatis, tanggal sama dengan SKU-nya</li>` : ''}${p.rows.length - sel.length ? `<li class="muted">${p.rows.length - sel.length} baris tidak dicentang</li>` : ''}${p.bad.length ? `<li class="pl-bad">${p.bad.length} baris ditolak</li>` : ''}</ul>
+        <p class="hint">Nomor MAN-… dibuat berurutan. Baris manual ikut dihitung di Proyeksi Stok (Mode Plan), Plotting Harian, Kalender, dan status plan.</p>
+        <label class="tb-check kfr-ack"><input type="checkbox" name="ack" id="mxAck"> Saya sudah memeriksa hasil konversi di langkah 1</label>`,
+      onSubmit: async (fd) => {
+        if (!fd.ack) throw new Error('Centang dulu "Saya sudah memeriksa".');
+        sel.forEach((x) => {
+          const no = manNextNo();
+          P.kfDraft.set(no, { no });
+          const row = { no, code: x.code, name: x.name, qty: x.qty, uom: x.uom, bom: x.c.bom, kg: x.c.kg, ek: x.c.ek, ekKg: x.c.ekKg, note: [`Upload manual ${file}`, x.c.note].filter(Boolean).join(' · '), bulan: x.bulan, week: x.week, tgl: x.tgl, moEk: '' };
+          if (x.c.ek) {
+            const eno = manNextNo(), ec = kfCalc(x.c.ek, x.c.ekKg, 'Kg');
+            P.kfDraft.set(eno, { no: eno, code: x.c.ek, name: ekShortK(x.c.ek), qty: x.c.ekKg, uom: 'Kg', bom: ec.bom, kg: x.c.ekKg, ek: '', ekKg: '', note: `Ekstrak untuk ${no}`, bulan: x.bulan, week: x.week, tgl: x.tgl, moEk: '' });
+            row.moEk = eno;
+          }
+          P.kfDraft.set(no, row);
+        });
+        P.kfFile = file;
+        setTimeout(() => kfSaveDrafts(), 0);
+        return '';
+      },
+    });
+    const seq = dlgSeq; $('dlgOk').disabled = true;
+    $('dlgBody').addEventListener('change', (e) => { if (seq !== dlgSeq) return; if (e.target.id === 'mxAck') $('dlgOk').disabled = !e.target.checked; });
+  }
+  $('kfManTpl').addEventListener('click', manTemplate);
+  $('kfManFile').addEventListener('change', async () => {
+    const f = $('kfManFile').files[0]; if (!f) return;
+    try {
+      const p = parseManXl(await readBook(f));
+      $('kfCheck').className = 'check ok';
+      $('kfCheck').innerHTML = `Upload manual <b>${esc(f.name)}</b>: ${p.rows.length} baris terbaca${p.bad.length ? `, <span class="pl-bad">${p.bad.length} ditolak</span>` : ''}. Periksa di panel review sebelum disimpan.`;
+      if (p.rows.length || p.bad.length) needEdit(() => manReview1(p, f.name));
+    } catch (err) { $('kfCheck').className = 'check err'; $('kfCheck').textContent = err.message; }
+    $('kfManFile').value = '';
+  });
+
   $('kfBomNote').addEventListener('click', (e) => { if (e.target.closest('#kfBomBtn')) needEdit(kfBomDialog); });
   $('kfExport').addEventListener('click', () => {
     const all = kfRows();

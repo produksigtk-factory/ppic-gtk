@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=ef994a5c">
+<link rel="stylesheet" href="style.css?v=a4103dfa">
 </head>
 <body>
 <div class="shell">
@@ -648,6 +648,8 @@
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="kfShow"><option value="">Semua MO</option><option value="todo">Perlu dilengkapi / diperiksa</option><option value="sku">MO SKU</option><option value="ek">MO ekstrak</option></select></label>
           <div class="tb-actions">
             <button type="button" class="btn btn-ghost btn-sm" id="kfManBtn" title="Tambah produksi tanpa No MO (Mode edit)">+ Tambah manual</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="kfManTpl" title="Unduh format Excel upload manual (KODE, TONASE, TANGGAL)">Format manual</button>
+            <label class="btn btn-sm btn-ghost kf-up" for="kfManFile" title="Upload banyak produksi manual sekaligus">Upload manual<input type="file" id="kfManFile" accept=".xls,.xlsx" hidden></label>
             <label class="btn btn-sm btn-ghost kf-up" for="kfFile">Upload LIST_MO<input type="file" id="kfFile" accept=".xls,.xlsx" hidden></label>
             <button class="btn btn-ghost btn-sm" id="kfExport">Unduh Excel</button>
             <button class="btn btn-sm" id="kfSaveBtn" hidden>Simpan perubahan</button>
@@ -1284,7 +1286,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=e4c8e57d"></script>
+<script src="app.js?v=6fa863a9"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

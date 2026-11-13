@@ -1789,3 +1789,5 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-table td.pl-c1 { cursor: pointer; }
 .ph-table td.pl-c1:hover .pl-name { text-decoration: underline; }
 .ph-pon { margin-bottom: 10px; }
+.kfr-dup td { background: #fffbea; }
+.mx-wrap { overflow-x: auto; max-width: 100%; }
