@@ -3354,6 +3354,15 @@
   }
 
   // ---------- Hitung kebutuhan ----------
+  // Catatan Mode Plan: MO yang menggantikan plan & MO dengan BoM beda dari default Parameter SKU
+  function pjMoNote(R) {
+    const m = R.mo; if (!m) return '';
+    const bl = (id, code) => { const b = bomById(code, id); return b ? refOf(b) : id; };
+    let t = `<br><b>Mode Plan:</b> SKU-week yang sudah ada MO di Konfirmasi Produksi dihitung dari MO (kg MO × BoM MO), sisanya dari plan.${m.used.length ? ` ${nf.format(m.used.length)} MO dipakai.` : ' Belum ada MO di rentang ini.'}`;
+    if (m.diff.length) t += ` <span class="pl-warn-t">⚠ ${nf.format(m.diff.length)} MO memakai BoM beda dengan default Parameter SKU:</span> ${m.diff.slice(0, 8).map((d) => `${esc(d.no)} ${esc(d.code)} (BoM ${esc(bl(d.bom, d.code))}, default ${esc(bl(d.def, d.code))})`).join(' · ')}${m.diff.length > 8 ? ' …' : ''}`;
+    if (m.noKg.length) t += ` <span class="pl-bad">${nf.format(m.noKg.length)} MO tanpa konversi kg (tidak dihitung):</span> ${esc(m.noKg.slice(0, 6).join(', '))}`;
+    return t;
+  }
   function computeReq(weeksArg) {
     const weeks = weeksArg || hzWeeks(), n = weeks.length;
     const idx = new Map(weeks.map((w, i) => [w.bulan + '|' + w.week, i]));
@@ -3365,16 +3374,39 @@
       if (!o.src.has(sku)) o.src.set(sku, new Array(n).fill(0));
       o.src.get(sku)[i] += q;
     };
+    const run = (code, i, qty, bomId) => {
+      const r = needOf(code, qty, bomId);
+      if (!r) { noBom.add(code); return; }
+      r.leaves.forEach((q, c) => add(req, c, i, q, code));
+      r.made.forEach((q, c) => add(made, c, i, q, code));
+      r.fg.forEach((q, c) => add(fgReq, c, i, q, code));
+    };
+    // MO di Konfirmasi Produksi menggantikan plan per SKU-week: MO dihitung dengan BoM MO (dari Odoo),
+    // sisa plan yang belum ada MO-nya dengan BoM plan/default. MO di week tanpa plan tetap dihitung.
+    const kc = konfByCell(), done = new Set();
+    const mo = { used: [], diff: [], noKg: [] };
+    const runMo = (r, i) => {
+      const q = planUnit(r.code) === 'pcs' ? Number(r.qty) || 0 : Number(r.kg) || 0;
+      if (!(q > 0)) { mo.noKg.push(r.no); return; }
+      const def = activeBom(r.code);
+      mo.used.push(r.no);
+      if (r.bom && def && r.bom !== def.id) mo.diff.push({ no: r.no, code: r.code, bom: r.bom, def: def.id });
+      run(r.code, i, q, r.bom || undefined);
+    };
     P.plan.forEach((p) => {
       const i = idx.get(p.bulan + '|' + p.week);
-      if (i === undefined || !(p.kg > 0)) return;
-      const r = needOf(p.code, p.kg, p.bom);
-      if (!r) { noBom.add(p.code); return; }
-      r.leaves.forEach((q, c) => add(req, c, i, q, p.code));
-      r.made.forEach((q, c) => add(made, c, i, q, p.code));
-      r.fg.forEach((q, c) => add(fgReq, c, i, q, p.code));
+      if (i === undefined) return;
+      const key = p.bulan + '|' + p.week + '|' + p.code, k = kc.get(key);
+      let rest = p.kg > 0 ? p.kg : 0;
+      if (k) { done.add(key); k.list.forEach((r) => runMo(r, i)); rest = Math.max(0, rest - k.q); }
+      if (rest > 1e-9) run(p.code, i, rest, p.bom);
     });
-    return { weeks, idx, req, made, fg: fgReq, noBom };
+    kc.forEach((k, key) => {
+      if (done.has(key)) return;
+      const i = idx.get(key.split('|').slice(0, 2).join('|'));
+      if (i !== undefined) k.list.forEach((r) => runMo(r, i));
+    });
+    return { weeks, idx, req, made, fg: fgReq, noBom, mo };
   }
 
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo
@@ -3884,6 +3916,8 @@
     if (!r.week) return { lvl: 'todo', t: 'Pilih Plotting Week' };
     return { lvl: 'ok', t: 'OK' };
   }
+  // BoM MO ≠ default Parameter SKU → tetap dipakai, diberi tanda
+  const kfBomTag = (r, b) => { const d = activeBom(r.code); return d && b && d.id !== b.id ? ` <small class="kf-bomdiff" title="BoM default di Parameter SKU: ${esc(refOf(d))}. Perhitungan memakai BoM MO ini.">≠ default ${esc(refOf(d))}</small>` : ''; };
   const ekShortK = (code) => ((MRP.master.get(code) || {}).name || code);
   // Toleransi selisih pembulatan: lebih sedikit dari hasil MO (≤ 1% atau ≤ 1 kg) dianggap aman
   const kfTol = (cap) => Math.max(1, cap * 0.01);
@@ -3914,7 +3948,7 @@
       const moOpts = `<option value="">–</option>` + eks.filter((x) => x.code === r.ek).map((x) => `<option value="${esc(x.no)}"${x.no === r.moEk ? ' selected' : ''}>${esc(x.no)} · ${fmtKg(x.kg !== '' ? x.kg : x.qty)} kg</option>`).join('')
         + (r.moEk && !eks.some((x) => x.no === r.moEk && x.code === r.ek) ? `<option selected value="${esc(r.moEk)}">${esc(r.moEk)}</option>` : '');
       return `<tr class="kf-row${dirty}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${consTag(r.no)}</td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name" title="${esc(r.name)}">${esc(r.name)}</span></td>
-        <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td>${b ? esc(refOf(b)) : (r.bom ? '<span class="pl-bad">versi dihapus</span>' : '<span class="muted">–</span>')}</td>
+        <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td>${b ? esc(refOf(b)) + kfBomTag(r, b) : (r.bom ? '<span class="pl-bad">versi dihapus</span>' : '<span class="muted">–</span>')}</td>
         <td class="num">${r.kg !== '' ? `<b>${fmtKg(r.kg)}</b>` : '<span class="muted">pcs</span>'}</td>
         <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}${planTxt(r)}</td>
         <td>${r.ek ? `${esc(r.ek)} <span class="muted">${esc(ekShortK(r.ek))}</span>` : '<span class="muted">Tidak perlu</span>'}</td>
@@ -4041,15 +4075,16 @@
     el.innerHTML = s === 'saving' ? '<span class="spin" aria-hidden="true"></span> Menyimpan ke Google Sheet…' : s === 'ok' ? `Tersimpan: ${esc(info)}` : `Gagal menyimpan: ${esc(info)}`;
   }
   // Upload LIST_MO (Odoo) atau file Konfirmasi Produksi yang sudah diisi
-  const KF_NO = /^(reference|no\.? ?mo|nomor mo|mo)$/i, KF_PROD = /^(product|produk)$/i, KF_CODE = /^(kode|kode produk|code)$/i, KF_NAME = /^(nama produk|nama)$/i;
-  const KF_QTY = /^(product quantity|qty|quantity|jumlah)$/i, KF_UOM = /^(product unit of measure|uom|unit of measure|satuan)$/i, KF_WEEK = /^(plotting week|week)$/i, KF_MOEK = /^(mo ekstrak dipakai|mo ekstrak)$/i;
+  const KF_NO = /^(reference|no\.? ?mo|nomor mo|mo)$/i, KF_PROD = /^(product|produk)$/i, KF_CODE = /^(kode|kode produk|code|product\/internal reference|product\/default code)$/i, KF_NAME = /^(nama produk|nama|product\/name)$/i;
+  const KF_BREF = /^(bill of material\/reference|bom reference|bom ref|reference bom)$/i;
+  const KF_QTY = /^(product quantity|qty|quantity|jumlah)$/i, KF_UOM = /^(product unit of measure(\/unit of measure)?|uom|unit of measure|satuan)$/i, KF_WEEK = /^(plotting week|week)$/i, KF_MOEK = /^(mo ekstrak dipakai|mo ekstrak)$/i;
   function parseKonf(wb) {
     for (const sn of wb.SheetNames) {
       const a = sheetRows(wb, sn);
       for (let h = 0; h < Math.min(a.length, 10); h++) {
         const head = a[h].map((x) => txt(x));
         const f = (re) => head.findIndex((x) => re.test(x));
-        const iNo = f(KF_NO), iP = f(KF_PROD), iC = f(KF_CODE), iN = f(KF_NAME), iQ = f(KF_QTY), iU = f(KF_UOM), iW = f(KF_WEEK), iM = f(KF_MOEK);
+        const iNo = f(KF_NO), iP = f(KF_PROD), iC = f(KF_CODE), iN = f(KF_NAME), iQ = f(KF_QTY), iU = f(KF_UOM), iW = f(KF_WEEK), iM = f(KF_MOEK), iR = f(KF_BREF);
         if (iNo < 0 || iQ < 0 || (iP < 0 && iC < 0)) continue;
         const out = [];
         a.slice(h + 1).forEach((r) => {
@@ -4058,9 +4093,9 @@
           if (!code && iP >= 0) { const p = txt(r[iP]); const m = p.match(/^\[([^\]]+)\]\s*(.*)$/); if (m) { code = m[1].trim(); name = name || m[2]; } else code = p; }
           let bulan = '', week = '';
           if (iW >= 0) { const m = txt(r[iW]).match(/^(W[1-5])\s+([A-Za-z]+)\s+(\d{4})/i); if (m) { const mi = MON_MAP[m[2].toUpperCase()]; if (mi) { week = m[1].toUpperCase(); bulan = `${m[3]}-${String(mi).padStart(2, '0')}`; } } }
-          out.push({ no, code, name, qty: Number(String(r[iQ]).replace(',', '.')) || 0, uom: iU >= 0 ? txt(r[iU]) : '', bulan, week, moEk: iM >= 0 ? txt(r[iM]) : '' });
+          out.push({ no, code, name, qty: Number(String(r[iQ]).replace(',', '.')) || 0, uom: iU >= 0 ? txt(r[iU]) : '', bulan, week, moEk: iM >= 0 ? txt(r[iM]) : '', bref: iR >= 0 ? txt(r[iR]) : null });
         });
-        return { sheet: sn, rows: out };
+        return { sheet: sn, rows: out, hasRef: iR >= 0 };
       }
     }
     throw new Error('Kolom tidak dikenali. Pakai export LIST_MO dari Odoo (Reference, Product, Product Quantity, Product Unit of Measure).');
@@ -4162,24 +4197,35 @@
       if (!MRP.loaded || !P.ready) throw new Error('Data BOM belum termuat. Tunggu sebentar lalu coba lagi.');
       const p = parseKonf(await readBook(file));
       let nNew = 0, nUpd = 0, nSame = 0;
-      const noBom = [];
+      const noBom = [], held = [], diff = [];
+      // Kolom Bill of Material/Reference (Odoo): BoM MO = versi dengan Reference sama; tidak ada di DATABASE → MO ditahan
+      const refKey = (v) => String(v || '').trim().toLowerCase().replace(/^empty ref$/, '');
       p.rows.forEach((x) => {
         const old = kfGet(x.no);
+        let useBom = old && old.code === x.code ? old.bom : '';
+        if (p.hasRef) {
+          const m = (MRP.byProduct.get(x.code) || []).filter((b) => refKey(b.ref) === refKey(x.bref));
+          if (!m.length) { held.push(x); return; }
+          useBom = m[0].id;
+          const d = activeBom(x.code); if (d && d.id !== useBom) diff.push(`${x.no} ${x.code} (${refOf(m[0])} ≠ default ${refOf(d)})`);
+        }
         if (old && P.kfDel.has(x.no)) P.kfDel.delete(x.no);
-        const keepBom = old && old.code === x.code ? old.bom : '';
-        const c = kfCalc(x.code, x.qty, x.uom, keepBom);
+        const c = kfCalc(x.code, x.qty, x.uom, useBom);
         if (!c.bom) noBom.push(x.code);
         const row = { no: x.no, code: x.code, name: x.name || (MRP.master.get(x.code) || {}).name || '', qty: x.qty, uom: x.uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: c.note,
           bulan: x.week ? x.bulan : (old ? old.bulan : ''), week: x.week || (old ? old.week : ''), moEk: x.moEk || (old ? old.moEk : '') };
         if (!old) { P.kfDraft.set(x.no, row); nNew++; return; }
-        const same = ['code', 'qty', 'uom', 'bulan', 'week', 'moEk'].every((k) => String(old[k] ?? '') === String(row[k] ?? ''));
+        const same = ['code', 'qty', 'uom', 'bom', 'bulan', 'week', 'moEk'].every((k) => String(old[k] ?? '') === String(row[k] ?? ''));
         if (same) { nSame++; return; }
         P.kfDraft.set(x.no, Object.assign({}, old, row)); nUpd++;
       });
       P.kfFile = file.name;
       $('kfCheck').className = 'check ok';
-      $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${nf.format(nNew)} baru, ${nf.format(nUpd)} berubah, ${nf.format(nSame)} sama dengan yang tersimpan.`
+      $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${held.length ? nf.format(held.length) + ' ditahan, ' : ''}${nf.format(nNew)} baru, ${nf.format(nUpd)} berubah, ${nf.format(nSame)} sama dengan yang tersimpan.`
         + (noBom.length ? `<br><span class="pl-warn-t">${noBom.length} kode tidak punya BOM:</span> ${esc([...new Set(noBom)].join(', '))}` : '')
+        + (p.hasRef ? '<br>BoM tiap MO mengikuti kolom <b>Bill of Material/Reference</b> dari Odoo.' : '')
+        + (diff.length ? `<br><span class="pl-warn-t">⚠ ${diff.length} MO memakai BoM beda dengan default Parameter SKU</span> (tetap dipakai): ${esc(diff.slice(0, 6).join(' · '))}${diff.length > 6 ? ' …' : ''}` : '')
+        + (held.length ? `<br><span class="pl-bad">${held.length} MO ditahan, tidak disimpan — Reference BoM dari Odoo belum ada di DATABASE:</span> ${esc(held.map((x) => `${x.no} ${x.code} "${x.bref || '(kosong)'}"`).join(' · '))}. Tambahkan BoM-nya lewat Bill of Material → Tambah BoM, lalu upload ulang.` : '')
         + `<br>${P.edit ? 'Lengkapi Plotting Week & MO Ekstrak, lalu klik <b>Simpan perubahan</b>.' : 'Masuk <b>Mode edit</b> untuk melengkapi dan menyimpan.'}`;
     } catch (err) { $('kfCheck').className = 'check err'; $('kfCheck').textContent = err.message; }
     $('kfFile').value = '';
@@ -4219,7 +4265,7 @@
     $('kbKpi').innerHTML = kpis([{ num: nf.format(R.req.size), lbl: 'material dibeli (RM/PM)' }, { num: nf.format(R.made.size), lbl: 'ekstrak/bulk diproduksi' }, { num: nf.format(R.fg.size), lbl: 'FG untuk rakitan/bonus', title: 'Komponen FG di Banded / 2in1 / KIT dan FG bonus; tidak dipecah ke bahan baku' }]
       .concat(Object.entries(byKat).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => ({ num: nf.format(n), lbl: k })))
       .concat(R.noBom.size ? [{ num: nf.format(R.noBom.size), lbl: 'SKU tanpa BOM', tone: 'bad', title: [...R.noBom].join(', ') }] : []));
-    $('kbInfo').textContent = `${nf.format(rows.length)} ${type === 'made' ? 'ekstrak/bulk' : type === 'fg' ? 'FG' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai`;
+    $('kbInfo').innerHTML = `${nf.format(rows.length)} ${type === 'made' ? 'ekstrak/bulk' : type === 'fg' ? 'FG' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai` + pjMoNote(R);
   }
   const round4 = (v) => Math.round(v * 10000) / 10000;
   $('kbQ').addEventListener('input', renderKebutuhan);
@@ -4268,6 +4314,7 @@
     else if (J.stockNote === 'after') note = `Stok per ${fmtDate(P.stockDate)} lebih baru dari rentang ini. Geser rentang ke bulan stok.`;
     else if (J.stockNote === 'before') note = `Stok per <b>${fmtDate(P.stockDate)}</b> lebih awal dari rentang ini; kebutuhan antara tanggal stok dan awal rentang tidak ikut dihitung.`;
     else note = `Stok awal = stok per <b>${fmtDate(P.stockDate)}</b> (${esc(P.stockSrc || 'upload')}) + koreksi; stok tersedia = stok awal − stok gantung${P.gantungDate ? ` (per ${fmtDate(P.gantungDate)})` : ' (belum ada stok gantung)'}. Perhitungan mulai ${esc(wLabel(weeks[s]))}; week sebelumnya diabaikan.`;
+    if (!J.moMode) note += pjMoNote(J.R);
     if (J.moMode) {
       const W = J.C.W, nMo = new Set((P.cons || []).map((c) => c.mo)).size;
       note += `<br><b>Mode PC + CP:</b> saldo = stok tersedia − (PC + CP) per week; week MO dari Konfirmasi Produksi. Plan hanya pembanding. Baris ekstrak di MO produk dilewati (RM-nya dihitung dari MO ekstrak).`
