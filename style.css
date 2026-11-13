@@ -1618,3 +1618,23 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-days { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
 .tb-field.ph-wk { flex: 0 0 260px; min-width: 260px; }
 .ph-chip { font-size: 11.5px; }
+/* Plotting Harian: papan ringkas (tinggi tetap, gulir di dalam kolom) */
+.ph-board { --ph-h: 250px; }
+.ph-board.is-tall { --ph-h: 520px; }
+.ph-days { grid-template-columns: repeat(7, minmax(92px, 1fr)); }
+.ph-days .ph-day { height: var(--ph-h); min-height: 0; padding: 7px; gap: 4px; }
+.ph-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.ph-board .ph-unpl { position: static; height: var(--ph-h); max-height: none; min-height: 0; }
+.ph-unlist { flex: 1; min-height: 0; }
+.ph-dh b { font-size: 13px; }
+.ph-chip { flex-wrap: nowrap; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 3px 6px; display: block; flex-shrink: 0; }
+.ph-chip small { margin-left: 2px; }
+.ph-card { margin-top: 10px; }
+@media (max-width: 900px) { .ph-days { grid-template-columns: repeat(7, minmax(110px, 1fr)); overflow-x: auto; } }
+.ph-chip .ph-cc { display: block; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-table .pl-c2 { max-width: 210px; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-card h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 8px; }
+.ph-h2 { font-size: 12.5px; font-weight: 400; }
+.update-card.ph-card { padding-top: 14px; }
+.ph-table .pl-c1 { width: 76px; min-width: 76px; max-width: 90px; }
+#phShow { min-width: 215px; }

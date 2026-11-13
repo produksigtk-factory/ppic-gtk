@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=a8d61750">
+<link rel="stylesheet" href="style.css?v=0e64228d">
 </head>
 <body>
 <div class="shell">
@@ -584,19 +584,19 @@
         <div class="toolbar mrp-toolbar">
           <label class="tb-field ph-wk"><span class="sr">Week</span><select id="phWeek"></select></label>
           <div class="pj-seg" id="phBasis" role="group" aria-label="Basis kebutuhan"><button type="button" data-b="plan" aria-pressed="true">BoM MO / plan</button><button type="button" data-b="cons" aria-pressed="false">PC + CP</button></div>
+          <label class="tb-field"><span class="sr">Material</span><select id="phShow"><option value="short">Material: yang akan kurang</option><option value="all">Material: semua di week ini</option></select></label>
           <label class="tb-search"><span class="sr">Cari</span><input type="search" id="phQ" placeholder="Cari No. MO, kode, atau nama"></label>
           <div class="tb-actions">
+            <button class="btn btn-ghost btn-sm" id="phTall" type="button">Perbesar papan</button>
             <button class="btn btn-ghost btn-sm" id="phExport">Unduh Excel</button>
             <button class="btn btn-sm" id="phSaveBtn" hidden>Simpan perubahan</button>
           </div>
         </div>
         <div class="ph-board" id="phBoard"></div>
         <div class="update-card ph-card">
-          <h2>Kebutuhan material &amp; saldo stok per hari</h2>
-          <div class="toolbar"><label class="tb-field"><span class="sr">Tampilkan</span><select id="phShow" style="min-width:230px"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material week ini</option></select></label></div>
-          <p class="mrp-count" id="phInfo"></p>
+          <h2>Kebutuhan material &amp; saldo stok per hari <small class="muted ph-h2" id="phInfo"></small></h2>
           <div class="table-wrap pl-wrap"><table class="po-table pl-table ph-table"><thead id="phHead"></thead><tbody id="phRows"></tbody></table></div>
-          <p class="hint">Keluar = kebutuhan + ADD/FOH/RS di hari itu; angka hijau kecil = incoming. Saldo merah = akan kurang di hari itu.</p>
+          <p class="hint">Keluar = kebutuhan + ADD/FOH/RS di hari itu; angka hijau kecil = incoming; saldo merah = akan kurang. Saldo awal = saldo Proyeksi Stok akhir week sebelumnya. MO tanpa tanggal, sisa plan tanpa MO, dan incoming tanpa tanggal datang dihitung di hari pertama. Perubahan tanggal dihitung setelah disimpan.</p>
         </div>
       </section>
 
@@ -1244,7 +1244,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=8476d1f0"></script>
+<script src="app.js?v=f28dcce2"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

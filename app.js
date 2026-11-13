@@ -4850,7 +4850,7 @@
     const all = kfRows(), days = dayList(wk), q = $('phQ').value.trim().toLowerCase();
     const inWk = all.filter((r) => r.bulan === wk.bulan && r.week === wk.week);
     const chip = (r) => { const dirty = P.kfDraft.has(r.no) ? ' is-dirty' : '', ek = kfIsEk(r.code);
-      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b> <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`; };
+      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small><span class="ph-cc">${esc(r.code)} ${esc(r.name)}</span></button>`; };
     const tot = (list) => { const kg = list.filter((r) => planUnit(r.code) !== 'pcs').reduce((t, r) => t + (Number(r.kg !== '' ? r.kg : r.qty) || 0), 0), pcs = list.filter((r) => planUnit(r.code) === 'pcs').reduce((t, r) => t + (Number(r.qty) || 0), 0);
       return [kg ? fmtKg(kg) + ' kg' : '', pcs ? fmtQ(pcs) + ' pcs' : ''].filter(Boolean).join(' · ') || '–'; };
     // Belum diplot: semua MO tanpa tanggal (semua week, tanpa week, termasuk ekstrak), dikelompokkan per week
@@ -4869,8 +4869,9 @@
     const groups = [...grp.keys()].map((k) => Object.assign({ k, list: grp.get(k) }, gInfo(k)))
       .sort((a, b) => a.ord - b.ord || (a.ord === 2 ? b.k.localeCompare(a.k) : a.k.localeCompare(b.k)));
     groups.forEach((g) => g.list.sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true })));
-    $('phBoard').classList.toggle('is-edit', edit);
-    $('phBoard').innerHTML = `<div class="ph-days">${days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}" data-day="${d}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div>${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div>`; }).join('')}</div>`
+    $('phBoard').classList.toggle('is-edit', edit); $('phBoard').classList.toggle('is-tall', !!P.phTall);
+    $('phTall').textContent = P.phTall ? 'Ringkas papan' : 'Perbesar papan';
+    $('phBoard').innerHTML = `<div class="ph-days">${days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}" data-day="${d}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div><div class="ph-list">${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div></div>`; }).join('')}</div>`
       + `<div class="ph-day ph-unpl" data-day=""><div class="ph-dh"><b>Belum diplot · ${nf.format(un.length)} MO</b><small>${edit ? 'Seret ke hari untuk memberi tanggal; week ikut berubah' : 'Masuk Mode edit untuk menyeret ke hari'}</small></div>
         <div class="ph-unlist">${groups.map((g) => `<details class="ph-grp${g.ord === 2 ? ' is-past' : ''}"${g.ord === 0 || groups.length <= 3 ? ' open' : ''}><summary><b>${esc(g.lbl)}</b> <span>${g.list.length} MO${g.sub ? ' · ' + esc(g.sub) : ''}</span></summary>${g.list.map(chip).join('')}</details>`).join('') || '<p class="ph-empty">Semua MO sudah punya tanggal produksi.</p>'}</div></div>`;
     // Kebutuhan & saldo per hari
@@ -4882,7 +4883,7 @@
     rows.sort((a, b) => (a.short < 0) - (b.short < 0) || a.short - b.short || a.code.localeCompare(b.code, 'id', { numeric: true }));
     $('phInfo').innerHTML = H.j === undefined ? 'Week ini di luar data week (PEMBAGIAN_WEEK).'
       : H.before ? `<span class="pl-bad">Week ini sebelum tanggal stok (${fmtDate(P.stockDate)}), saldo harian tidak bisa dihitung.</span>`
-      : `${nf.format(rows.length)} material · basis <b>${basis === 'cons' ? 'PC + CP' : 'BoM MO / plan'}</b> · saldo awal = saldo Proyeksi Stok akhir week sebelumnya · MO tanpa tanggal, sisa plan tanpa MO, dan incoming tanpa tanggal datang dihitung di hari pertama · perubahan tanggal dihitung setelah disimpan`;
+      : `${nf.format(rows.length)} material · basis ${basis === 'cons' ? 'PC + CP' : 'BoM MO / plan'}`;
     $('phHead').innerHTML = `<tr><th class="pl-sticky pl-c1">Kode</th><th class="pl-sticky pl-c2">Material</th><th>UoM</th><th class="num">Saldo awal</th>${days.map((d, i) => `<th class="num m-start${d === todayStr() ? ' si-cur' : ''}" colspan="2">${esc(dayLbl(d))}</th>`).join('')}</tr>
       <tr><th class="pl-sticky pl-c1"></th><th class="pl-sticky pl-c2"></th><th></th><th></th>${days.map((d) => `<th class="num m-start ph-sub">Keluar</th><th class="num ph-sub">Saldo</th>`).join('')}</tr>`;
     const cell = (r, i) => { const o = r.need[i] + r.out[i], s2 = r.sal[i];
@@ -4910,6 +4911,7 @@
   $('phWeek').addEventListener('change', renderHarian);
   $('phShow').addEventListener('change', renderHarian);
   $('phQ').addEventListener('input', renderHarian);
+  $('phTall').addEventListener('click', () => { P.phTall = !P.phTall; renderHarian(); });
   $('phBasis').addEventListener('click', (e) => { const b = e.target.closest('[data-b]'); if (!b || b.disabled) return; P.phBasis = b.dataset.b; renderHarian(); });
   $('phSaveBtn').addEventListener('click', kfSaveDrafts);
   $('phBoard').addEventListener('click', (e) => { const c = e.target.closest('.ph-chip'); if (!c) return; if (!(P.edit && P.hasKonf)) { toast('Masuk Mode edit untuk mengubah tanggal.'); return; } phDateDialog(c.dataset.no); });
