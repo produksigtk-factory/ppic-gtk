@@ -1606,3 +1606,15 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-day.is-over { background: #e9f5ee; border-color: var(--brand); border-style: dashed; }
 .ph-day.ph-unpl.is-over { background: #fff1c7; }
 #phUnRows tr.ph-drag { cursor: grab; }
+.ph-board { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 10px; align-items: start; }
+.ph-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.ph-unpl { position: sticky; top: 8px; max-height: calc(100vh - 40px); }
+.ph-unlist { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.ph-grp summary { cursor: pointer; font-size: 12.5px; padding: 3px 0; list-style-position: inside; }
+.ph-grp summary span { color: var(--muted); font-size: 11.5px; }
+.ph-grp[open] { display: flex; flex-direction: column; gap: 4px; }
+.ph-grp.is-past summary b { color: #8a5a00; }
+@media (max-width: 900px) { .ph-board { grid-template-columns: 1fr; } .ph-unpl { position: static; max-height: 60vh; } }
+.ph-days { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+.tb-field.ph-wk { flex: 0 0 260px; min-width: 260px; }
+.ph-chip { font-size: 11.5px; }

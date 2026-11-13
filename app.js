@@ -4853,19 +4853,26 @@
       return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b> <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`; };
     const tot = (list) => { const kg = list.filter((r) => planUnit(r.code) !== 'pcs').reduce((t, r) => t + (Number(r.kg !== '' ? r.kg : r.qty) || 0), 0), pcs = list.filter((r) => planUnit(r.code) === 'pcs').reduce((t, r) => t + (Number(r.qty) || 0), 0);
       return [kg ? fmtKg(kg) + ' kg' : '', pcs ? fmtQ(pcs) + ' pcs' : ''].filter(Boolean).join(' · ') || '–'; };
-    const unpl = inWk.filter((r) => !r.tgl);
-    $('phBoard').innerHTML = days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}" data-day="${d}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div>${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div>`; }).join('')
-      + `<div class="ph-day ph-unpl" data-day=""><div class="ph-dh"><b>Belum diplot</b><small>${unpl.length} MO · dihitung hari pertama</small></div>${unpl.map(chip).join('') || '<p class="ph-empty">Semua MO week ini sudah bertanggal.</p>'}</div>`;
-    // Tabel MO yang belum punya tanggal (semua week)
+    // Belum diplot: semua MO tanpa tanggal (semua week, tanpa week, termasuk ekstrak), dikelompokkan per week
     let un = all.filter((r) => !r.tgl);
     if (q) un = un.filter((r) => (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q));
-    un.sort((a, b) => ((a.bulan || '9') + (a.week || '')).localeCompare((b.bulan || '9') + (b.week || '')) || a.no.localeCompare(b.no, 'id', { numeric: true }));
-    $('phUnCount').textContent = `${nf.format(un.length)} MO belum punya tanggal produksi`;
+    const today = todayStr(), grp = new Map();
+    un.forEach((r) => { const k = r.week ? r.bulan + '|' + r.week : ''; if (!grp.has(k)) grp.set(k, []); grp.get(k).push(r); });
+    const gInfo = (k) => {
+      if (!k) return { ord: 3, lbl: 'Tanpa week', sub: '' };
+      const w = P.weekBy.get(k), sel = k === wk.bulan + '|' + wk.week;
+      const lbl = w ? `${wLabel(w)} ${w.bulan.slice(0, 4)}` : k.replace('|', ' ');
+      if (sel) return { ord: 0, lbl, sub: 'week ini · dihitung di hari pertama' };
+      if (w && w.end < today) return { ord: 2, lbl, sub: 'sudah lewat' };
+      return { ord: 1, lbl, sub: '' };
+    };
+    const groups = [...grp.keys()].map((k) => Object.assign({ k, list: grp.get(k) }, gInfo(k)))
+      .sort((a, b) => a.ord - b.ord || (a.ord === 2 ? b.k.localeCompare(a.k) : a.k.localeCompare(b.k)));
+    groups.forEach((g) => g.list.sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true })));
     $('phBoard').classList.toggle('is-edit', edit);
-    $('phUnRows').innerHTML = un.slice(0, 400).map((r) => `<tr class="${P.kfDraft.has(r.no) ? 'is-dirty' : ''}${edit ? ' ph-drag' : ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true" title="Seret ke salah satu hari di papan atas"' : ''}><td><b>${esc(r.no)}</b>${kfIsEk(r.code) ? ' <small class="badge b-wait">Ekstrak</small>' : ''}</td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name">${esc(r.name)}</span></td>
-      <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td class="num">${r.kg !== '' ? fmtKg(r.kg) : '–'}</td>
-      <td>${r.week ? `${esc(r.week)} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '<span class="muted">Belum ada week</span>'}</td>
-      <td>${edit ? `<input type="date" class="ph-date" value="" aria-label="Tanggal produksi ${esc(r.no)}">` : '<span class="muted">–</span>'}</td></tr>`).join('') || '<tr class="empty"><td colspan="6">Semua MO sudah punya tanggal produksi.</td></tr>';
+    $('phBoard').innerHTML = `<div class="ph-days">${days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}" data-day="${d}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div>${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div>`; }).join('')}</div>`
+      + `<div class="ph-day ph-unpl" data-day=""><div class="ph-dh"><b>Belum diplot · ${nf.format(un.length)} MO</b><small>${edit ? 'Seret ke hari untuk memberi tanggal; week ikut berubah' : 'Masuk Mode edit untuk menyeret ke hari'}</small></div>
+        <div class="ph-unlist">${groups.map((g) => `<details class="ph-grp${g.ord === 2 ? ' is-past' : ''}"${g.ord === 0 || groups.length <= 3 ? ' open' : ''}><summary><b>${esc(g.lbl)}</b> <span>${g.list.length} MO${g.sub ? ' · ' + esc(g.sub) : ''}</span></summary>${g.list.map(chip).join('')}</details>`).join('') || '<p class="ph-empty">Semua MO sudah punya tanggal produksi.</p>'}</div></div>`;
     // Kebutuhan & saldo per hari
     const H = harianCalc(wk, basis); P.ph = H;
     const show = $('phShow').value;
@@ -4916,7 +4923,7 @@
     const el = e.target.closest('[data-no]'); if (el) el.classList.remove('is-dragging');
     $('phBoard').classList.remove('is-dragging'); document.querySelectorAll('.ph-day.is-over').forEach((x) => x.classList.remove('is-over'));
   };
-  ['phBoard', 'phUnRows'].forEach((id) => { $(id).addEventListener('dragstart', phDragStart); $(id).addEventListener('dragend', phDragEnd); });
+  $('phBoard').addEventListener('dragstart', phDragStart); $('phBoard').addEventListener('dragend', phDragEnd);
   $('phBoard').addEventListener('dragover', (e) => {
     const d = e.target.closest('.ph-day'); if (!d || !(P.edit && P.hasKonf)) return;
     e.preventDefault(); e.dataTransfer.dropEffect = 'move';
@@ -4932,7 +4939,6 @@
     phSetDate(no, d.dataset.day);
     toast(d.dataset.day ? `${no} → ${dayLbl(d.dataset.day)}` : `${no} dikembalikan ke Belum diplot`);
   });
-  $('phUnRows').addEventListener('change', (e) => { const inp = e.target.closest('.ph-date'); if (!inp) return; phSetDate(inp.closest('tr').dataset.no, inp.value); });
   $('phExport').addEventListener('click', () => {
     const H = P.ph; if (!H || !H.rows.length) return;
     const data = H.rows.map((r) => { const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'SALDO AWAL': round4(r.open) };
