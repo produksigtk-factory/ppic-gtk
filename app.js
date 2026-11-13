@@ -145,6 +145,7 @@
     'mrp/rencana':       { view: 'view-mrp-rencana',       crumb: 'MRP',                       title: 'Rencana Produksi', actions: 'mrp' },
     'mrp/konfirmasi':    { view: 'view-mrp-konfirmasi',    crumb: 'MRP',                       title: 'Konfirmasi Produksi', actions: 'mrp' },
     'mrp/harian':        { view: 'view-mrp-harian',        crumb: 'MRP',                       title: 'Plotting Harian',     actions: 'mrp' },
+    'mrp/kalender':      { view: 'view-mrp-kalender',      crumb: 'MRP',                       title: 'Kalender Produksi',   actions: 'mrp' },
     'mrp/kebutuhan':     { view: 'view-mrp-kebutuhan',     crumb: 'MRP',                       title: 'Kebutuhan Material', actions: 'mrp' },
     'mrp/proyeksi':      { view: 'view-mrp-proyeksi',      crumb: 'MRP',                       title: 'Proyeksi Stok', actions: 'mrp' },
     'mrp/rakitan':       { view: 'view-mrp-rakitan',       crumb: 'MRP',                       title: 'BoM Banded/2in1/KIT', actions: 'mrp' },
@@ -3096,7 +3097,7 @@
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
     parsedStock: null, parsedPlan: null,
   };
-  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/harian', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update', 'mrp/rakitan']);
+  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/harian', 'mrp/kalender', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update', 'mrp/rakitan']);
   const BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const monLabel = (b) => `${BULAN_PANJANG[Number(b.slice(5, 7)) - 1]} ${b.slice(0, 4)}`;
@@ -3635,6 +3636,7 @@
     if (key === 'mrp/rencana') renderRencana();
     else if (key === 'mrp/konfirmasi') renderKonf();
     else if (key === 'mrp/harian') renderHarian();
+    else if (key === 'mrp/kalender') renderKalender();
     else if (key === 'mrp/kebutuhan') renderKebutuhan();
     else if (key === 'mrp/proyeksi') renderProyeksi();
     else if (key === 'mrp/sku') renderSku();
@@ -5015,6 +5017,81 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mos.length ? mos : [{ TANGGAL: '' }]), 'Jadwal MO');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Saldo Harian');
     const wk = phWeek(); XLSX.writeFile(wb, `Plotting_Harian_${wk.bulan}_${wk.week}.xlsx`);
+  });
+
+  /* ---------- Kalender Produksi: review bulanan MO yang sudah diplot tanggal (read-only) ---------- */
+  function kpMonth() {
+    const sel = $('kpMonth'), cur = todayStr().slice(0, 7);
+    if (!sel.options.length || sel.dataset.n !== String(P.konf.size)) {
+      const ms = new Set([...P.monthWeeks.keys()]); P.konf.forEach((r) => { if (r.tgl) ms.add(r.tgl.slice(0, 7)); });
+      const list = [...ms].sort(), keep = sel.value;
+      sel.innerHTML = list.map((m) => `<option value="${m}">${esc(monLabel(m))}</option>`).join('');
+      sel.value = keep && list.includes(keep) ? keep : list.includes(cur) ? cur : list[list.length - 1] || cur;
+      sel.dataset.n = String(P.konf.size);
+    }
+    return sel.value;
+  }
+  const kpQtyTxt = (list) => { const kg = list.filter((r) => planUnit(r.code) !== 'pcs').reduce((t, r) => t + (Number(r.kg !== '' ? r.kg : r.qty) || 0), 0), pcs = list.filter((r) => planUnit(r.code) === 'pcs').reduce((t, r) => t + (Number(r.qty) || 0), 0);
+    return [kg ? fmtKg(kg) + ' kg' : '', pcs ? fmtQ(pcs) + ' pcs' : ''].filter(Boolean).join(' · '); };
+  function renderKalender() {
+    const m = kpMonth(); if (!m) return;
+    const q = $('kpQ').value.trim().toLowerCase(), jenis = $('kpJenis').value, today = todayStr();
+    const all = [...P.konf.values()].filter((r) => jenis === 'all' || (jenis === 'ek' ? kfIsEk(r.code) : !kfIsEk(r.code)));
+    const hit = (r) => !q || (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q);
+    const byDay = new Map(); all.forEach((r) => { if (r.tgl) { if (!byDay.has(r.tgl)) byDay.set(r.tgl, []); byDay.get(r.tgl).push(r); } });
+    // Baris kalender: minggu Min–Sab yang mencakup bulan ini
+    const [y, mo] = m.split('-').map(Number), first = new Date(y, mo - 1, 1), last = new Date(y, mo, 0);
+    const start = new Date(first); start.setDate(1 - first.getDay());
+    const rows = []; for (let d = new Date(start); d <= last || d.getDay() !== 0; d.setDate(d.getDate() + 1)) { if (d.getDay() === 0) rows.push([]); rows[rows.length - 1].push(ymd(d)); if (rows.length > 6) break; }
+    const inMonth = all.filter((r) => r.tgl && r.tgl.slice(0, 7) === m);
+    const wkMonth = all.filter((r) => r.bulan === m);
+    const noTgl = wkMonth.filter((r) => !r.tgl);
+    $('kpKpi').innerHTML = kpis([
+      { num: nf.format(inMonth.length), lbl: 'MO bertanggal di bulan ini' },
+      { num: kpQtyTxt(inMonth) || '–', lbl: 'total produksi terjadwal' },
+      { num: nf.format(new Set(inMonth.map((r) => r.tgl)).size), lbl: 'hari produksi' },
+      { num: nf.format(noTgl.length), lbl: `MO week ${monShort(m)} belum bertanggal`, tone: noTgl.length ? 'warn' : '', title: 'MO yang Plotting Week-nya di bulan ini tapi belum diberi tanggal di Plotting Harian' },
+    ]);
+    const chip = (r) => `<button type="button" class="kp-mo${kfIsEk(r.code) ? ' is-ek' : ''}${q ? (hit(r) ? ' is-hit' : ' is-dim') : ''}" data-no="${esc(r.no)}" title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}"><b>${esc(r.no)}</b> <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`;
+    $('kpGrid').innerHTML = `<div class="kp-hd"></div>${HARI.map((h) => `<div class="kp-hd">${h}</div>`).join('')}`
+      + rows.map((wd) => {
+        const w = weekOfDate(wd.find((d) => d.slice(0, 7) === m) || wd[0]);
+        const un = w ? all.filter((r) => r.bulan === w.bulan && r.week === w.week && !r.tgl) : [];
+        const wkCell = `<div class="kp-wk">${w ? `<b>${esc(w.week)}</b><small>${monShort(w.bulan)}</small>${un.length ? `<a href="#/mrp/harian" class="kp-un" data-wk="${w.bulan}|${w.week}" title="${esc(un.map((r) => r.no).join(', '))}">${un.length} MO belum bertanggal</a>` : ''}` : ''}</div>`;
+        return wkCell + wd.map((d) => {
+          const L = (byDay.get(d) || []).sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true }));
+          const out = d.slice(0, 7) !== m;
+          return `<div class="kp-day${out ? ' is-out' : ''}${d === today ? ' is-today' : ''}${L.length ? '' : ' is-empty'}"><div class="kp-dn"><b>${Number(d.slice(8))}</b>${L.length ? `<small>${L.length} MO · ${kpQtyTxt(L)}</small>` : ''}</div><div class="kp-list">${L.map(chip).join('')}</div></div>`;
+        }).join('');
+      }).join('');
+    const nHit = q ? inMonth.filter(hit).length : 0;
+    $('kpInfo').textContent = q ? `${nf.format(nHit)} MO cocok di ${monLabel(m)}` : 'Hanya untuk review. Ubah tanggal produksi di menu Plotting Harian.';
+  }
+  function kpMoDialog(no) {
+    const r = P.konf.get(no); if (!r) return;
+    const b = r.bom ? bomById(r.code, r.bom) : null;
+    openDialog({
+      title: `MO ${no}`, ok: 'Buka di Plotting Harian', cancel: true,
+      body: `<dl class="kp-dl">
+        <div><dt>Produk</dt><dd><b>${esc(r.code)}</b> ${esc(r.name)}${kfIsEk(r.code) ? ' <span class="badge b-wait">Ekstrak</span>' : ''}</dd></div>
+        <div><dt>Qty</dt><dd>${fmtQ(r.qty)} ${esc(r.uom)}${r.kg !== '' ? ` · ${fmtKg(r.kg)} kg` : ''}</dd></div>
+        <div><dt>BoM</dt><dd>${b ? esc(refOf(b)) + ` <span class="muted">${esc(b.id)}</span>` : '–'}</dd></div>
+        <div><dt>Tanggal produksi</dt><dd>${r.tgl ? esc(dayLbl(r.tgl)) + ' ' + r.tgl.slice(0, 4) : '<span class="muted">Belum diplot</span>'}</dd></div>
+        <div><dt>Plotting Week</dt><dd>${r.week ? `${esc(r.week)} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '–'}</dd></div>
+        ${r.ek ? `<div><dt>Ekstrak dibutuhkan</dt><dd>${esc(r.ek)}${r.ekKg !== '' && r.ekKg !== undefined ? ` · ${fmtKg(r.ekKg)} kg` : ''}${r.moEk ? ` · MO ${esc(r.moEk)}` : ''}</dd></div>` : ''}
+        ${r.note ? `<div><dt>Catatan</dt><dd>${esc(r.note)}</dd></div>` : ''}
+      </dl>`,
+      onSubmit: async () => { if (r.week) { const sel = $('phWeek'); if (!sel.options.length) phWeek(); sel.value = r.bulan + '|' + r.week; } $('phQ').value = r.no; location.hash = '#/mrp/harian'; return ''; },
+    });
+  }
+  $('kpMonth').addEventListener('change', renderKalender);
+  ['kpPrev', 'kpNext'].forEach((id, k) => $(id).addEventListener('click', () => { const sel = $('kpMonth'), i = sel.selectedIndex + (k ? 1 : -1); if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; renderKalender(); } }));
+  $('kpThis').addEventListener('click', () => { const sel = $('kpMonth'), cur = todayStr().slice(0, 7); if ([...sel.options].some((o) => o.value === cur)) { sel.value = cur; renderKalender(); } });
+  $('kpQ').addEventListener('input', renderKalender);
+  $('kpJenis').addEventListener('change', renderKalender);
+  $('kpGrid').addEventListener('click', (e) => {
+    const c = e.target.closest('.kp-mo'); if (c) { kpMoDialog(c.dataset.no); return; }
+    const u = e.target.closest('.kp-un'); if (u) { const sel = $('phWeek'); if (!sel.options.length) phWeek(); sel.value = u.dataset.wk; }
   });
 
   $('pjExport').addEventListener('click', () => {

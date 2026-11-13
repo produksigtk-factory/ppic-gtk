@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=0867bbe7">
+<link rel="stylesheet" href="style.css?v=82439929">
 </head>
 <body>
 <div class="shell">
@@ -31,6 +31,7 @@
           <a class="menu-item sub" href="#/mrp/rencana" data-route="mrp/rencana">Rencana Produksi</a>
           <a class="menu-item sub" href="#/mrp/konfirmasi" data-route="mrp/konfirmasi">Konfirmasi Produksi</a>
           <a class="menu-item sub" href="#/mrp/harian" data-route="mrp/harian">Plotting Harian</a>
+          <a class="menu-item sub" href="#/mrp/kalender" data-route="mrp/kalender">Kalender Produksi</a>
           <a class="menu-item sub" href="#/mrp/kebutuhan" data-route="mrp/kebutuhan">Kebutuhan Material</a>
           <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
           <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
@@ -577,6 +578,23 @@
       </section>
 
       <!-- ================= MRP: KONFIRMASI PRODUKSI ================= -->
+      <section id="view-mrp-kalender" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat kalender produksi…</div>
+        <div class="ph-tb">
+          <div class="ph-wknav" role="group" aria-label="Pilih bulan">
+            <button type="button" class="ph-nav" id="kpPrev" aria-label="Bulan sebelumnya">‹</button>
+            <label class="ph-wk"><span class="sr">Bulan</span><select id="kpMonth"></select></label>
+            <button type="button" class="ph-nav" id="kpNext" aria-label="Bulan berikutnya">›</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="kpThis">Bulan ini</button>
+          </div>
+          <label class="ph-sel"><span class="sr">Jenis MO</span><select id="kpJenis"><option value="all">Semua MO</option><option value="sku">MO produk (SKU)</option><option value="ek">MO ekstrak</option></select></label>
+          <label class="tb-search ph-q"><span class="sr">Cari MO</span><input type="search" id="kpQ" placeholder="Cari No. MO, kode, nama produk"></label>
+        </div>
+        <div class="pl-kpis" id="kpKpi"></div>
+        <p class="mrp-count" id="kpInfo"></p>
+        <div class="kp-grid" id="kpGrid"></div>
+      </section>
+
       <section id="view-mrp-harian" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat plotting harian…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
@@ -1263,7 +1281,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=682dac0c"></script>
+<script src="app.js?v=9d2251f1"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
