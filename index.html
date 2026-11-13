@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=0e64228d">
+<link rel="stylesheet" href="style.css?v=754e20f6">
 </head>
 <body>
 <div class="shell">
@@ -581,20 +581,37 @@
         <div class="mrp-loading" data-mrp-loading>Memuat plotting harian…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
         <div class="edit-bar mrp-editbar" hidden><p><b>Mode edit aktif.</b> Seret MO ke hari lain (atau dari kolom "Belum diplot" — semua week — ke hari), klik MO untuk isi tanggal, lalu klik <b>Simpan perubahan</b>. Plotting Week ikut tanggal.</p><span class="pl-save" id="phSave"></span></div>
-        <div class="toolbar mrp-toolbar">
-          <label class="tb-field ph-wk"><span class="sr">Week</span><select id="phWeek"></select></label>
-          <div class="pj-seg" id="phBasis" role="group" aria-label="Basis kebutuhan"><button type="button" data-b="plan" aria-pressed="true">BoM MO / plan</button><button type="button" data-b="cons" aria-pressed="false">PC + CP</button></div>
-          <label class="tb-field"><span class="sr">Material</span><select id="phShow"><option value="short">Material: yang akan kurang</option><option value="all">Material: semua di week ini</option></select></label>
-          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="phQ" placeholder="Cari No. MO, kode, atau nama"></label>
-          <div class="tb-actions">
+        <div class="ph-tb">
+          <div class="ph-wknav" role="group" aria-label="Pilih week">
+            <button type="button" class="ph-nav" id="phPrev" aria-label="Week sebelumnya">‹</button>
+            <label class="ph-wk"><span class="sr">Week</span><select id="phWeek"></select></label>
+            <button type="button" class="ph-nav" id="phNext" aria-label="Week berikutnya">›</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="phToday">Week ini</button>
+          </div>
+          <label class="tb-search ph-q"><span class="sr">Cari MO</span><input type="search" id="phQ" placeholder="Cari MO di papan: No. MO, kode, nama produk"></label>
+          <div class="ph-tb-act">
             <button class="btn btn-ghost btn-sm" id="phTall" type="button">Perbesar papan</button>
             <button class="btn btn-ghost btn-sm" id="phExport">Unduh Excel</button>
             <button class="btn btn-sm" id="phSaveBtn" hidden>Simpan perubahan</button>
           </div>
         </div>
-        <div class="ph-board" id="phBoard"></div>
+        <div class="ph-board" id="phBoard">
+          <div class="ph-days" id="phDays"></div>
+          <div class="ph-day ph-unpl" data-day="">
+            <div class="ph-dh" id="phUnHead"></div>
+            <label class="ph-unq"><span class="sr">Cari MO belum diplot</span><input type="search" id="phUnQ" placeholder="Cari No. MO, kode, nama, week…"></label>
+            <div class="ph-unlist" id="phUnList"></div>
+          </div>
+        </div>
         <div class="update-card ph-card">
-          <h2>Kebutuhan material &amp; saldo stok per hari <small class="muted ph-h2" id="phInfo"></small></h2>
+          <div class="ph-card-head">
+            <h2>Kebutuhan material &amp; saldo stok per hari <small class="muted ph-h2" id="phInfo"></small></h2>
+            <div class="ph-card-tools">
+              <div class="pj-seg" id="phBasis" role="group" aria-label="Basis kebutuhan"><button type="button" data-b="plan" aria-pressed="true">BoM MO / plan</button><button type="button" data-b="cons" aria-pressed="false">PC + CP</button></div>
+              <label class="ph-sel"><span class="sr">Tampilkan material</span><select id="phShow"><option value="short">Yang akan kurang</option><option value="all">Semua di week ini</option></select></label>
+              <label class="tb-search ph-mq"><span class="sr">Cari material</span><input type="search" id="phMQ" placeholder="Cari kode / nama material"></label>
+            </div>
+          </div>
           <div class="table-wrap pl-wrap"><table class="po-table pl-table ph-table"><thead id="phHead"></thead><tbody id="phRows"></tbody></table></div>
           <p class="hint">Keluar = kebutuhan + ADD/FOH/RS di hari itu; angka hijau kecil = incoming; saldo merah = akan kurang. Saldo awal = saldo Proyeksi Stok akhir week sebelumnya. MO tanpa tanggal, sisa plan tanpa MO, dan incoming tanpa tanggal datang dihitung di hari pertama. Perubahan tanggal dihitung setelah disimpan.</p>
         </div>
@@ -1244,7 +1261,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=f28dcce2"></script>
+<script src="app.js?v=1b68e1d5"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
