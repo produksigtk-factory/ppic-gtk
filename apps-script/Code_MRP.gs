@@ -47,7 +47,7 @@ const MRP_HEAD = {
   INCOMING_MANUAL: { head: ['ID', 'BULAN', 'WEEK', 'KODE', 'QTY (+/-)', 'KETERANGAN', 'DIBUAT'], text: [1, 2, 3, 4, 6, 7] },
   LOG_MRP: { head: ['WAKTU', 'AKSI', 'RINGKASAN'], text: [1, 2, 3] },
   // Konfirmasi Produksi: satu baris = satu MO Odoo (dari LIST_MO). BOM ID & konversi kg dikunci saat disimpan.
-  KONFIRMASI_PRODUKSI: { head: ['NO MO', 'KODE', 'NAMA PRODUK', 'QTY', 'UoM', 'BOM ID', 'KONVERSI KG', 'BULAN', 'WEEK', 'KODE EKSTRAK', 'KEBUTUHAN EKSTRAK KG', 'MO EKSTRAK', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 14] },
+  KONFIRMASI_PRODUKSI: { head: ['NO MO', 'KODE', 'NAMA PRODUK', 'QTY', 'UoM', 'BOM ID', 'KONVERSI KG', 'BULAN', 'WEEK', 'KODE EKSTRAK', 'KEBUTUHAN EKSTRAK KG', 'MO EKSTRAK', 'CATATAN', 'DIUBAH', 'TANGGAL PRODUKSI'], text: [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 14, 15] },
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo. Baris tanpa KODE MATERIAL = penanda MO ada di file tapi kosong.
   // Daftar produk rakitan (Banded / 2in1 / KIT) yang dikelola di menu "BoM Banded/2in1/KIT". BOM ID kosong = BOM pertama di DATABASE.
   BOM_RAKITAN: { head: ['KODE', 'BOM ID', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5] },
@@ -480,11 +480,12 @@ function setIncK_(ss, b, now) {
 }
 
 /* ================= Konfirmasi Produksi ================= */
-const KONF_COLS = 14;
-// konf: [noMo, kode, nama, qty, uom, bomId, konversiKg, bulan, week, kodeEkstrak, kebutuhanEkstrakKg, moEkstrak, catatan, diubah]
+const KONF_COLS = 15;
+// konf: [noMo, kode, nama, qty, uom, bomId, konversiKg, bulan, week, kodeEkstrak, kebutuhanEkstrakKg, moEkstrak, catatan, diubah, tanggalProduksi]
+// TANGGAL PRODUKSI = Plotting Harian (1 MO = 1 tanggal, selalu di dalam BULAN/WEEK-nya)
 function readKonf_(ss, tz) {
   return rows_(ss.getSheetByName(MRP_CONFIG.KONF_SHEET), KONF_COLS).map(r => [s_(r[0]), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), n_(r[6]),
-    d_(r[7], tz, 'yyyy-MM'), s_(r[8]), s_(r[9]), n_(r[10]), s_(r[11]), s_(r[12]), d_(r[13], tz, 'yyyy-MM-dd HH:mm')]);
+    d_(r[7], tz, 'yyyy-MM'), s_(r[8]), s_(r[9]), n_(r[10]), s_(r[11]), s_(r[12]), d_(r[13], tz, 'yyyy-MM-dd HH:mm'), d_(r[14], tz, 'yyyy-MM-dd')]);
 }
 // rows: baris lengkap (tanpa DIUBAH) — ditambah / diganti per NO MO; del: daftar NO MO yang dihapus
 function saveKonf_(ss, rows, del, file, now) {
@@ -498,11 +499,14 @@ function saveKonf_(ss, rows, del, file, now) {
     const bulan = s_(r[7]), week = s_(r[8]);
     if (bulan && !/^\d{4}-\d{2}$/.test(bulan)) throw new Error('Bulan tidak dikenal untuk MO ' + no + ': ' + bulan);
     if (week && !/^W[1-5]$/.test(week)) throw new Error('Week tidak dikenal untuk MO ' + no + ': ' + week);
+    const tgl = s_(r[13]);
+    if (tgl && !/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Tanggal produksi tidak valid untuk MO ' + no + ': ' + tgl);
     if (map.has(no)) nUpd++; else nAdd++;
     map.set(no, [no, s_(r[1]), s_(r[2]), Number(r[3]) || 0, s_(r[4]), s_(r[5]), r[6] === '' || r[6] === null ? '' : Number(r[6]) || 0,
-      bulan, week, s_(r[9]), r[10] === '' || r[10] === null ? '' : Number(r[10]) || 0, s_(r[11]), s_(r[12]), now]);
+      bulan, week, s_(r[9]), r[10] === '' || r[10] === null ? '' : Number(r[10]) || 0, s_(r[11]), s_(r[12]), now, tgl]);
   });
   const all = [...map.values()];
+  if (s_(sh.getRange(1, KONF_COLS).getValue()) !== 'TANGGAL PRODUKSI') sh.getRange(1, KONF_COLS).setValue('TANGGAL PRODUKSI');
   const last = sh.getLastRow();
   if (last > 1) sh.getRange(2, 1, last - 1, KONF_COLS).clearContent();
   if (all.length) sh.getRange(2, 1, all.length, KONF_COLS).setValues(all);
