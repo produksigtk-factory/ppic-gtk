@@ -3894,7 +3894,7 @@
       const c = ekComps[0];
       o.ek = c.code;
       // qty ekstrak di BOM = per batch BOM (batch dalam pcs untuk SKU)
-      o.ekKg = bom.batch ? Math.round(((pcs ? qty : (qty / 1000) * bom.batch) / bom.batch) * (Number(c.qty) || 0) * 100) / 100 : '';
+      o.ekKg = bom.batch ? ((pcs ? qty : (qty / 1000) * bom.batch) / bom.batch) * (Number(c.qty) || 0) : '';   // kebutuhan ekstrak tanpa pembulatan
       if (ekComps.length > 1) o.note = `BOM memakai ${ekComps.length} ekstrak/bulk; yang dihitung ${c.code}`;
     }
     return o;
