@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=b7680719">
+<link rel="stylesheet" href="style.css?v=38eb3320">
 </head>
 <body>
 <div class="shell">
@@ -609,11 +609,12 @@
             <div class="ph-card-tools">
               <div class="pj-seg" id="phBasis" role="group" aria-label="Basis kebutuhan"><button type="button" data-b="plan" aria-pressed="true">BoM MO / plan</button><button type="button" data-b="cons" aria-pressed="false">PC + CP</button></div>
               <label class="ph-sel"><span class="sr">Tampilkan material</span><select id="phShow"><option value="short">Yang akan kurang</option><option value="all">Semua di week ini</option></select></label>
+              <label class="tb-check ph-inclun" title="ON: sisa plan tanpa MO dan MO tanpa tanggal ikut memotong saldo di hari pertama week. OFF: hanya di kolom Belum dijadwalkan & Saldo akhir week."><input type="checkbox" id="phInclUn"> Potong saldo harian dengan yang belum dijadwalkan</label>
               <label class="tb-search ph-mq"><span class="sr">Cari material</span><input type="search" id="phMQ" placeholder="Cari kode / nama material"></label>
             </div>
           </div>
           <div class="table-wrap pl-wrap"><table class="po-table pl-table ph-table"><thead id="phHead"></thead><tbody id="phRows"></tbody></table></div>
-          <p class="hint">Keluar = kebutuhan + ADD/FOH/RS di hari itu; angka hijau kecil = incoming; saldo merah = akan kurang. Saldo awal = saldo Proyeksi Stok akhir week sebelumnya. MO tanpa tanggal, sisa plan tanpa MO, dan incoming tanpa tanggal datang dihitung di hari pertama. Perubahan tanggal dihitung setelah disimpan.</p>
+          <p class="hint">Keluar per hari = kebutuhan MO yang sudah diplot tanggalnya + ADD/FOH/RS hari itu (klik angkanya untuk rincian); angka hijau kecil = incoming; saldo merah = akan kurang. <b>Belum dijadwalkan</b> = sisa plan tanpa MO + MO tanpa tanggal produksi; tidak memotong hari mana pun kecuali kotak "Potong saldo harian…" dicentang (dipotong di hari pertama). <b>Saldo akhir week</b> = setelah semuanya, sama dengan Proyeksi Stok. Saldo awal = saldo Proyeksi Stok akhir week sebelumnya. Incoming tanpa tanggal datang masuk hari pertama. Perubahan tanggal dihitung setelah disimpan.</p>
         </div>
       </section>
 
@@ -1261,7 +1262,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=b1f5c7fc"></script>
+<script src="app.js?v=4405d690"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

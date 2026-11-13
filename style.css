@@ -1677,3 +1677,9 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-table td.num, .ph-table th.num { overflow: visible; text-overflow: clip; max-width: none; white-space: nowrap; }
 .ph-table td.ph-out { cursor: pointer; text-decoration: underline dotted #9bb; text-underline-offset: 3px; }
 .ph-table td.ph-out:hover { background: #eef6f1; }
+.ph-inclun { font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; }
+.ph-table th.ph-unh, .ph-table td.ph-unc { background: #fffbef; }
+.ph-table th.ph-endh, .ph-table td.ph-end { background: #f4f7f5; font-weight: 600; border-left: 1px solid var(--line); }
+.ph-table td.ph-end.pl-neg { background: var(--late-soft); }
+.ph-table th.ph-unh, .ph-table th.ph-endh { font-size: 12px; line-height: 1.2; }
+.ph-unin { display: block; color: #8a5a00; font-size: 10.5px; }
