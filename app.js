@@ -5069,7 +5069,7 @@
       for (let i = 0; i < nd; i++) { if (run === null) { sal.push(null); continue; } run += dIn[i] - dn[i] - dOut[i] - (inclUn && i === 0 ? un : 0); sal.push(run); if (run < -1e-9 && short < 0) short = i; }
       const end = open === null ? null : open + dIn.reduce((t, x) => t + x, 0) - dn.reduce((t, x) => t + x, 0) - dOut.reduce((t, x) => t + x, 0);
       if (short < 0 && end !== null && end < -1e-9) short = nd;
-      rows.push({ code: r.code, name: r.name, uom: r.uom, kat: r.kat, open, need: dn, un, end, inc: dIn, out: dOut, sal, short, wNeed, src: src.get(r.code) || [], fix: Math.abs(wNeed - sn) > 1e-6 ? wNeed - sn : 0 });
+      rows.push({ code: r.code, name: r.name, uom: r.uom, kat: r.kat, po: r.po, open, need: dn, un, end, inc: dIn, out: dOut, sal, short, wNeed, src: src.get(r.code) || [], fix: Math.abs(wNeed - sn) > 1e-6 ? wNeed - sn : 0 });
     });
     return { days, J, j, rows, before: j < J.s };
   }
@@ -5132,9 +5132,40 @@
       <tr>${days.map((d) => `<th class="num m-start ph-sub${d === todayStr() ? ' si-cur' : ''}">Keluar</th><th class="num ph-sub${d === todayStr() ? ' si-cur' : ''}">Saldo</th>`).join('')}</tr>`;
     const cell = (r, i) => { const o = r.need[i] + r.out[i], s2 = r.sal[i];
       return `<td class="num m-start${o ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${i}"${o ? ' title="Klik untuk rincian"' : ''}>${o ? fmtQ(o) : ''}${i === 0 && P.phInclUn && r.un ? `<small class="ph-unin">−${fmtQ(r.un)} blm dijadwalkan</small>` : ''}${r.inc[i] ? `<small class="ph-in">+${fmtQ(r.inc[i])}</small>` : ''}</td><td class="num ${s2 !== null && s2 < -1e-9 ? 'pl-neg' : ''}">${s2 === null ? '–' : fmtQ(s2)}</td>`; };
-    $('phRows').innerHTML = rows.slice(0, 1500).map((r) => `<tr>${matCell(r.code, r.name, r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '')}<td class="num ph-open">${r.open === null ? '–' : fmtQ(r.open)}</td>${days.map((d, i) => cell(r, i)).join('')}<td class="num m-start ph-unc${r.un ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${days.length}"${r.un ? ' title="Klik untuk rincian"' : ''}>${r.un ? fmtQ(r.un) : ''}</td><td class="num ph-end${r.end !== null && r.end < -1e-9 ? ' pl-neg' : ''}">${r.end === null ? '–' : fmtQ(r.end)}</td></tr>`).join('')
+    $('phRows').innerHTML = rows.slice(0, 1500).map((r) => `<tr>${matCell(r.code, r.name, (r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '') + phPoTag(r))}<td class="num ph-open">${r.open === null ? '–' : fmtQ(r.open)}</td>${days.map((d, i) => cell(r, i)).join('')}<td class="num m-start ph-unc${r.un ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${days.length}"${r.un ? ' title="Klik untuk rincian"' : ''}>${r.un ? fmtQ(r.un) : ''}</td><td class="num ph-end${r.end !== null && r.end < -1e-9 ? ' pl-neg' : ''}">${r.end === null ? '–' : fmtQ(r.end)}</td></tr>`).join('')
       || `<tr class="empty"><td colspan="${4 + days.length * 2}">${show === 'short' ? 'Tidak ada material yang kurang di week ini.' : 'Tidak ada kebutuhan material di week ini.'}</td></tr>`;
   }
+  // PO atas material (dari Monitoring PO): penanda di kolom material + rincian saat material diketuk
+  const phPoOpen = (po) => (po ? po.list.filter((x) => x.sisa > 1e-9) : []);
+  function phPoTag(r) {
+    const L = phPoOpen(r.po), wk = phWeek();
+    if (!L.length) return '<span class="ph-po is-none" title="Tidak ada PO berjalan">PO –</span>';
+    const inWk = wk && L.some((x) => x.date && x.date >= wk.start && x.date <= wk.end), late = L.some((x) => x.kind === 'late');
+    return `<span class="ph-po${late ? ' is-late' : inWk ? ' is-wk' : ''}" title="${L.length} jadwal PO berjalan${late ? ' · ada yang terlambat' : ''}${inWk ? ' · ada yang dijadwalkan week ini' : ''}">PO ${L.length}</span>`;
+  }
+  function phPoDialog(code) {
+    const H = P.ph; if (!H) return;
+    const r = H.rows.find((x) => x.code === code); if (!r) return;
+    const wk = phWeek(), L = phPoOpen(r.po).slice().sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999')), RV = (r.po && r.po.recv) || [];
+    const tot = (f) => L.reduce((t, x) => t + (Number(x[f]) || 0), 0);
+    const when = (x) => (x.kind === 'none' ? '<span class="muted">Belum dijadwalkan</span>' : x.date ? `${esc(fmtDate(x.date))}${wk && x.date >= wk.start && x.date <= wk.end ? ' <span class="ph-po is-wk">week ini</span>' : ''}` : '–');
+    const st = (x) => (x.kind === 'late' ? '<span class="kf-w kf-bad">Terlambat</span>' : x.kind === 'none' ? '<span class="kf-w kf-todo">Belum dijadwalkan</span>' : x.kind === 'out' || (wk && x.date > wk.end) ? '<span class="kf-w">Mendatang</span>' : '<span class="kf-w kf-ok">Terjadwal week ini</span>');
+    const kf = (x) => (x.konf ? `<b>${fmtQ(x.konf)}</b>${x.kWeek ? ` · datang ${esc(x.kWeek)}` : ''}${x.moved ? ' <small class="muted">(dipindah ke week berjalan)</small>' : ''}${x.kFlag ? `<div class="pl-bad">${esc(x.kFlag)}</div>` : ''}` : '<span class="muted">Belum dikonfirmasi</span>');
+    const short = r.sal.some((v) => v !== null && v < -1e-9) || (r.end !== null && r.end < -1e-9);
+    openDialog({
+      title: `PO ${code} · ${r.name}`, ok: 'Buka di Proyeksi Stok', wide: true,
+      body: `<div class="kp-nums ph-pon"><span>Saldo awal ${esc(wLabel(wk))} <b>${r.open === null ? '–' : fmtQ(r.open)}</b></span><span>Keluar week ini <b>${fmtQ(r.need.reduce((t, x) => t + x, 0) + r.out.reduce((t, x) => t + x, 0))}</b></span><span class="${r.end !== null && r.end < -1e-9 ? 'pl-bad' : ''}">Saldo akhir week <b>${r.end === null ? '–' : fmtQ(r.end)}</b></span><span>PO berjalan <b>${fmtQ(tot('sisa'))} ${esc(r.uom)}</b></span></div>
+        ${short && !L.length ? '<p class="check err">Material ini akan kurang di week ini dan <b>tidak ada PO berjalan</b>. Perlu dibuatkan PR / PO.</p>' : ''}
+        ${L.length ? `<table class="po-table pl-mini kp-at"><thead><tr><th>No PO</th><th>Supplier</th><th>Jadwal datang</th><th class="num">Sisa</th><th>Status</th><th>Konfirmasi incoming</th></tr></thead><tbody>
+          ${L.map((x) => `<tr${x.kind === 'late' ? ' class="kp-late"' : ''}><td><b>${esc(x.po)}</b>${x.ke ? ` <small class="muted">ke-${esc(x.ke)}</small>` : ''}</td><td>${esc(x.supplier || '')}</td><td>${when(x)}</td><td class="num">${fmtQ(x.sisa)}</td><td>${st(x)}</td><td>${kf(x)}</td></tr>`).join('')}
+          <tr class="csl-tot"><th colspan="3">Total PO berjalan</th><th class="num">${fmtQ(tot('sisa'))}</th><th></th><th class="num">${fmtQ(L.reduce((t, x) => t + (Number(x.eff !== undefined ? x.eff : x.konf) || 0), 0))} dikonfirmasi</th></tr></tbody></table>`
+          : '<p class="check">Tidak ada PO berjalan untuk material ini.</p>'}
+        ${RV.length ? `<h3 class="kp-h">Sudah datang (dikonfirmasi)</h3><ul class="kfr-ul">${RV.map((x) => `<li><b>${esc(x.po)}</b> ke-${esc(x.ke)} · ${esc(x.supplier || '')} · datang ${esc(fmtDate(x.datang))} · +${fmtQ(x.konf)}${x.inStock ? ' <span class="muted">(sudah termasuk stok)</span>' : ''}</li>`).join('')}</ul>` : ''}
+        <p class="hint">Hanya jadwal PO yang <b>dikonfirmasi incoming</b> yang menambah saldo (Plotting Harian & Proyeksi Stok). Konfirmasi incoming dilakukan di Proyeksi Stok.</p>`,
+      onSubmit: async () => { location.hash = '#/mrp/proyeksi'; setTimeout(() => { try { openProjDetail(code); } catch (e) { /* abaikan */ } }, 400); return ''; },
+    });
+  }
+  $('phRows').addEventListener('click', (e) => { const td = e.target.closest('td.pl-c1'); if (td) { const c = td.querySelector('.pl-code'); if (c) phPoDialog(c.textContent.trim()); } });
   // Rincian sel Keluar: dari MO / sisa plan / PC-CP mana, ADD/FOH/RS
   function phOutDialog(code, i) {
     const H = P.ph; if (!H) return;
