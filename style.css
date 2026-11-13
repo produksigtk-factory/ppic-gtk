@@ -1574,3 +1574,7 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .bomup-mat select, .bomup-in { font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 100%; }
 .bomup-in { width: 100%; min-width: 220px; }
 .kf-bomdiff { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; background: #fff3cd; color: #7a5200; font-size: 11px; white-space: nowrap; }
+.kf-bomnote { margin: 8px 0; padding: 9px 12px; border: 1px solid #e7c66b; background: #fffbea; border-radius: 8px; font-size: 13px; color: #6b4a00; }
+.kf-bomnote .btn { margin-left: 8px; }
+.kfb-opts { display: grid; gap: 4px; margin-top: 6px; }
+.kfb-opts label { font-size: 13px; }

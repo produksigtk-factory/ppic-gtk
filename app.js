@@ -3916,6 +3916,53 @@
     if (!r.week) return { lvl: 'todo', t: 'Pilih Plotting Week' };
     return { lvl: 'ok', t: 'OK' };
   }
+  // Usulan pembaruan BoM default Parameter SKU dari MO yang masih berjalan (week berjalan / mendatang / belum dipilih week-nya)
+  function kfBomCands() {
+    const today = todayStr(), by = new Map();
+    kfRows().forEach((r) => {
+      const sk = P.skus.get(r.code);
+      if (!sk || sk.rakitan || !r.bom || !bomById(r.code, r.bom)) return;
+      if (r.week) { const w = P.weekBy.get(r.bulan + '|' + r.week); if (w && w.end < today) return; }
+      if (!by.has(r.code)) by.set(r.code, new Map());
+      const m = by.get(r.code); if (!m.has(r.bom)) m.set(r.bom, []); m.get(r.bom).push(r.no);
+    });
+    const out = [];
+    by.forEach((m, code) => {
+      const def = (activeBom(code) || {}).id || '';
+      const ids = [...m.keys()];
+      if (ids.length === 1 && ids[0] === def) return;
+      out.push({ code, def, opts: ids.map((id) => ({ id, mos: m.get(id) })), conflict: ids.length > 1 });
+    });
+    return out.sort((a, b) => a.code.localeCompare(b.code, 'id', { numeric: true }));
+  }
+  function kfBomDialog() {
+    const C = kfBomCands();
+    if (!C.length) { toast('BoM semua MO sudah sama dengan default Parameter SKU.'); return; }
+    const today = todayStr(), wk = weekOfDate(today);
+    const bl = (code, id) => esc(refOf(bomById(code, id)));
+    openDialog({
+      title: 'Perbarui BoM default Parameter SKU', ok: 'Terapkan', wide: true,
+      body: `<p class="dlg-lead">BoM dari MO (Odoo) yang beda dengan default di Parameter SKU. Yang dipilih menjadi BoM default baru dan berlaku untuk plan <b>mulai week berjalan${wk ? ` (${esc(wLabel(wk))} ${wk.bulan.slice(0, 4)})` : ''}</b> dan seterusnya; week yang sudah lewat tetap memakai BoM lama.</p>
+        ${C.map((c, i) => { const sk = P.skus.get(c.code) || {}; return `<div class="bomup${c.conflict ? ' is-dup' : ''}"><p class="bomup-h"><b>${esc(c.code)}</b> ${esc(sk.name || '')} <span class="muted">· default sekarang <b>${bl(c.code, c.def)}</b></span></p>
+          ${c.conflict ? '<p class="bomup-w">⚠ MO SKU ini memakai BoM berbeda-beda — pilih salah satu.</p>' : ''}
+          <div class="kfb-opts">${c.opts.map((o) => `<label class="tb-check"><input type="radio" name="b${i}" value="${esc(o.id)}"${!c.conflict && o.id !== c.def ? ' checked' : ''}> BoM <b>${bl(c.code, o.id)}</b>${o.id === c.def ? ' <span class="muted">(default sekarang)</span>' : ''} <span class="muted">· MO ${esc(o.mos.slice(0, 6).join(', '))}${o.mos.length > 6 ? '…' : ''}</span></label>`).join('')}
+          ${c.opts.some((o) => o.id === c.def) ? '' : `<label class="tb-check"><input type="radio" name="b${i}" value=""${c.conflict ? ' checked' : ''}> Tetap <b>${bl(c.code, c.def)}</b> <span class="muted">(tidak diubah)</span></label>`}</div></div>`; }).join('')}`,
+      onSubmit: async (fd) => {
+        const ch = C.map((c, i) => ({ c, to: fd['b' + i] || '' })).filter((x) => x.to && x.to !== x.c.def);
+        if (!ch.length) return 'Tidak ada yang diubah.';
+        const cells = [];
+        for (const { c, to } of ch) {
+          const sk = P.skus.get(c.code);
+          await saveSkuRow({ kode: c.code, nama: sk.name, jenis: sk.jenis, bom: to, batch: sk.batchText || '', aktif: sk.aktif ? 'Y' : 'N', catatan: sk.note || '' });
+          [...P.plan.values()].filter((x) => x.code === c.code && x.kg > 0 && x.bom !== to && (P.weekBy.get(x.bulan + '|' + x.week) || {}).end >= today)
+            .forEach((x) => cells.push({ bulan: x.bulan, week: x.week, kode: c.code, kg: x.kg, bom: to }));
+        }
+        if (cells.length) { await mrpApi('savePlan', { cells }); cells.forEach((x) => { P.plan.get(`${x.bulan}|${x.week}|${x.kode}`).bom = x.bom; }); }
+        renderKonf();
+        return `${ch.length} SKU memakai BoM baru (${ch.map((x) => `${x.c.code} → ${refOf(bomById(x.c.code, x.to))}`).join(', ')}) · ${cells.length} week plan ikut diperbarui.`;
+      },
+    });
+  }
   // BoM MO ≠ default Parameter SKU → tetap dipakai, diberi tanda
   const kfBomTag = (r, b) => { const d = activeBom(r.code); return d && b && d.id !== b.id ? ` <small class="kf-bomdiff" title="BoM default di Parameter SKU: ${esc(refOf(d))}. Perhitungan memakai BoM MO ini.">≠ default ${esc(refOf(d))}</small>` : ''; };
   const ekShortK = (code) => ((MRP.master.get(code) || {}).name || code);
@@ -3938,6 +3985,9 @@
     };
     const cm = new Map(); (P.cons || []).forEach((c) => { const o = cm.get(c.mo) || {}; o[c.jenis] = true; cm.set(c.mo, o); });
     const consTag = (no) => { const o = cm.get(no); return o ? `<small class="kf-cons">${o.PC ? '<span>PC</span>' : ''}${o.CP ? '<span>CP</span>' : ''}</small>` : ''; };
+    { const C = kfBomCands(), nC = C.filter((c) => c.conflict).length;
+      $('kfBomNote').hidden = !C.length;
+      if (C.length) $('kfBomNote').innerHTML = `⚠ <b>${C.length} SKU</b> memakai BoM di MO yang beda dengan default Parameter SKU${nC ? ` (${nC} di antaranya MO-nya memakai BoM berbeda-beda)` : ''}: ${esc(C.slice(0, 6).map((c) => c.code).join(', '))}${C.length > 6 ? '…' : ''}. <button type="button" class="btn btn-sm" id="kfBomBtn">Tinjau &amp; perbarui Parameter SKU</button>`; }
     let list = sku.map((r) => ({ r, w: kfWarn(r, all) }));
     if (show === 'ek') list = [];
     if (show === 'todo') list = list.filter((x) => x.w.lvl !== 'ok');
@@ -4231,6 +4281,7 @@
     $('kfFile').value = '';
     renderKonf();
   });
+  $('kfBomNote').addEventListener('click', (e) => { if (e.target.closest('#kfBomBtn')) needEdit(kfBomDialog); });
   $('kfExport').addEventListener('click', () => {
     const all = kfRows();
     const data = all.sort((a, b) => kfIsEk(a.code) - kfIsEk(b.code) || a.no.localeCompare(b.no, 'id', { numeric: true })).map((r) => {
