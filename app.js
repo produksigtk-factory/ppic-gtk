@@ -3992,8 +3992,8 @@
         <div class="form-grid kf-ed">
           <label class="field"><span>Kode produk *</span><input name="code" list="kfManCodes" required autocomplete="off" placeholder="SKU atau kode ekstrak"></label>
           <label class="field"><span>Nama produk</span><input name="name" readonly></label>
-          <label class="field"><span>Qty *</span><input name="qty" inputmode="decimal" required></label>
-          <label class="field"><span>UoM</span><select name="uom"><option>Pcs</option><option>Kg</option></select></label>
+          <div class="field"><span>Hitung dari</span><div class="pj-seg kfm-u" role="radiogroup" aria-label="Satuan input"><label><input type="radio" name="uom" value="Pcs" checked> Pcs</label><label><input type="radio" name="uom" value="Kg"> Kg</label></div></div>
+          <label class="field"><span id="kfManQl">Qty (pcs) *</span><input name="qty" inputmode="decimal" required></label>
           <label class="field full"><span>BoM</span><select name="bom"><option value="">(isi kode produk dulu)</option></select></label>
           <label class="field"><span>Plotting Week</span><select name="wk">${kfWkOpts(curK)}</select></label>
           <label class="field"><span>Tanggal produksi (opsional)</span><input type="date" name="tgl"></label>
@@ -4008,9 +4008,10 @@
         let [bulan, week] = String(fd.wk || '').split('|'); bulan = bulan || ''; week = week || '';
         const tgl = fd.tgl || '';
         if (tgl) { const w = weekOfDate(tgl); if (!w) throw new Error('Tanggal produksi belum ada di PEMBAGIAN_WEEK.'); bulan = w.bulan; week = w.week; }
-        const c = kfCalc(code, qty, fd.uom, fd.bom);
+        const uom = fd.uom || 'Pcs';
+        const c = kfCalc(code, qty, uom, fd.bom);
         const name = codes.get(code) || ((MRP.master.get(code) || {}).name) || '';
-        const row = { no, code, name, qty, uom: fd.uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: [fd.note, c.note].filter(Boolean).join(' · '), bulan, week, tgl, moEk: '' };
+        const row = { no, code, name, qty, uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: [fd.note, c.note].filter(Boolean).join(' · '), bulan, week, tgl, moEk: '' };
         let msg = `${no} ${code} ditambahkan`;
         if (c.ek) {
           const mode = fd.ekmode || 'new';
@@ -4028,6 +4029,8 @@
       },
     });
     const body = $('dlgBody'), seq = dlgSeq, f = (n) => body.querySelector(`[name=${n}]`);
+    const getU = () => (body.querySelector('[name=uom]:checked') || {}).value || 'Pcs';
+    const setU = (u) => { const r = body.querySelector(`[name=uom][value=${u}]`); if (r) r.checked = true; };
     let lastCode = '';
     const calc = () => {
       if (seq !== dlgSeq) return;
@@ -4036,12 +4039,19 @@
         lastCode = code;
         f('name').value = codes.get(code) || ((MRP.master.get(code) || {}).name) || '';
         f('bom').innerHTML = MRP.byProduct.has(code) ? kfBomOpts(code, '') : '<option value="">(kode tidak punya BOM)</option>';
-        if (MRP.byProduct.has(code)) f('uom').value = kfIsEk(code) ? 'Kg' : 'Pcs';
+        if (MRP.byProduct.has(code)) setU(kfIsEk(code) ? 'Kg' : 'Pcs');
+        const pcsOnly = planUnit(code) === 'pcs';
+        body.querySelector('[name=uom][value=Kg]').disabled = pcsOnly; body.querySelector('[name=uom][value=Pcs]').disabled = kfIsEk(code);
+        if (pcsOnly) setU('Pcs');
       }
       if (f('tgl').value) { const w = weekOfDate(f('tgl').value); if (w) f('wk').value = w.bulan + '|' + w.week; }
-      const ok = MRP.byProduct.has(code), c = ok ? kfCalc(code, qty, f('uom').value, f('bom').value) : null;
+      const u = getU(); $('kfManQl').textContent = `Qty (${u.toLowerCase()}) *`;
+      const ok = MRP.byProduct.has(code), c = ok ? kfCalc(code, qty, u, f('bom').value) : null;
+      // padanan satuan lain: pcs ↔ kg dari batch BoM (batch BoM SKU = pcs per 1.000 kg)
+      const b = ok ? activeBom(code, f('bom').value) : null;
+      const other = !ok || !qty || kfIsEk(code) || planUnit(code) === 'pcs' || !b || !b.batch ? '' : u === 'Kg' ? `= <b>${fmtQ(Math.round(qty * b.batch / 1000))} pcs</b>` : `= <b>${fmtKg(c.kg)} kg</b>`;
       $('kfManCalc').innerHTML = !code ? 'Isi kode produk dan qty.' : !ok ? '<span class="pl-bad">Kode tidak punya BoM di DATABASE PPIC.</span>'
-        : `${kfIsEk(code) ? '<b>Produksi ekstrak</b> · ' : ''}Konversi: <b>${c.kg !== '' ? fmtKg(c.kg) + ' kg' : 'tidak dikonversi (pcs)'}</b>${kfIsEk(code) ? '' : c.ek ? ` · ekstrak dibutuhkan <b>${esc(c.ek)} ${esc(ekShortK(c.ek))} ${fmtKg(c.ekKg)} kg</b>` : ' · tidak perlu ekstrak'}`;
+        : `${kfIsEk(code) ? '<b>Produksi ekstrak</b> · ' : ''}${qty ? `${fmtQ(qty)} ${u.toLowerCase()} ${other}` : 'Isi qty'}${planUnit(code) === 'pcs' && !kfIsEk(code) ? ' · Banded/KIT dihitung dalam pcs' : ''}${kfIsEk(code) ? '' : c.ek ? ` · ekstrak dibutuhkan <b>${esc(c.ek)} ${esc(ekShortK(c.ek))} ${fmtKg(c.ekKg)} kg</b>` : ' · tidak perlu ekstrak'}`;
       const ekBox = $('kfManEk');
       if (c && c.ek && qty > 0) {
         const prev = { mode: (body.querySelector('[name=ekmode]:checked') || {}).value || 'new', wk: (f('ekwk') || {}).value, mo: (f('ekmo') || {}).value };

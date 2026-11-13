@@ -1763,3 +1763,10 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .kfr-sec.is-q { border-color: #d9cff3; background: #faf8ff; }
 .kfr-t select { font: inherit; font-size: 12.5px; padding: 3px 6px; max-width: 320px; }
 .kf-row td:first-child b { white-space: nowrap; }
+.kfm-u { display: inline-flex; }
+.kfm-u label { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-size: 13px; }
+.kfm-u label:first-child { border-radius: 8px 0 0 8px; }
+.kfm-u label:last-child { border-radius: 0 8px 8px 0; border-left: 0; }
+.kfm-u label:has(input:checked) { background: var(--brand); color: #fff; border-color: var(--brand); }
+.kfm-u label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+.kfm-u input { accent-color: #fff; }
