@@ -3970,6 +3970,125 @@
   // BoM MO ≠ default Parameter SKU → tetap dipakai, diberi tanda
   const kfBomTag = (r, b) => { const d = activeBom(r.code); return d && b && d.id !== b.id ? ` <small class="kf-bomdiff" title="BoM default di Parameter SKU: ${esc(refOf(d))}. Perhitungan memakai BoM MO ini.">≠ default ${esc(refOf(d))}</small>` : ''; };
   const ekShortK = (code) => ((MRP.master.get(code) || {}).name || code);
+  /* ---------- Konfirmasi Produksi manual (tanpa No MO): nomor sementara MAN-YYMM-NNN ---------- */
+  const isMan = (no) => /^MAN-/i.test(String(no || ''));
+  const manTag = (no) => (isMan(no) ? ' <span class="kf-man" title="Input manual, belum ada MO di Odoo">Manual</span>' : '');
+  function manNextNo(skip = 0) {
+    const d = new Date(), pre = `MAN-${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}-`;
+    let max = 0;
+    new Set([...P.konf.keys(), ...P.kfDraft.keys()]).forEach((no) => { if (String(no).startsWith(pre)) max = Math.max(max, Number(String(no).slice(pre.length)) || 0); });
+    return pre + String(max + 1 + skip).padStart(3, '0');
+  }
+  const kfCodeList = () => { const codes = new Map(); P.skus.forEach((v, c) => codes.set(c, v.name || '')); MRP.byProduct.forEach((l, c) => { if (!codes.has(c)) codes.set(c, ((MRP.master.get(c) || {}).name) || (l[0] || {}).name || ''); }); return codes; };
+  const kfBomOpts = (code, cur) => { const list = MRP.byProduct.get(code) || [], def = activeBom(code); if (!list.length) return '<option value="">(kode tidak punya BOM)</option>';
+    return list.map((b) => `<option value="${esc(b.id)}"${b.id === (cur || (def && def.id)) ? ' selected' : ''}>${esc(refOf(b))}${def && b.id === def.id ? ' (default)' : ''}${b.batch ? ` · batch ${fmtQ(b.batch)} ${esc(b.uom || '')}` : ''}</option>`).join(''); };
+  const kfWkOpts = (sel) => `<option value="">–</option>` + kfWeeks().map((w) => `<option value="${w.bulan}|${w.week}"${sel === w.bulan + '|' + w.week ? ' selected' : ''}>${esc(wLabel(w))} ${w.bulan.slice(0, 4)} · ${fmtDate(w.start).slice(0, 6)}–${fmtDate(w.end).slice(0, 6)}</option>`).join('');
+  function kfManDialog() {
+    const codes = kfCodeList(), cur = weekOfDate(todayStr()), curK = cur ? cur.bulan + '|' + cur.week : '';
+    const no = manNextNo();
+    openDialog({
+      title: 'Tambah produksi manual (tanpa No MO)', ok: 'Tambah', wide: true,
+      body: `<p class="dlg-lead">Nomor sementara <b>${esc(no)}</b>. Dihitung seperti MO (Proyeksi Stok Mode Plan, Plotting Harian, Kalender, status plan). Hubungkan ke MO Odoo begitu MO-nya terbit.</p>
+        <div class="form-grid kf-ed">
+          <label class="field"><span>Kode produk *</span><input name="code" list="kfManCodes" required autocomplete="off" placeholder="SKU atau kode ekstrak"></label>
+          <label class="field"><span>Nama produk</span><input name="name" readonly></label>
+          <label class="field"><span>Qty *</span><input name="qty" inputmode="decimal" required></label>
+          <label class="field"><span>UoM</span><select name="uom"><option>Pcs</option><option>Kg</option></select></label>
+          <label class="field full"><span>BoM</span><select name="bom"><option value="">(isi kode produk dulu)</option></select></label>
+          <label class="field"><span>Plotting Week</span><select name="wk">${kfWkOpts(curK)}</select></label>
+          <label class="field"><span>Tanggal produksi (opsional)</span><input type="date" name="tgl"></label>
+          <label class="field full"><span>Catatan</span><input name="note" placeholder="mis. menunggu MO dari Odoo"></label>
+        </div><datalist id="kfManCodes">${[...codes].map(([c, n]) => `<option value="${esc(c)}">${esc(n)}</option>`).join('')}</datalist>
+        <p class="check" id="kfManCalc"></p>
+        <div class="kfm-ek" id="kfManEk" hidden></div>`,
+      onSubmit: async (fd) => {
+        const code = String(fd.code || '').trim(), qty = Number(String(fd.qty || '').replace(',', '.'));
+        if (!code || !MRP.byProduct.has(code)) throw new Error('Kode produk wajib diisi dan harus punya BoM di DATABASE.');
+        if (!(qty > 0)) throw new Error('Qty harus lebih dari 0.');
+        let [bulan, week] = String(fd.wk || '').split('|'); bulan = bulan || ''; week = week || '';
+        const tgl = fd.tgl || '';
+        if (tgl) { const w = weekOfDate(tgl); if (!w) throw new Error('Tanggal produksi belum ada di PEMBAGIAN_WEEK.'); bulan = w.bulan; week = w.week; }
+        const c = kfCalc(code, qty, fd.uom, fd.bom);
+        const name = codes.get(code) || ((MRP.master.get(code) || {}).name) || '';
+        const row = { no, code, name, qty, uom: fd.uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: [fd.note, c.note].filter(Boolean).join(' · '), bulan, week, tgl, moEk: '' };
+        let msg = `${no} ${code} ditambahkan`;
+        if (c.ek) {
+          const mode = fd.ekmode || 'new';
+          if (mode === 'new') {
+            const eno = manNextNo(1);
+            let [eb, ew] = String(fd.ekwk || '').split('|');
+            const ec = kfCalc(c.ek, c.ekKg, 'Kg');
+            P.kfDraft.set(eno, { no: eno, code: c.ek, name: ekShortK(c.ek), qty: c.ekKg, uom: 'Kg', bom: ec.bom, kg: c.ekKg, ek: '', ekKg: '', note: `Ekstrak untuk ${no}`, bulan: eb || bulan, week: ew || week, tgl: '', moEk: '' });
+            row.moEk = eno; msg += ` + ekstrak manual ${eno} ${c.ek} ${fmtKg(c.ekKg)} kg`;
+          } else if (mode === 'pick') row.moEk = fd.ekmo || '';
+        }
+        P.kfDraft.set(no, row);
+        renderKonf();
+        return `${msg}. Klik "Simpan perubahan" untuk menyimpan ke Google Sheet.`;
+      },
+    });
+    const body = $('dlgBody'), seq = dlgSeq, f = (n) => body.querySelector(`[name=${n}]`);
+    let lastCode = '';
+    const calc = () => {
+      if (seq !== dlgSeq) return;
+      const code = f('code').value.trim(), qty = Number(String(f('qty').value).replace(',', '.')) || 0;
+      if (code !== lastCode) {
+        lastCode = code;
+        f('name').value = codes.get(code) || ((MRP.master.get(code) || {}).name) || '';
+        f('bom').innerHTML = MRP.byProduct.has(code) ? kfBomOpts(code, '') : '<option value="">(kode tidak punya BOM)</option>';
+        if (MRP.byProduct.has(code)) f('uom').value = kfIsEk(code) ? 'Kg' : 'Pcs';
+      }
+      if (f('tgl').value) { const w = weekOfDate(f('tgl').value); if (w) f('wk').value = w.bulan + '|' + w.week; }
+      const ok = MRP.byProduct.has(code), c = ok ? kfCalc(code, qty, f('uom').value, f('bom').value) : null;
+      $('kfManCalc').innerHTML = !code ? 'Isi kode produk dan qty.' : !ok ? '<span class="pl-bad">Kode tidak punya BoM di DATABASE PPIC.</span>'
+        : `${kfIsEk(code) ? '<b>Produksi ekstrak</b> · ' : ''}Konversi: <b>${c.kg !== '' ? fmtKg(c.kg) + ' kg' : 'tidak dikonversi (pcs)'}</b>${kfIsEk(code) ? '' : c.ek ? ` · ekstrak dibutuhkan <b>${esc(c.ek)} ${esc(ekShortK(c.ek))} ${fmtKg(c.ekKg)} kg</b>` : ' · tidak perlu ekstrak'}`;
+      const ekBox = $('kfManEk');
+      if (c && c.ek && qty > 0) {
+        const prev = { mode: (body.querySelector('[name=ekmode]:checked') || {}).value || 'new', wk: (f('ekwk') || {}).value, mo: (f('ekmo') || {}).value };
+        const eks = kfRows().filter((x) => x.code === c.ek);
+        ekBox.hidden = false;
+        ekBox.innerHTML = `<b>Ekstrak ${esc(c.ek)} · butuh ${fmtKg(c.ekKg)} kg</b>
+          <label class="tb-check"><input type="radio" name="ekmode" value="new"${prev.mode === 'new' ? ' checked' : ''}> Buat produksi ekstrak manual ${fmtKg(c.ekKg)} kg (${esc(manNextNo(1))}) di week <select name="ekwk">${kfWkOpts(prev.wk !== undefined ? prev.wk : f('wk').value)}</select></label>
+          <label class="tb-check"><input type="radio" name="ekmode" value="pick"${prev.mode === 'pick' ? ' checked' : ''}${eks.length ? '' : ' disabled'}> Pakai MO ekstrak yang ada <select name="ekmo"${eks.length ? '' : ' disabled'}>${eks.map((x) => `<option value="${esc(x.no)}"${x.no === prev.mo ? ' selected' : ''}>${esc(x.no)} · ${fmtKg(x.kg !== '' ? x.kg : x.qty)} kg${x.week ? ' · ' + esc(x.week) + ' ' + monShort(x.bulan) : ''}</option>`).join('') || '<option>(belum ada)</option>'}</select></label>
+          <label class="tb-check"><input type="radio" name="ekmode" value="none"${prev.mode === 'none' ? ' checked' : ''}> Nanti saja</label>`;
+      } else { ekBox.hidden = true; ekBox.innerHTML = ''; }
+    };
+    body.addEventListener('input', (e) => { if (!e.target.closest('#kfManEk')) calc(); });
+    body.addEventListener('change', (e) => { if (!e.target.closest('#kfManEk')) calc(); });
+    calc();
+  }
+  // Hubungkan baris manual ke MO Odoo: week / tanggal / MO ekstrak dibawa bila MO asli belum punya; baris manual dihapus
+  function kfLink(manNo, realNo) {
+    const m = kfGet(manNo), r = kfGet(realNo); if (!m || !r) return false;
+    const patch = {};
+    if (!r.week && m.week) { patch.bulan = m.bulan; patch.week = m.week; if (m.tgl) patch.tgl = m.tgl; }
+    else if (!r.tgl && m.tgl && r.bulan === m.bulan && r.week === m.week) patch.tgl = m.tgl;
+    if (!r.moEk && m.moEk && r.ek && r.ek === m.ek) patch.moEk = m.moEk;
+    if (Object.keys(patch).length) kfTouch(realNo, patch);
+    kfRows().filter((x) => x.moEk === manNo).forEach((x) => kfTouch(x.no, { moEk: realNo }));
+    if (P.konf.has(manNo)) P.kfDel.add(manNo);
+    P.kfDraft.delete(manNo);
+    return true;
+  }
+  const kfLinkCands = (m, pool) => pool.filter((x) => !isMan(x.no) && x.code === m.code)
+    .sort((a, b) => ((b.bulan === m.bulan && b.week === m.week) - (a.bulan === m.bulan && a.week === m.week)) || Math.abs((Number(a.qty) || 0) - (Number(m.qty) || 0)) - Math.abs((Number(b.qty) || 0) - (Number(m.qty) || 0)));
+  function kfLinkDialog(manNo) {
+    const m = kfGet(manNo); if (!m) return;
+    const c = kfLinkCands(m, kfRows());
+    openDialog({
+      title: `Hubungkan ${manNo} ke MO Odoo`, ok: 'Hubungkan',
+      body: `<p class="dlg-lead"><b>${esc(m.code)}</b> ${esc(m.name)} · ${fmtQ(m.qty)} ${esc(m.uom)}${m.week ? ` · ${esc(m.week)} ${monShort(m.bulan)}` : ''}${m.tgl ? ` · ${esc(dayLbl(m.tgl))}` : ''}</p>
+        ${c.length ? `<label class="field"><span>MO Odoo</span><select name="real">${c.map((x) => `<option value="${esc(x.no)}">${esc(x.no)} · ${fmtQ(x.qty)} ${esc(x.uom)}${x.week ? ' · ' + esc(x.week) + ' ' + monShort(x.bulan) : ' · tanpa week'}${x.bulan === m.bulan && x.week === m.week ? ' (week sama)' : ''}</option>`).join('')}</select></label>
+          <p class="hint">Baris manual dihapus. Week, tanggal produksi, dan MO ekstrak dari baris manual dibawa ke MO Odoo bila MO itu belum punya.${kfIsEk(m.code) ? ' MO SKU yang memakai ekstrak manual ini ikut pindah ke MO ekstrak Odoo.' : ''}</p>`
+          : `<p class="check err">Belum ada MO Odoo dengan kode ${esc(m.code)}. Upload LIST_MO terbaru dulu.</p>`}`,
+      onSubmit: async (fd) => {
+        if (!fd.real) throw new Error('Pilih MO Odoo.');
+        kfLink(manNo, fd.real); renderKonf();
+        return `${manNo} dihubungkan ke MO ${fd.real}. Klik "Simpan perubahan" untuk menyimpan.`;
+      },
+    });
+    if (!c.length) $('dlgOk').disabled = true;
+  }
   // Toleransi selisih pembulatan: lebih sedikit dari hasil MO (≤ 1% atau ≤ 1 kg) dianggap aman
   const kfTol = (cap) => Math.max(1, cap * 0.01);
   function renderKonf() {
@@ -4001,7 +4120,7 @@
       const b = bomById(r.code, r.bom), dirty = P.kfDraft.has(r.no) ? ' is-dirty' : '';
       const moOpts = `<option value="">–</option>` + eks.filter((x) => x.code === r.ek).map((x) => `<option value="${esc(x.no)}"${x.no === r.moEk ? ' selected' : ''}>${esc(x.no)} · ${fmtKg(x.kg !== '' ? x.kg : x.qty)} kg</option>`).join('')
         + (r.moEk && !eks.some((x) => x.no === r.moEk && x.code === r.ek) ? `<option selected value="${esc(r.moEk)}">${esc(r.moEk)}</option>` : '');
-      return `<tr class="kf-row${dirty}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${consTag(r.no)}</td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name" title="${esc(r.name)}">${esc(r.name)}</span></td>
+      return `<tr class="kf-row${dirty}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${manTag(r.no)}${consTag(r.no)}</td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name" title="${esc(r.name)}">${esc(r.name)}</span></td>
         <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td>${b ? esc(refOf(b)) + kfBomTag(r, b) : (r.bom ? '<span class="pl-bad">versi dihapus</span>' : '<span class="muted">–</span>')}</td>
         <td class="num">${r.kg !== '' ? `<b>${fmtKg(r.kg)}</b>` : '<span class="muted">pcs</span>'}</td>
         <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}${r.tgl ? `<small class="kf-tgl">Tgl ${esc(dayLbl(r.tgl))}</small>` : ''}${planTxt(r)}</td>
@@ -4009,15 +4128,15 @@
         <td class="num">${r.ek ? fmtKg(r.ekKg) : ''}</td>
         <td>${r.ek ? (edit ? `<select class="kf-moek">${moOpts}</select>` : (r.moEk ? `<b>${esc(r.moEk)}</b>` : '<span class="muted">–</span>')) : ''}</td>
         <td><span class="kf-w kf-${w.lvl}">${esc(w.t)}</span>${r.note && r.bom ? `<small class="muted kf-note">${esc(r.note)}</small>` : ''}</td>
-        <td class="kf-act">${edit ? `<button type="button" class="btn-link kf-edit" title="Ubah No MO, produk, qty, BOM">Ubah</button> <button type="button" class="btn-link danger kf-del" title="Hapus MO ini dari daftar">Hapus</button>` : ''}</td></tr>`;
+        <td class="kf-act">${edit ? `${isMan(r.no) ? '<button type="button" class="btn-link kf-link" title="Ganti baris manual dengan MO dari Odoo">Hubungkan ke MO</button> ' : ''}<button type="button" class="btn-link kf-edit" title="Ubah No MO, produk, qty, BOM">Ubah</button> <button type="button" class="btn-link danger kf-del" title="Hapus MO ini dari daftar">Hapus</button>` : ''}</td></tr>`;
     }).join('') || `<tr class="empty"><td colspan="11">${all.length ? 'Tidak ada MO yang cocok.' : 'Belum ada data. Upload file LIST_MO dari Odoo.'}</td></tr>`;
     // MO ekstrak
     $('kfEkRows').innerHTML = (show === 'sku' ? [] : eks).filter((r) => !q || (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q)).sort((a, b) => a.no.localeCompare(b.no)).map((r) => {
       const users = sku.filter((x) => x.moEk === r.no), used = users.reduce((t, x) => t + (Number(x.ekKg) || 0), 0), cap = Number(r.kg !== '' ? r.kg : r.qty) || 0, sisa = cap - used;
       const st = !users.length ? '<span class="kf-w kf-todo">Belum dipakai</span>' : sisa < -kfTol(cap) ? `<span class="kf-w kf-bad">Melebihi hasil (kurang ${fmtKg(-sisa)} kg)</span>` : '<span class="kf-w kf-ok">OK</span>';
-      return `<tr class="kf-row${P.kfDraft.has(r.no) ? ' is-dirty' : ''}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${consTag(r.no)}</td><td>${esc(r.code)} <span class="muted">${esc(r.name)}</span></td><td class="num">${fmtKg(cap)}</td>
+      return `<tr class="kf-row${P.kfDraft.has(r.no) ? ' is-dirty' : ''}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${manTag(r.no)}${consTag(r.no)}</td><td>${esc(r.code)} <span class="muted">${esc(r.name)}</span></td><td class="num">${fmtKg(cap)}</td>
         <td>${edit ? `<select class="kf-week">${wOpts(r)}</select>` : wTxt(r)}</td><td class="num">${fmtKg(used) || 0}</td><td class="num${sisa < -kfTol(cap) ? ' pl-bad' : ''}">${fmtKg(sisa) || 0}</td>
-        <td>${users.map((x) => `${esc(x.no)} <span class="muted">${esc(x.code)}</span>`).join(', ') || '<span class="muted">–</span>'}</td><td>${st}${edit ? ` <button type="button" class="btn-link kf-edit">Ubah</button> <button type="button" class="btn-link danger kf-del">Hapus</button>` : ''}</td></tr>`;
+        <td>${users.map((x) => `${esc(x.no)} <span class="muted">${esc(x.code)}</span>`).join(', ') || '<span class="muted">–</span>'}</td><td>${st}${edit ? ` ${isMan(r.no) ? '<button type="button" class="btn-link kf-link">Hubungkan ke MO</button> ' : ''}<button type="button" class="btn-link kf-edit">Ubah</button> <button type="button" class="btn-link danger kf-del">Hapus</button>` : ''}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="8">Belum ada MO ekstrak.</td></tr>';
     const ws = sku.map((r) => kfWarn(r, all));
     const nBad = ws.filter((w) => w.lvl === 'bad').length, nTodo = ws.filter((w) => w.lvl === 'todo').length;
@@ -4055,6 +4174,7 @@
       renderKonf();
     });
     $(id).addEventListener('click', (e) => {
+      const lk = e.target.closest('.kf-link'); if (lk) { kfLinkDialog(lk.closest('tr[data-no]').dataset.no); return; }
       const ed = e.target.closest('.kf-edit'); if (ed) { kfEditDialog(ed.closest('tr[data-no]').dataset.no); return; }
       const b = e.target.closest('.kf-del'); if (!b) return;
       const no = b.closest('tr[data-no]').dataset.no;
@@ -4288,13 +4408,16 @@
         const merged = kfSyncTgl(Object.assign({}, old, row));
         prop.items.push({ type: 'upd', no: x.no, row: merged, old, changes, tglCleared: old.tgl && !merged.tgl ? old.tgl : '', on: true, restore: P.kfDel.has(x.no) });
       });
-      prop.missing = [...P.konf.values()].filter((r) => !inFile.has(r.no) && !P.kfDel.has(r.no)).map((r) => r.no);
+      prop.missing = [...P.konf.values()].filter((r) => !isMan(r.no) && !inFile.has(r.no) && !P.kfDel.has(r.no)).map((r) => r.no);
+      // Antrean MO manual: sarankan MO dari file dengan kode sama (week sama diutamakan)
+      const fileRows = prop.items.map((i) => i.row).concat(p.rows.filter((x) => !prop.items.some((i) => i.no === x.no) && kfGet(x.no)).map((x) => kfGet(x.no)));
+      prop.links = kfRows().filter((r) => isMan(r.no)).map((m) => { const c = kfLinkCands(m, fileRows); return { man: m.no, m, cands: c.map((x) => x.no), to: c[0] && c[0].bulan === m.bulan && c[0].week === m.week ? c[0].no : '' }; }).filter((x) => x.cands.length);
       P.kfFile = file.name;
       $('kfCheck').className = 'check ok';
       $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${nf.format(prop.items.filter((i) => i.type === 'new').length)} baru, ${nf.format(prop.items.filter((i) => i.type === 'upd').length)} berubah, ${nf.format(prop.same)} sama${prop.held.length ? `, <span class="pl-bad">${nf.format(prop.held.length)} ditahan</span>` : ''}. `
         + (prop.items.length ? '<b>Periksa perubahan di panel review</b> sebelum disimpan. <button type="button" class="btn-link" data-kfreopen="1">Buka panel review</button>' : 'Tidak ada yang perlu disimpan.');
       P.kfProp = prop;
-      if (prop.items.length || prop.held.length) needEdit(() => kfReview1(prop));
+      if (prop.items.length || prop.held.length || prop.links.length) needEdit(() => kfReview1(prop));
     } catch (err) { $('kfCheck').className = 'check err'; $('kfCheck').textContent = err.message; }
     $('kfFile').value = '';
     renderKonf();
@@ -4329,20 +4452,27 @@
         ${nw.length ? sec('MO baru', `${nw.length} MO`, `<table class="po-table pl-mini kfr-t"><thead><tr><th></th><th>No. MO</th><th>Produk</th><th class="num">Qty</th><th>BoM</th><th class="num">Konversi kg</th><th>Plotting Week</th></tr></thead><tbody>
           ${nw.map((i) => `<tr><td>${cb(i)}</td><td><b>${esc(i.no)}</b></td><td><span class="pl-code">${esc(i.row.code)}</span><span class="pl-name">${esc(i.row.name)}</span></td><td class="num">${fmtQ(i.row.qty)} ${esc(i.row.uom)}</td><td>${esc(kfFv(i.row, 'bom'))}</td><td class="num">${esc(kfFv(i.row, 'kg'))}</td><td>${esc(kfWkTxt(i.row))}</td></tr>`).join('')}
           </tbody></table>`, '', 'new') : ''}
+        ${prop.links.length ? sec('Antrean MO manual', `${prop.links.length} baris manual punya MO Odoo yang cocok`, `<table class="po-table pl-mini kfr-t"><thead><tr><th>Manual</th><th>Produk</th><th>Hubungkan ke</th></tr></thead><tbody>
+          ${prop.links.map((l, k) => `<tr><td><b>${esc(l.man)}</b><small class="muted"> ${fmtQ(l.m.qty)} ${esc(l.m.uom)}${l.m.week ? ' · ' + esc(l.m.week) + ' ' + monShort(l.m.bulan) : ''}</small></td><td><span class="pl-code">${esc(l.m.code)}</span><span class="pl-name">${esc(l.m.name)}</span></td>
+            <td><select data-kfl="${k}"><option value="">Biarkan (jangan dihubungkan)</option>${l.cands.map((no) => { const x = prop.items.find((i) => i.no === no); const r = x ? x.row : kfGet(no); return `<option value="${esc(no)}"${no === l.to ? ' selected' : ''}>${esc(no)} · ${fmtQ(r.qty)} ${esc(r.uom)}${r.week ? ' · ' + esc(r.week) + ' ' + monShort(r.bulan) : ''}</option>`; }).join('')}</select></td></tr>`).join('')}
+          </tbody></table><p class="hint">Baris manual yang dihubungkan dihapus; week, tanggal, dan MO ekstraknya dibawa ke MO Odoo bila belum ada.</p>`, ' is-q') : ''}
         ${prop.held.length ? sec('Ditahan — tidak disimpan', `${prop.held.length} MO · Reference BoM belum ada di DATABASE`, `<ul class="kfr-ul">${prop.held.map((x) => `<li><b>${esc(x.no)}</b> ${esc(x.code)} — BoM "${esc(x.bref || '(kosong)')}". Tambahkan lewat Bill of Material → Tambah BoM, lalu upload ulang.</li>`).join('')}</ul>`, ' is-bad') : ''}
         ${prop.bomDiff.length ? sec('BoM beda dengan default Parameter SKU', `${prop.bomDiff.length} MO · tetap dipakai`, `<ul class="kfr-ul">${prop.bomDiff.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`, ' is-warn') : ''}
         ${prop.noBom.length ? sec('Kode tanpa BoM', `${new Set(prop.noBom).size} kode`, `<p class="kfr-p">${esc([...new Set(prop.noBom)].join(', '))}</p>`, ' is-warn') : ''}
         ${prop.missing.length ? sec('Tersimpan tapi tidak ada di file', `${prop.missing.length} MO · tidak dihapus`, `<p class="kfr-p">${esc(prop.missing.slice(0, 80).join(', '))}${prop.missing.length > 80 ? ' …' : ''}</p><p class="hint">Hanya informasi. Hapus manual di tabel bila MO memang sudah tidak berlaku.</p>`) : ''}`,
       onSubmit: async () => {
         const sel = prop.items.filter((i) => i.on);
-        if (!sel.length) throw new Error('Tidak ada MO yang dipilih.');
+        if (!sel.length && !prop.links.some((l) => l.to)) throw new Error('Tidak ada MO yang dipilih.');
         setTimeout(() => kfReview2(prop), 0);
         return '';
       },
     });
     const seq = dlgSeq;
-    const paintOk = () => { const n = prop.items.filter((i) => i.on).length; $('dlgOk').textContent = `Lanjut ke konfirmasi (${n})`; $('dlgOk').disabled = !n; };
-    $('dlgBody').addEventListener('change', (e) => { if (seq !== dlgSeq) return; const c = e.target.closest('[data-kfi]'); if (!c) return; prop.items[Number(c.dataset.kfi)].on = c.checked; paintOk(); });
+    const paintOk = () => { const n = prop.items.filter((i) => i.on).length, nl = prop.links.filter((l) => l.to).length; $('dlgOk').textContent = `Lanjut ke konfirmasi (${n} MO${nl ? ` · ${nl} dihubungkan` : ''})`; $('dlgOk').disabled = !n && !nl; };
+    $('dlgBody').addEventListener('change', (e) => {
+      if (seq !== dlgSeq) return;
+      const l = e.target.closest('[data-kfl]'); if (l) { prop.links[Number(l.dataset.kfl)].to = l.value; paintOk(); return; }
+      const c = e.target.closest('[data-kfi]'); if (!c) return; prop.items[Number(c.dataset.kfi)].on = c.checked; paintOk(); });
     $('dlgBody').addEventListener('click', (e) => {
       if (seq !== dlgSeq) return; const b = e.target.closest('[data-kfall]'); if (!b) return; e.preventDefault();
       const [t, v] = b.dataset.kfall.split('|');
@@ -4355,12 +4485,13 @@
     const sel = prop.items.filter((i) => i.on), nw = sel.filter((i) => i.type === 'new'), up = sel.filter((i) => i.type === 'upd');
     const nTgl = up.filter((i) => i.tglCleared).length, nBom = up.filter((i) => i.changes.some((c) => c[0] === 'BoM')).length, nQty = up.filter((i) => i.changes.some((c) => c[0] === 'Qty')).length, nWk = up.filter((i) => i.changes.some((c) => c[0] === 'Plotting Week')).length;
     openDialog({
-      title: 'Konfirmasi simpan · langkah 2 dari 2', ok: `Simpan ${sel.length} MO ke Google Sheet`,
+      title: 'Konfirmasi simpan · langkah 2 dari 2', ok: `Simpan ke Google Sheet`,
       body: `<p class="dlg-lead">Yang akan disimpan ke KONFIRMASI_PRODUKSI:</p>
         <ul class="kfr-ul kfr-big">
           <li><b>${nw.length}</b> MO baru</li>
           <li><b>${up.length}</b> MO diperbarui${up.length ? ` — qty berubah ${nQty}, BoM berubah ${nBom}, week berubah ${nWk}` : ''}</li>
           ${nTgl ? `<li class="kfr-warn">⚠ <b>${nTgl}</b> MO tanggal produksinya dikosongkan (week berubah) — plot ulang di Plotting Harian</li>` : ''}
+          ${prop.links.some((l) => l.to) ? `<li><b>${prop.links.filter((l) => l.to).length}</b> baris manual dihubungkan ke MO Odoo (baris manual dihapus): ${esc(prop.links.filter((l) => l.to).map((l) => l.man + ' → ' + l.to).join(', '))}</li>` : ''}
           ${prop.held.length ? `<li class="pl-bad">${prop.held.length} MO ditahan, tidak ikut disimpan</li>` : ''}
           ${prop.items.length - sel.length ? `<li class="muted">${prop.items.length - sel.length} MO tidak dicentang, tidak disimpan</li>` : ''}
         </ul>
@@ -4369,6 +4500,7 @@
       onSubmit: async (fd) => {
         if (!fd.ack) throw new Error('Centang dulu "Saya sudah memeriksa perubahan".');
         sel.forEach((i) => { if (i.restore) P.kfDel.delete(i.no); P.kfDraft.set(i.no, i.row); });
+        prop.links.filter((l) => l.to && kfGet(l.to)).forEach((l) => kfLink(l.man, l.to));
         P.kfProp = null;
         setTimeout(() => kfSaveDrafts(), 0);
         return '';
@@ -4379,6 +4511,7 @@
     $('dlgBody').addEventListener('change', (e) => { if (seq !== dlgSeq) return; if (e.target.id === 'kfAck') $('dlgOk').disabled = !e.target.checked; });
   }
   $('kfCheck').addEventListener('click', (e) => { if (e.target.closest('[data-kfreopen]') && P.kfProp) needEdit(() => kfReview1(P.kfProp)); });
+  $('kfManBtn').addEventListener('click', () => needEdit(kfManDialog));
   $('kfBomNote').addEventListener('click', (e) => { if (e.target.closest('#kfBomBtn')) needEdit(kfBomDialog); });
   $('kfExport').addEventListener('click', () => {
     const all = kfRows();
@@ -4931,7 +5064,7 @@
     return { days, J, j, rows, before: j < J.s };
   }
   function phChip(r, edit, extra) { const dirty = P.kfDraft.has(r.no) ? ' is-dirty' : '', ek = kfIsEk(r.code);
-      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}${extra || ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small><span class="ph-cc">${esc(r.code)} ${esc(r.name)}</span></button>`;
+      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}${extra || ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b>${isMan(r.no) ? '<i class="kf-mant">M</i>' : ''} <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small><span class="ph-cc">${esc(r.code)} ${esc(r.name)}</span></button>`;
   }
   // Kolom Belum diplot: semua MO tanpa tanggal (semua week, tanpa week, termasuk ekstrak), dikelompokkan per week; punya kotak cari sendiri
   function phPaintUn() {
@@ -5147,7 +5280,7 @@
       { num: nf.format(new Set(inMonth.map((r) => r.tgl)).size), lbl: 'hari produksi' },
       { num: nf.format(noTgl.length), lbl: `MO week ${monShort(m)} belum bertanggal`, tone: noTgl.length ? 'warn' : '', title: 'MO yang Plotting Week-nya di bulan ini tapi belum diberi tanggal di Plotting Harian' },
     ]);
-    const chip = (r) => `<button type="button" class="kp-mo${kfIsEk(r.code) ? ' is-ek' : ''}${q ? (hit(r) ? ' is-hit' : ' is-dim') : ''}" data-no="${esc(r.no)}" title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}"><b>${esc(r.no)}</b> <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`;
+    const chip = (r) => `<button type="button" class="kp-mo${kfIsEk(r.code) ? ' is-ek' : ''}${q ? (hit(r) ? ' is-hit' : ' is-dim') : ''}" data-no="${esc(r.no)}" title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}"><b>${esc(r.no)}</b>${isMan(r.no) ? '<i class="kf-mant">M</i>' : ''} <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`;
     $('kpGrid').innerHTML = `<div class="kp-hd"></div>${HARI.map((h) => `<div class="kp-hd">${h}</div>`).join('')}`
       + rows.map((wd) => {
         const w = weekOfDate(wd.find((d) => d.slice(0, 7) === m) || wd[0]);
@@ -5175,7 +5308,7 @@
       { num: nf.format(new Set(inWk.map((r) => r.tgl)).size), lbl: 'hari produksi' },
       { num: nf.format(un.length), lbl: 'MO week ini belum bertanggal', tone: un.length ? 'warn' : '' },
     ]);
-    const card = (r) => `<button type="button" class="kp-mo kp-mo2${kfIsEk(r.code) ? ' is-ek' : ''}${q ? (hit(r) ? ' is-hit' : ' is-dim') : ''}" data-no="${esc(r.no)}" title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}"><span class="kp-l1"><b>${esc(r.no)}</b><small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></span><span class="kp-l2">${esc(r.code)} · ${esc(r.name)}</span></button>`;
+    const card = (r) => `<button type="button" class="kp-mo kp-mo2${kfIsEk(r.code) ? ' is-ek' : ''}${q ? (hit(r) ? ' is-hit' : ' is-dim') : ''}" data-no="${esc(r.no)}" title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}"><span class="kp-l1"><b>${esc(r.no)}${isMan(r.no) ? '<i class="kf-mant">M</i>' : ''}</b><small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></span><span class="kp-l2">${esc(r.code)} · ${esc(r.name)}</span></button>`;
     $('kpGrid').classList.add('is-week');
     $('kpGrid').innerHTML = days.map((d) => {
       const L = inWk.filter((r) => r.tgl === d).sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true }));
