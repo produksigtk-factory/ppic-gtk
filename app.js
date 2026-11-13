@@ -4264,41 +4264,121 @@
     try {
       if (!MRP.loaded || !P.ready) throw new Error('Data BOM belum termuat. Tunggu sebentar lalu coba lagi.');
       const p = parseKonf(await readBook(file));
-      let nNew = 0, nUpd = 0, nSame = 0;
-      const noBom = [], held = [], diff = [];
-      // Kolom Bill of Material/Reference (Odoo): BoM MO = versi dengan Reference sama; tidak ada di DATABASE → MO ditahan
+      const prop = { file: file.name, sheet: p.sheet, hasRef: p.hasRef, items: [], same: 0, held: [], noBom: [], bomDiff: [], missing: [] };
+      // Kolom Reference BoM (Odoo): BoM MO = versi dengan Reference sama; tidak ada di DATABASE → MO ditahan
       const refKey = (v) => String(v || '').trim().toLowerCase().replace(/^empty ref$/, '');
+      const inFile = new Set();
       p.rows.forEach((x) => {
+        inFile.add(x.no);
         const old = kfGet(x.no);
         let useBom = old && old.code === x.code ? old.bom : '';
         if (p.hasRef) {
           const m = (MRP.byProduct.get(x.code) || []).filter((b) => refKey(b.ref) === refKey(x.bref));
-          if (!m.length) { held.push(x); return; }
+          if (!m.length) { prop.held.push(x); return; }
           useBom = m[0].id;
-          const d = activeBom(x.code); if (d && d.id !== useBom) diff.push(`${x.no} ${x.code} (${refOf(m[0])} ≠ default ${refOf(d)})`);
+          const d = activeBom(x.code); if (d && d.id !== useBom) prop.bomDiff.push(`${x.no} ${x.code} (${refOf(m[0])} ≠ default ${refOf(d)})`);
         }
-        if (old && P.kfDel.has(x.no)) P.kfDel.delete(x.no);
         const c = kfCalc(x.code, x.qty, x.uom, useBom);
-        if (!c.bom) noBom.push(x.code);
+        if (!c.bom) prop.noBom.push(x.code);
         const row = { no: x.no, code: x.code, name: x.name || (MRP.master.get(x.code) || {}).name || '', qty: x.qty, uom: x.uom, bom: c.bom, kg: c.kg, ek: c.ek, ekKg: c.ekKg, note: c.note,
           bulan: x.week ? x.bulan : (old ? old.bulan : ''), week: x.week || (old ? old.week : ''), moEk: x.moEk || (old ? old.moEk : '') };
-        if (!old) { P.kfDraft.set(x.no, row); nNew++; return; }
-        const same = ['code', 'qty', 'uom', 'bom', 'bulan', 'week', 'moEk'].every((k) => String(old[k] ?? '') === String(row[k] ?? ''));
-        if (same) { nSame++; return; }
-        P.kfDraft.set(x.no, kfSyncTgl(Object.assign({}, old, row))); nUpd++;
+        if (!old) { prop.items.push({ type: 'new', no: x.no, row, on: true }); return; }
+        const changes = kfDiff(old, row);
+        if (!changes.length) { prop.same++; return; }
+        const merged = kfSyncTgl(Object.assign({}, old, row));
+        prop.items.push({ type: 'upd', no: x.no, row: merged, old, changes, tglCleared: old.tgl && !merged.tgl ? old.tgl : '', on: true, restore: P.kfDel.has(x.no) });
       });
+      prop.missing = [...P.konf.values()].filter((r) => !inFile.has(r.no) && !P.kfDel.has(r.no)).map((r) => r.no);
       P.kfFile = file.name;
       $('kfCheck').className = 'check ok';
-      $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${held.length ? nf.format(held.length) + ' ditahan, ' : ''}${nf.format(nNew)} baru, ${nf.format(nUpd)} berubah, ${nf.format(nSame)} sama dengan yang tersimpan.`
-        + (noBom.length ? `<br><span class="pl-warn-t">${noBom.length} kode tidak punya BOM:</span> ${esc([...new Set(noBom)].join(', '))}` : '')
-        + (p.hasRef ? '<br>BoM tiap MO mengikuti kolom Reference BoM dari Odoo.' : '')
-        + (diff.length ? `<br><span class="pl-warn-t">⚠ ${diff.length} MO memakai BoM beda dengan default Parameter SKU</span> (tetap dipakai): ${esc(diff.slice(0, 6).join(' · '))}${diff.length > 6 ? ' …' : ''}` : '')
-        + (held.length ? `<br><span class="pl-bad">${held.length} MO ditahan, tidak disimpan — Reference BoM dari Odoo belum ada di DATABASE:</span> ${esc(held.map((x) => `${x.no} ${x.code} "${x.bref || '(kosong)'}"`).join(' · '))}. Tambahkan BoM-nya lewat Bill of Material → Tambah BoM, lalu upload ulang.` : '')
-        + `<br>${P.edit ? 'Lengkapi Plotting Week & MO Ekstrak, lalu klik <b>Simpan perubahan</b>.' : 'Masuk <b>Mode edit</b> untuk melengkapi dan menyimpan.'}`;
+      $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${nf.format(prop.items.filter((i) => i.type === 'new').length)} baru, ${nf.format(prop.items.filter((i) => i.type === 'upd').length)} berubah, ${nf.format(prop.same)} sama${prop.held.length ? `, <span class="pl-bad">${nf.format(prop.held.length)} ditahan</span>` : ''}. `
+        + (prop.items.length ? '<b>Periksa perubahan di panel review</b> sebelum disimpan. <button type="button" class="btn-link" data-kfreopen="1">Buka panel review</button>' : 'Tidak ada yang perlu disimpan.');
+      P.kfProp = prop;
+      if (prop.items.length || prop.held.length) needEdit(() => kfReview1(prop));
     } catch (err) { $('kfCheck').className = 'check err'; $('kfCheck').textContent = err.message; }
     $('kfFile').value = '';
     renderKonf();
   });
+  /* ---------- Upload LIST_MO: verifikasi 2 langkah (1. review & pilih, 2. konfirmasi & simpan) ---------- */
+  const KF_FLD = [['code', 'Kode'], ['qty', 'Qty'], ['uom', 'UoM'], ['bom', 'BoM'], ['kg', 'Konversi kg'], ['wk', 'Plotting Week'], ['moEk', 'MO Ekstrak']];
+  const kfWkTxt = (r) => (r.week ? `${r.week} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '–');
+  const kfFv = (r, f) => (f === 'wk' ? kfWkTxt(r) : f === 'bom' ? (r.bom ? (bomById(r.code, r.bom) ? refOf(bomById(r.code, r.bom)) : r.bom) : '–') : f === 'kg' ? (r.kg !== '' && r.kg !== undefined ? fmtKg(r.kg) : '–') : f === 'qty' ? fmtQ(r.qty) : String(r[f] ?? '') || '–');
+  function kfDiff(o, n) {
+    const out = [];
+    KF_FLD.forEach(([f, l]) => {
+      const a = f === 'wk' ? (o.bulan || '') + '|' + (o.week || '') : String(o[f] ?? ''), b = f === 'wk' ? (n.bulan || '') + '|' + (n.week || '') : String(n[f] ?? '');
+      if (f === 'kg' ? Math.abs((Number(o.kg) || 0) - (Number(n.kg) || 0)) > 1e-6 || (o.kg === '') !== (n.kg === '') : a !== b) out.push([l, kfFv(o, f), kfFv(n, f)]);
+    });
+    return out;
+  }
+  function kfReview1(prop) {
+    const nw = prop.items.filter((i) => i.type === 'new'), up = prop.items.filter((i) => i.type === 'upd');
+    const cb = (i) => `<input type="checkbox" data-kfi="${prop.items.indexOf(i)}"${i.on ? ' checked' : ''} aria-label="Pilih ${esc(i.no)}">`;
+    const sec = (t, n, body, cls = '', all = '') => `<details class="kfr-sec${cls}" open><summary><b>${t}</b> <span>${n}</span>${all ? ` <span class="kfr-all"><button type="button" class="btn-link" data-kfall="${all}|1">Pilih semua</button> · <button type="button" class="btn-link" data-kfall="${all}|0">Kosongkan</button></span>` : ''}</summary>${body}</details>`;
+    openDialog({
+      title: `Review upload LIST_MO · langkah 1 dari 2`, ok: 'Lanjut ke konfirmasi', wide: true,
+      body: `<p class="dlg-lead">File <b>${esc(prop.file)}</b>. Periksa perubahan di bawah, hapus centang yang <b>tidak</b> ingin disimpan. Belum ada yang disimpan sampai langkah 2.</p>
+        <div class="kfr-sum">
+          <span class="kfr-pill is-new">${nw.length} baru</span><span class="kfr-pill is-upd">${up.length} berubah</span><span class="kfr-pill">${prop.same} sama</span>
+          ${prop.held.length ? `<span class="kfr-pill is-bad">${prop.held.length} ditahan</span>` : ''}${prop.missing.length ? `<span class="kfr-pill">${prop.missing.length} tersimpan tapi tidak ada di file</span>` : ''}
+        </div>
+        ${up.length ? sec('MO berubah', `${up.length} MO · nilai lama → baru`, `<table class="po-table pl-mini kfr-t"><thead><tr><th></th><th>No. MO</th><th>Produk</th><th>Perubahan</th></tr></thead><tbody>
+          ${up.map((i) => `<tr><td>${cb(i)}</td><td><b>${esc(i.no)}</b></td><td><span class="pl-code">${esc(i.row.code)}</span><span class="pl-name">${esc(i.row.name)}</span></td>
+            <td>${i.changes.map(([l, a, b]) => `<div class="kfr-ch"><span>${esc(l)}</span> <s>${esc(a)}</s> → <b>${esc(b)}</b></div>`).join('')}${i.tglCleared ? `<div class="kfr-warn">⚠ Tanggal produksi ${esc(dayLbl(i.tglCleared))} dikosongkan (week berubah)</div>` : ''}${i.restore ? '<div class="kfr-warn">MO ini sebelumnya ditandai hapus — akan dikembalikan</div>' : ''}</td></tr>`).join('')}
+          </tbody></table>`, '', 'upd') : ''}
+        ${nw.length ? sec('MO baru', `${nw.length} MO`, `<table class="po-table pl-mini kfr-t"><thead><tr><th></th><th>No. MO</th><th>Produk</th><th class="num">Qty</th><th>BoM</th><th class="num">Konversi kg</th><th>Plotting Week</th></tr></thead><tbody>
+          ${nw.map((i) => `<tr><td>${cb(i)}</td><td><b>${esc(i.no)}</b></td><td><span class="pl-code">${esc(i.row.code)}</span><span class="pl-name">${esc(i.row.name)}</span></td><td class="num">${fmtQ(i.row.qty)} ${esc(i.row.uom)}</td><td>${esc(kfFv(i.row, 'bom'))}</td><td class="num">${esc(kfFv(i.row, 'kg'))}</td><td>${esc(kfWkTxt(i.row))}</td></tr>`).join('')}
+          </tbody></table>`, '', 'new') : ''}
+        ${prop.held.length ? sec('Ditahan — tidak disimpan', `${prop.held.length} MO · Reference BoM belum ada di DATABASE`, `<ul class="kfr-ul">${prop.held.map((x) => `<li><b>${esc(x.no)}</b> ${esc(x.code)} — BoM "${esc(x.bref || '(kosong)')}". Tambahkan lewat Bill of Material → Tambah BoM, lalu upload ulang.</li>`).join('')}</ul>`, ' is-bad') : ''}
+        ${prop.bomDiff.length ? sec('BoM beda dengan default Parameter SKU', `${prop.bomDiff.length} MO · tetap dipakai`, `<ul class="kfr-ul">${prop.bomDiff.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`, ' is-warn') : ''}
+        ${prop.noBom.length ? sec('Kode tanpa BoM', `${new Set(prop.noBom).size} kode`, `<p class="kfr-p">${esc([...new Set(prop.noBom)].join(', '))}</p>`, ' is-warn') : ''}
+        ${prop.missing.length ? sec('Tersimpan tapi tidak ada di file', `${prop.missing.length} MO · tidak dihapus`, `<p class="kfr-p">${esc(prop.missing.slice(0, 80).join(', '))}${prop.missing.length > 80 ? ' …' : ''}</p><p class="hint">Hanya informasi. Hapus manual di tabel bila MO memang sudah tidak berlaku.</p>`) : ''}`,
+      onSubmit: async () => {
+        const sel = prop.items.filter((i) => i.on);
+        if (!sel.length) throw new Error('Tidak ada MO yang dipilih.');
+        setTimeout(() => kfReview2(prop), 0);
+        return '';
+      },
+    });
+    const seq = dlgSeq;
+    const paintOk = () => { const n = prop.items.filter((i) => i.on).length; $('dlgOk').textContent = `Lanjut ke konfirmasi (${n})`; $('dlgOk').disabled = !n; };
+    $('dlgBody').addEventListener('change', (e) => { if (seq !== dlgSeq) return; const c = e.target.closest('[data-kfi]'); if (!c) return; prop.items[Number(c.dataset.kfi)].on = c.checked; paintOk(); });
+    $('dlgBody').addEventListener('click', (e) => {
+      if (seq !== dlgSeq) return; const b = e.target.closest('[data-kfall]'); if (!b) return; e.preventDefault();
+      const [t, v] = b.dataset.kfall.split('|');
+      prop.items.forEach((i, k) => { if (i.type === t) { i.on = v === '1'; const c = $('dlgBody').querySelector(`[data-kfi="${k}"]`); if (c) c.checked = i.on; } });
+      paintOk();
+    });
+    paintOk();
+  }
+  function kfReview2(prop) {
+    const sel = prop.items.filter((i) => i.on), nw = sel.filter((i) => i.type === 'new'), up = sel.filter((i) => i.type === 'upd');
+    const nTgl = up.filter((i) => i.tglCleared).length, nBom = up.filter((i) => i.changes.some((c) => c[0] === 'BoM')).length, nQty = up.filter((i) => i.changes.some((c) => c[0] === 'Qty')).length, nWk = up.filter((i) => i.changes.some((c) => c[0] === 'Plotting Week')).length;
+    openDialog({
+      title: 'Konfirmasi simpan · langkah 2 dari 2', ok: `Simpan ${sel.length} MO ke Google Sheet`,
+      body: `<p class="dlg-lead">Yang akan disimpan ke KONFIRMASI_PRODUKSI:</p>
+        <ul class="kfr-ul kfr-big">
+          <li><b>${nw.length}</b> MO baru</li>
+          <li><b>${up.length}</b> MO diperbarui${up.length ? ` — qty berubah ${nQty}, BoM berubah ${nBom}, week berubah ${nWk}` : ''}</li>
+          ${nTgl ? `<li class="kfr-warn">⚠ <b>${nTgl}</b> MO tanggal produksinya dikosongkan (week berubah) — plot ulang di Plotting Harian</li>` : ''}
+          ${prop.held.length ? `<li class="pl-bad">${prop.held.length} MO ditahan, tidak ikut disimpan</li>` : ''}
+          ${prop.items.length - sel.length ? `<li class="muted">${prop.items.length - sel.length} MO tidak dicentang, tidak disimpan</li>` : ''}
+        </ul>
+        <p class="hint">Proyeksi Stok, Plotting Harian, dan Kalender Produksi akan memakai data baru ini setelah tersimpan.</p>
+        <label class="tb-check kfr-ack"><input type="checkbox" name="ack" id="kfAck"> Saya sudah memeriksa perubahan di langkah 1</label>`,
+      onSubmit: async (fd) => {
+        if (!fd.ack) throw new Error('Centang dulu "Saya sudah memeriksa perubahan".');
+        sel.forEach((i) => { if (i.restore) P.kfDel.delete(i.no); P.kfDraft.set(i.no, i.row); });
+        P.kfProp = null;
+        setTimeout(() => kfSaveDrafts(), 0);
+        return '';
+      },
+    });
+    const seq = dlgSeq;
+    $('dlgOk').disabled = true;
+    $('dlgBody').addEventListener('change', (e) => { if (seq !== dlgSeq) return; if (e.target.id === 'kfAck') $('dlgOk').disabled = !e.target.checked; });
+  }
+  $('kfCheck').addEventListener('click', (e) => { if (e.target.closest('[data-kfreopen]') && P.kfProp) needEdit(() => kfReview1(P.kfProp)); });
   $('kfBomNote').addEventListener('click', (e) => { if (e.target.closest('#kfBomBtn')) needEdit(kfBomDialog); });
   $('kfExport').addEventListener('click', () => {
     const all = kfRows();
