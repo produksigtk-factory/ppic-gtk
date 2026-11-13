@@ -1600,3 +1600,9 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-board { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
 #phWeek { min-width: 250px; }
 .ph-table td.pl-neg { background: var(--late-soft); color: var(--late); font-weight: 600; }
+.ph-board.is-edit .ph-chip { cursor: grab; }
+.ph-chip.is-dragging, tr.is-dragging td { opacity: .45; }
+.ph-board.is-dragging .ph-day { transition: background .12s, border-color .12s; }
+.ph-day.is-over { background: #e9f5ee; border-color: var(--brand); border-style: dashed; }
+.ph-day.ph-unpl.is-over { background: #fff1c7; }
+#phUnRows tr.ph-drag { cursor: grab; }

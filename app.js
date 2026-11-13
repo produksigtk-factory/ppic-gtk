@@ -4850,18 +4850,19 @@
     const all = kfRows(), days = dayList(wk), q = $('phQ').value.trim().toLowerCase();
     const inWk = all.filter((r) => r.bulan === wk.bulan && r.week === wk.week);
     const chip = (r) => { const dirty = P.kfDraft.has(r.no) ? ' is-dirty' : '', ek = kfIsEk(r.code);
-      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}" data-no="${esc(r.no)}" title="${esc(r.code + ' ' + r.name)}${edit ? ' · klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b> <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`; };
+      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b> <span>${esc(r.code)}</span> <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small></button>`; };
     const tot = (list) => { const kg = list.filter((r) => planUnit(r.code) !== 'pcs').reduce((t, r) => t + (Number(r.kg !== '' ? r.kg : r.qty) || 0), 0), pcs = list.filter((r) => planUnit(r.code) === 'pcs').reduce((t, r) => t + (Number(r.qty) || 0), 0);
       return [kg ? fmtKg(kg) + ' kg' : '', pcs ? fmtQ(pcs) + ' pcs' : ''].filter(Boolean).join(' · ') || '–'; };
     const unpl = inWk.filter((r) => !r.tgl);
-    $('phBoard').innerHTML = days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div>${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div>`; }).join('')
-      + `<div class="ph-day ph-unpl"><div class="ph-dh"><b>Belum diplot</b><small>${unpl.length} MO · dihitung hari pertama</small></div>${unpl.map(chip).join('') || '<p class="ph-empty">Semua MO week ini sudah bertanggal.</p>'}</div>`;
+    $('phBoard').innerHTML = days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}" data-day="${d}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div>${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div>`; }).join('')
+      + `<div class="ph-day ph-unpl" data-day=""><div class="ph-dh"><b>Belum diplot</b><small>${unpl.length} MO · dihitung hari pertama</small></div>${unpl.map(chip).join('') || '<p class="ph-empty">Semua MO week ini sudah bertanggal.</p>'}</div>`;
     // Tabel MO yang belum punya tanggal (semua week)
     let un = all.filter((r) => !r.tgl);
     if (q) un = un.filter((r) => (r.no + ' ' + r.code + ' ' + r.name).toLowerCase().includes(q));
     un.sort((a, b) => ((a.bulan || '9') + (a.week || '')).localeCompare((b.bulan || '9') + (b.week || '')) || a.no.localeCompare(b.no, 'id', { numeric: true }));
     $('phUnCount').textContent = `${nf.format(un.length)} MO belum punya tanggal produksi`;
-    $('phUnRows').innerHTML = un.slice(0, 400).map((r) => `<tr class="${P.kfDraft.has(r.no) ? 'is-dirty' : ''}" data-no="${esc(r.no)}"><td><b>${esc(r.no)}</b>${kfIsEk(r.code) ? ' <small class="badge b-wait">Ekstrak</small>' : ''}</td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name">${esc(r.name)}</span></td>
+    $('phBoard').classList.toggle('is-edit', edit);
+    $('phUnRows').innerHTML = un.slice(0, 400).map((r) => `<tr class="${P.kfDraft.has(r.no) ? 'is-dirty' : ''}${edit ? ' ph-drag' : ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true" title="Seret ke salah satu hari di papan atas"' : ''}><td><b>${esc(r.no)}</b>${kfIsEk(r.code) ? ' <small class="badge b-wait">Ekstrak</small>' : ''}</td><td><span class="pl-code">${esc(r.code)}</span><span class="pl-name">${esc(r.name)}</span></td>
       <td class="num">${fmtQ(r.qty)} <small class="muted">${esc(r.uom)}</small></td><td class="num">${r.kg !== '' ? fmtKg(r.kg) : '–'}</td>
       <td>${r.week ? `${esc(r.week)} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '<span class="muted">Belum ada week</span>'}</td>
       <td>${edit ? `<input type="date" class="ph-date" value="" aria-label="Tanggal produksi ${esc(r.no)}">` : '<span class="muted">–</span>'}</td></tr>`).join('') || '<tr class="empty"><td colspan="6">Semua MO sudah punya tanggal produksi.</td></tr>';
@@ -4905,6 +4906,32 @@
   $('phBasis').addEventListener('click', (e) => { const b = e.target.closest('[data-b]'); if (!b || b.disabled) return; P.phBasis = b.dataset.b; renderHarian(); });
   $('phSaveBtn').addEventListener('click', kfSaveDrafts);
   $('phBoard').addEventListener('click', (e) => { const c = e.target.closest('.ph-chip'); if (!c) return; if (!(P.edit && P.hasKonf)) { toast('Masuk Mode edit untuk mengubah tanggal.'); return; } phDateDialog(c.dataset.no); });
+  // Drag & drop: seret MO (papan atau tabel "belum diplot") ke kolom hari; ke "Belum diplot" = kosongkan tanggal
+  const phDragStart = (e) => {
+    const el = e.target.closest('[data-no][draggable="true"]'); if (!el) return;
+    e.dataTransfer.setData('text/plain', el.dataset.no); e.dataTransfer.effectAllowed = 'move';
+    el.classList.add('is-dragging'); $('phBoard').classList.add('is-dragging');
+  };
+  const phDragEnd = (e) => {
+    const el = e.target.closest('[data-no]'); if (el) el.classList.remove('is-dragging');
+    $('phBoard').classList.remove('is-dragging'); document.querySelectorAll('.ph-day.is-over').forEach((x) => x.classList.remove('is-over'));
+  };
+  ['phBoard', 'phUnRows'].forEach((id) => { $(id).addEventListener('dragstart', phDragStart); $(id).addEventListener('dragend', phDragEnd); });
+  $('phBoard').addEventListener('dragover', (e) => {
+    const d = e.target.closest('.ph-day'); if (!d || !(P.edit && P.hasKonf)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.ph-day.is-over').forEach((x) => { if (x !== d) x.classList.remove('is-over'); });
+    d.classList.add('is-over');
+  });
+  $('phBoard').addEventListener('dragleave', (e) => { const d = e.target.closest('.ph-day'); if (d && !d.contains(e.relatedTarget)) d.classList.remove('is-over'); });
+  $('phBoard').addEventListener('drop', (e) => {
+    const d = e.target.closest('.ph-day'); if (!d) return;
+    e.preventDefault(); d.classList.remove('is-over');
+    const no = e.dataTransfer.getData('text/plain'); if (!no || !(P.edit && P.hasKonf)) return;
+    const r = kfGet(no); if (!r || (r.tgl || '') === d.dataset.day) return;
+    phSetDate(no, d.dataset.day);
+    toast(d.dataset.day ? `${no} → ${dayLbl(d.dataset.day)}` : `${no} dikembalikan ke Belum diplot`);
+  });
   $('phUnRows').addEventListener('change', (e) => { const inp = e.target.closest('.ph-date'); if (!inp) return; phSetDate(inp.closest('tr').dataset.no, inp.value); });
   $('phExport').addEventListener('click', () => {
     const H = P.ph; if (!H || !H.rows.length) return;
