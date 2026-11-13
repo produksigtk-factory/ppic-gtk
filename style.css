@@ -1770,3 +1770,14 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .kfm-u label:has(input:checked) { background: var(--brand); color: #fff; border-color: var(--brand); }
 .kfm-u label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
 .kfm-u input { accent-color: #fff; }
+/* Kalender: alokasi ekstrak */
+.kp-h { font-size: 14px; margin: 14px 0 8px; }
+.kp-alloc { margin-bottom: 8px; }
+.kp-bar { height: 10px; background: #e8ecea; border-radius: 6px; overflow: hidden; }
+.kp-bar i { display: block; height: 100%; background: var(--brand); border-radius: 6px; }
+.kp-bar i.is-over { background: var(--late); }
+.kp-nums { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; margin-top: 6px; }
+.kp-at { min-width: 0; width: 100%; font-size: 12.5px; }
+.kp-at .pl-name { display: block; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kp-at tr.kp-late td { background: #fff5f5; }
+.kp-lt { font-size: 11px; }

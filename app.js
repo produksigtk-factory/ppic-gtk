@@ -5327,6 +5327,36 @@
       + `<div class="kp-day kp-wday kp-wun"><div class="kp-dn kp-wdn"><b>Belum bertanggal</b><small>${un.length} MO · ${kpQtyTxt(un) || '–'}</small></div><div class="kp-list">${un.sort((a, b) => a.no.localeCompare(b.no, 'id', { numeric: true })).map(card).join('') || '<p class="ph-empty">Semua MO week ini sudah bertanggal.</p>'}</div></div>`;
     $('kpInfo').textContent = q ? `${nf.format(inWk.concat(un).filter(hit).length)} MO cocok di ${wLabel(wk)}` : 'Hanya untuk review. Ubah tanggal produksi di menu Plotting Harian.';
   }
+  // Alokasi ekstrak: MO ekstrak → MO SKU mana saja yang memakai (MO Ekstrak dipakai), kg, tanggal; MO SKU → batch ekstrak yang dipakai
+  const kpWhen = (x) => (x.tgl ? esc(dayLbl(x.tgl)) : x.week ? `${esc(x.week)} ${monShort(x.bulan)} <span class="muted">(belum bertanggal)</span>` : '<span class="muted">belum diplot</span>');
+  function kpEkAlloc(r) {
+    const all = [...P.konf.values()];
+    if (kfIsEk(r.code)) {
+      const users = all.filter((x) => x.moEk === r.no).sort((a, b) => String(a.tgl || a.bulan + a.week).localeCompare(String(b.tgl || b.bulan + b.week)) || a.no.localeCompare(b.no, 'id', { numeric: true }));
+      const cap = Number(r.kg !== '' ? r.kg : r.qty) || 0, used = users.reduce((t, x) => t + (Number(x.ekKg) || 0), 0), sisa = cap - used;
+      const late = (x) => r.tgl && x.tgl && x.tgl < r.tgl;
+      const bar = cap ? Math.min(100, used / cap * 100) : 0;
+      return `<h3 class="kp-h">Alokasi batch ekstrak ${esc(r.no)}</h3>
+        <div class="kp-alloc"><div class="kp-bar"><i style="width:${bar.toFixed(1)}%"${sisa < -kfTol(cap) ? ' class="is-over"' : ''}></i></div>
+          <div class="kp-nums"><span>Hasil <b>${fmtKg(cap)} kg</b></span><span>Terpakai <b>${fmtKg(used) || 0} kg</b> (${cap ? nf.format(Math.round(used / cap * 100)) : 0}%)</span><span class="${sisa < -kfTol(cap) ? 'pl-bad' : ''}">${sisa < -kfTol(cap) ? `Kurang <b>${fmtKg(-sisa)} kg</b>` : `Sisa <b>${fmtKg(sisa) || 0} kg</b>`}</span></div></div>
+        ${users.length ? `<table class="po-table pl-mini kp-at"><thead><tr><th>MO SKU</th><th>Produk</th><th>Tanggal / week</th><th class="num">Ekstrak (kg)</th><th class="num">Porsi</th></tr></thead><tbody>
+          ${users.map((x) => `<tr${late(x) ? ' class="kp-late"' : ''}><td><button type="button" class="btn-link" data-kpopen="${esc(x.no)}" title="Buka detail MO ini"><b>${esc(x.no)}</b></button>${isMan(x.no) ? '<i class="kf-mant">M</i>' : ''}</td><td><span class="pl-code">${esc(x.code)}</span><span class="pl-name">${esc(x.name)}</span></td><td>${kpWhen(x)}${late(x) ? '<div class="pl-bad kp-lt">⚠ sebelum ekstrak diproduksi</div>' : ''}</td><td class="num">${fmtKg(x.ekKg) || 0}</td><td class="num">${cap ? nf.format(Math.round((Number(x.ekKg) || 0) / cap * 100)) + '%' : '–'}</td></tr>`).join('')}
+          <tr class="csl-tot"><th colspan="3">Total terpakai</th><th class="num">${fmtKg(used) || 0}</th><th class="num">${cap ? nf.format(Math.round(used / cap * 100)) + '%' : '–'}</th></tr></tbody></table>`
+          : '<p class="check">Belum ada MO SKU yang memakai batch ekstrak ini. Pilih di Konfirmasi Produksi → kolom MO Ekstrak dipakai.</p>'}`;
+    }
+    if (!r.ek) return '';
+    const e = r.moEk ? P.konf.get(r.moEk) : null;
+    if (!e) return `<h3 class="kp-h">Batch ekstrak</h3><p class="check${r.moEk ? ' err' : ''}">${r.moEk ? `MO ekstrak ${esc(r.moEk)} tidak ditemukan.` : 'Belum dipilih MO ekstrak yang dipakai (Konfirmasi Produksi → kolom MO Ekstrak dipakai).'}</p>`;
+    const cap = Number(e.kg !== '' ? e.kg : e.qty) || 0, others = all.filter((x) => x.moEk === e.no), used = others.reduce((t, x) => t + (Number(x.ekKg) || 0), 0);
+    const late = e.tgl && r.tgl && r.tgl < e.tgl;
+    return `<h3 class="kp-h">Batch ekstrak dipakai</h3>
+      <dl class="kp-dl"><div><dt>MO ekstrak</dt><dd><b>${esc(e.no)}</b>${isMan(e.no) ? '<i class="kf-mant">M</i>' : ''} · ${esc(e.code)} ${esc(e.name)} · hasil ${fmtKg(cap)} kg</dd></div>
+        <div><dt>Diproduksi</dt><dd>${kpWhen(e)}${late ? ' <span class="pl-bad">⚠ setelah MO ini</span>' : ''}</dd></div>
+        <div><dt>Dipakai MO ini</dt><dd><b>${fmtKg(r.ekKg) || 0} kg</b> (${cap ? nf.format(Math.round((Number(r.ekKg) || 0) / cap * 100)) : 0}% batch)</dd></div>
+        <div><dt>Batch dipakai juga oleh</dt><dd>${others.filter((x) => x.no !== r.no).map((x) => `${esc(x.no)} <span class="muted">${esc(x.code)} ${fmtKg(x.ekKg)} kg</span>`).join(', ') || '<span class="muted">–</span>'}</dd></div>
+        <div><dt>Sisa batch</dt><dd class="${cap - used < -kfTol(cap) ? 'pl-bad' : ''}"><b>${fmtKg(cap - used) || 0} kg</b></dd></div></dl>
+      <button type="button" class="btn-link" data-kpopen="${esc(e.no)}">Lihat alokasi lengkap batch ${esc(e.no)}</button>`;
+  }
   function kpMoDialog(no) {
     const r = P.konf.get(no); if (!r) return;
     const b = r.bom ? bomById(r.code, r.bom) : null;
@@ -5338,12 +5368,14 @@
         <div><dt>BoM</dt><dd>${b ? esc(refOf(b)) + ` <span class="muted">${esc(b.id)}</span>` : '–'}</dd></div>
         <div><dt>Tanggal produksi</dt><dd>${r.tgl ? esc(dayLbl(r.tgl)) + ' ' + r.tgl.slice(0, 4) : '<span class="muted">Belum diplot</span>'}</dd></div>
         <div><dt>Plotting Week</dt><dd>${r.week ? `${esc(r.week)} ${monShort(r.bulan)} ${r.bulan.slice(0, 4)}` : '–'}</dd></div>
-        ${r.ek ? `<div><dt>Ekstrak dibutuhkan</dt><dd>${esc(r.ek)}${r.ekKg !== '' && r.ekKg !== undefined ? ` · ${fmtKg(r.ekKg)} kg` : ''}${r.moEk ? ` · MO ${esc(r.moEk)}` : ''}</dd></div>` : ''}
+        ${r.ek ? `<div><dt>Ekstrak dibutuhkan</dt><dd>${esc(r.ek)} ${esc(ekShortK(r.ek))}${r.ekKg !== '' && r.ekKg !== undefined ? ` · <b>${fmtKg(r.ekKg)} kg</b>` : ''}</dd></div>` : ''}
         ${r.note ? `<div><dt>Catatan</dt><dd>${esc(r.note)}</dd></div>` : ''}
-      </dl>`,
+      </dl>${kpEkAlloc(r)}`,
+      wide: kfIsEk(r.code) || !!r.ek,
       onSubmit: async () => { if (r.week) { const sel = $('phWeek'); if (!sel.options.length) phWeek(); sel.value = r.bulan + '|' + r.week; } $('phQ').value = r.no; location.hash = '#/mrp/harian'; return ''; },
     });
   }
+  $('dlgBody').addEventListener('click', (e) => { const b = e.target.closest('[data-kpopen]'); if (b) { e.preventDefault(); const no = b.dataset.kpopen; setTimeout(() => kpMoDialog(no), 0); $('dlgCancel').click(); } });
   $('kpMonth').addEventListener('change', renderKalender);
   $('kpWeek').addEventListener('change', renderKalender);
   $('kpView').addEventListener('click', (e) => {
