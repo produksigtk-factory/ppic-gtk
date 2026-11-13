@@ -1674,3 +1674,6 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 @media (max-width: 760px) { .ph-tb-act { margin-left: 0; } .ph-card-tools .ph-mq { width: 100%; } .ph-wk select { min-width: 0; } }
 .ph-table .ph-open { width: 90px; min-width: 90px; max-width: 110px; background: #fafbfa; }
 .ph-grp .ph-chip, .ph-list .ph-chip { width: 100%; }
+.ph-table td.num, .ph-table th.num { overflow: visible; text-overflow: clip; max-width: none; white-space: nowrap; }
+.ph-table td.ph-out { cursor: pointer; text-decoration: underline dotted #9bb; text-underline-offset: 3px; }
+.ph-table td.ph-out:hover { background: #eef6f1; }

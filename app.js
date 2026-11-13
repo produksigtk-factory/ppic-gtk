@@ -4797,24 +4797,26 @@
     let J;
     try { J = computeProj({ weeks: weeks.length ? weeks : [wk] }); } finally { P.pjCalc = keep; }
     const j = J.R.idx.get(wk.bulan + '|' + wk.week);
-    const need = new Map(), add = (code, i, q) => { if (!q) return; let a = need.get(code); if (!a) need.set(code, (a = new Array(nd).fill(0))); a[i] += q; };
+    // src: kode → index hari → Map(label → qty), untuk rincian "Keluar" saat sel diklik
+    const need = new Map(), src = new Map(), add = (code, i, q, lbl) => { if (!q) return; let a = need.get(code); if (!a) need.set(code, (a = new Array(nd).fill(0))); a[i] += q;
+      if (lbl) { let m = src.get(code); if (!m) src.set(code, (m = [])); const d = m[i] || (m[i] = new Map()); d.set(lbl, (d.get(lbl) || 0) + q); } };
     const moDay = new Map();   // no MO → index hari
     if (basis === 'cons') {
       (P.cons || []).forEach((c) => {
         if (!c.mat || consSkip(c.mat)) return;
         const k = P.konf.get(c.mo); if (!k || k.bulan !== wk.bulan || k.week !== wk.week) return;
-        add(c.mat, di(k.tgl), c.qty);
+        add(c.mat, di(k.tgl), c.qty, `MO ${c.mo} · ${c.sku || k.code} · ${c.jenis}${k.tgl ? '' : ' (belum bertanggal → hari pertama)'}`);
       });
     } else {
-      const kc = konfByCell(), runN = (code, i, q, bom) => { const r = needOf(code, q, bom); if (r) r.leaves.forEach((v, c) => add(c, i, v)); };
+      const kc = konfByCell(), runN = (code, i, q, bom, lbl) => { const r = needOf(code, q, bom); if (r) r.leaves.forEach((v, c) => add(c, i, v, lbl)); };
       P.plan.forEach((p) => {
         if (p.bulan !== wk.bulan || p.week !== wk.week || !(p.kg > 0)) return;
         const k = kc.get(`${p.bulan}|${p.week}|${p.code}`), rest = p.kg - (k ? k.q : 0);
-        if (rest > 1e-9) runN(p.code, 0, rest, p.bom);
+        if (rest > 1e-9) runN(p.code, 0, rest, p.bom, `Sisa plan ${p.code} ${fmtKg(rest)} ${planUnit(p.code) === 'pcs' ? 'pcs' : 'kg'}${k ? ` (plan ${fmtKg(p.kg)} − MO ${fmtKg(k.q)})` : ' (belum ada MO)'} → hari pertama`);
       });
       P.konf.forEach((r) => {
         if (r.bulan !== wk.bulan || r.week !== wk.week || kfIsEk(r.code)) return;
-        const q = moQ(r); if (q > 0) runN(r.code, di(r.tgl), q, r.bom || undefined);
+        const q = moQ(r); if (q > 0) runN(r.code, di(r.tgl), q, r.bom || undefined, `MO ${r.no} · ${r.code} ${fmtKg(q)} ${planUnit(r.code) === 'pcs' ? 'pcs' : 'kg'}${r.tgl ? '' : ' (belum bertanggal → hari pertama)'}`);
       });
     }
     P.konf.forEach((r) => { if (r.bulan === wk.bulan && r.week === wk.week) moDay.set(r.no, r.tgl ? di(r.tgl) : -1); });
@@ -4836,7 +4838,7 @@
       const open = j === J.s ? r.start : j > J.s ? r.saldo[j - 1] : null;
       const sal = []; let run = open, short = -1;
       for (let i = 0; i < nd; i++) { if (run === null) { sal.push(null); continue; } run += dIn[i] - dn[i] - dOut[i]; sal.push(run); if (run < -1e-9 && short < 0) short = i; }
-      rows.push({ code: r.code, name: r.name, uom: r.uom, kat: r.kat, open, need: dn, inc: dIn, out: dOut, sal, short, wNeed });
+      rows.push({ code: r.code, name: r.name, uom: r.uom, kat: r.kat, open, need: dn, inc: dIn, out: dOut, sal, short, wNeed, src: src.get(r.code) || [], fix: Math.abs(wNeed - sn) > 1e-6 ? wNeed - sn : 0 });
     });
     return { days, J, j, rows, before: j < J.s };
   }
@@ -4898,10 +4900,31 @@
     $('phHead').innerHTML = `<tr><th class="pl-sticky pl-c1" rowspan="2">Material</th><th class="num ph-open" rowspan="2">Saldo awal</th>${days.map((d) => `<th class="num m-start ph-dayh${d === todayStr() ? ' si-cur' : ''}" colspan="2">${esc(dayLbl(d))}</th>`).join('')}</tr>
       <tr>${days.map((d) => `<th class="num m-start ph-sub${d === todayStr() ? ' si-cur' : ''}">Keluar</th><th class="num ph-sub${d === todayStr() ? ' si-cur' : ''}">Saldo</th>`).join('')}</tr>`;
     const cell = (r, i) => { const o = r.need[i] + r.out[i], s2 = r.sal[i];
-      return `<td class="num m-start">${o ? fmtQ(o) : ''}${r.inc[i] ? `<small class="ph-in">+${fmtQ(r.inc[i])}</small>` : ''}</td><td class="num ${s2 !== null && s2 < -1e-9 ? 'pl-neg' : ''}">${s2 === null ? '–' : fmtQ(s2)}</td>`; };
+      return `<td class="num m-start${o ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${i}"${o ? ' title="Klik untuk rincian"' : ''}>${o ? fmtQ(o) : ''}${r.inc[i] ? `<small class="ph-in">+${fmtQ(r.inc[i])}</small>` : ''}</td><td class="num ${s2 !== null && s2 < -1e-9 ? 'pl-neg' : ''}">${s2 === null ? '–' : fmtQ(s2)}</td>`; };
     $('phRows').innerHTML = rows.slice(0, 1500).map((r) => `<tr>${matCell(r.code, r.name, r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '')}<td class="num ph-open">${r.open === null ? '–' : fmtQ(r.open)}</td>${days.map((d, i) => cell(r, i)).join('')}</tr>`).join('')
       || `<tr class="empty"><td colspan="${2 + days.length * 2}">${show === 'short' ? 'Tidak ada material yang kurang di week ini.' : 'Tidak ada kebutuhan material di week ini.'}</td></tr>`;
   }
+  // Rincian sel Keluar: dari MO / sisa plan / PC-CP mana, ADD/FOH/RS
+  function phOutDialog(code, i) {
+    const H = P.ph; if (!H) return;
+    const r = H.rows.find((x) => x.code === code); if (!r) return;
+    const d = H.days[i], m = r.src[i] || new Map(), list = [...m.entries()].sort((a, b) => b[1] - a[1]);
+    const kur = (P.kurang || []).filter((x) => x.code === code && x.tgl === d);
+    const tr = (a, b) => `<tr><td>${esc(a)}</td><td class="num">${fmtQ(b)}</td></tr>`;
+    openDialog({
+      title: `Keluar ${code} · ${dayLbl(d)}`, ok: 'Tutup', cancel: false,
+      body: `<p class="dlg-lead"><b>${esc(r.name)}</b> · ${esc(r.uom)}</p>
+        <table class="po-table pl-mini"><thead><tr><th>Asal</th><th class="num">Qty</th></tr></thead><tbody>
+        ${list.map(([k, v]) => tr(k, v)).join('')}
+        ${i === 0 && r.fix ? tr('Penyesuaian agar sama dengan total week di Proyeksi Stok', r.fix) : ''}
+        ${kur.map((x) => tr(`ADD/FOH/RS ${x.ket || ''}`.trim(), x.qty)).join('')}
+        ${i === 0 && r.out[0] - kur.reduce((t, x) => t + x.qty, 0) > 1e-9 ? tr('ADD/FOH/RS tanggal sebelumnya / tanpa tanggal di week ini', r.out[0] - kur.reduce((t, x) => t + x.qty, 0)) : ''}
+        <tr class="csl-tot"><th>Total keluar</th><th class="num">${fmtQ(r.need[i] + r.out[i])}</th></tr></tbody></table>
+        <p class="hint">Qty = qty MO / sisa plan × qty material di BoM (termasuk lewat ekstrak/bulk). MO tanpa tanggal produksi dan sisa plan tanpa MO dihitung di hari pertama week.</p>`,
+      onSubmit: async () => '',
+    });
+  }
+  $('phRows').addEventListener('click', (e) => { const td = e.target.closest('td.ph-out'); if (td) phOutDialog(td.dataset.c, Number(td.dataset.i)); });
   function phDateDialog(no) {
     const r = kfGet(no); if (!r) return;
     openDialog({
