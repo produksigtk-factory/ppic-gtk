@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=38eb3320">
+<link rel="stylesheet" href="style.css?v=0867bbe7">
 </head>
 <body>
 <div class="shell">
@@ -588,13 +588,14 @@
             <button type="button" class="ph-nav" id="phNext" aria-label="Week berikutnya">›</button>
             <button type="button" class="btn btn-ghost btn-sm" id="phToday">Week ini</button>
           </div>
-          <label class="tb-search ph-q"><span class="sr">Cari MO</span><input type="search" id="phQ" placeholder="Cari MO di papan: No. MO, kode, nama produk"></label>
+          <label class="tb-search ph-q"><span class="sr">Cari MO</span><input type="search" id="phQ" placeholder="Cari MO: ketik No. MO lalu Enter, atau kode / nama produk"></label>
           <div class="ph-tb-act">
             <button class="btn btn-ghost btn-sm" id="phTall" type="button">Perbesar papan</button>
             <button class="btn btn-ghost btn-sm" id="phExport">Unduh Excel</button>
             <button class="btn btn-sm" id="phSaveBtn" hidden>Simpan perubahan</button>
           </div>
         </div>
+        <p class="ph-qmsg" id="phQMsg" role="status" hidden></p>
         <div class="ph-board" id="phBoard">
           <div class="ph-days" id="phDays"></div>
           <div class="ph-day ph-unpl" data-day="">
@@ -1262,7 +1263,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=4405d690"></script>
+<script src="app.js?v=3e4e1e3b"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

@@ -4950,7 +4950,25 @@
   ['phPrev', 'phNext'].forEach((id, k) => $(id).addEventListener('click', () => { const sel = $('phWeek'), i = sel.selectedIndex + (k ? 1 : -1); if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; renderHarian(); } }));
   $('phToday').addEventListener('click', () => { const w = weekOfDate(todayStr()); if (w) { $('phWeek').value = w.bulan + '|' + w.week; renderHarian(); } });
   $('phShow').addEventListener('change', renderHarian);
-  $('phQ').addEventListener('input', renderHarian);
+  $('phQ').addEventListener('input', () => { $('phQMsg').hidden = true; renderHarian(); });
+  // Enter di kotak cari: langsung ke No MO — pindah ke week-nya, sorot kartunya; tidak ada → peringatan
+  $('phQ').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const t = $('phQ').value.trim(); if (!t) return;
+    const all = kfRows(), lc = t.toLowerCase();
+    const r = all.find((x) => x.no.toLowerCase() === lc) || all.filter((x) => x.no.toLowerCase().includes(lc)).sort((a, b) => a.no.length - b.no.length)[0];
+    const msg = $('phQMsg');
+    if (!r) { msg.className = 'ph-qmsg is-err'; msg.textContent = `⚠ MO "${t}" tidak ditemukan di Konfirmasi Produksi. Cek nomornya, atau upload LIST_MO terbaru.`; msg.hidden = false; return; }
+    let note;
+    if (r.week) { const k = r.bulan + '|' + r.week; if ($('phWeek').value !== k) { $('phWeek').value = k; } note = r.tgl ? `${r.no} · ${dayLbl(r.tgl)} (${r.week} ${monShort(r.bulan)})` : `${r.no} · ${r.week} ${monShort(r.bulan)} · belum diberi tanggal (lihat kolom Belum diplot)`; }
+    else note = `${r.no} · belum punya week maupun tanggal (lihat kolom Belum diplot → Tanpa week)`;
+    $('phQ').value = r.no;
+    renderHarian();
+    msg.className = 'ph-qmsg is-ok'; msg.textContent = `✓ ${note} — ${r.code} ${r.name}`; msg.hidden = false;
+    const el = document.querySelector(`#phBoard .ph-chip[data-no="${CSS.escape(r.no)}"]`);
+    if (el) { const g = el.closest('details'); if (g) g.open = true; el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); el.classList.add('is-flash'); setTimeout(() => el.classList.remove('is-flash'), 2200); }
+  });
   $('phUnQ').addEventListener('input', phPaintUn);
   $('phMQ').addEventListener('input', renderHarian);
   $('phInclUn').addEventListener('change', (e) => { P.phInclUn = e.target.checked; renderHarian(); });
