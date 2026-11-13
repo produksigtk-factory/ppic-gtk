@@ -4139,9 +4139,10 @@
     el.innerHTML = s === 'saving' ? '<span class="spin" aria-hidden="true"></span> Menyimpan ke Google Sheet…' : s === 'ok' ? `Tersimpan: ${esc(info)}` : `Gagal menyimpan: ${esc(info)}`;
   }
   // Upload LIST_MO (Odoo) atau file Konfirmasi Produksi yang sudah diisi
-  const KF_NO = /^(reference|no\.? ?mo|nomor mo|mo)$/i, KF_PROD = /^(product|produk)$/i, KF_CODE = /^(kode|kode produk|code|product\/internal reference|product\/default code)$/i, KF_NAME = /^(nama produk|nama|product\/name)$/i;
-  const KF_BREF = /^(bill of material\/reference|bom reference|bom ref|reference bom)$/i;
-  const KF_QTY = /^(product quantity|qty|quantity|jumlah)$/i, KF_UOM = /^(product unit of measure(\/unit of measure)?|uom|unit of measure|satuan)$/i, KF_WEEK = /^(plotting week|week)$/i, KF_MOEK = /^(mo ekstrak dipakai|mo ekstrak)$/i;
+  // Dua gaya export Odoo dikenali: nama tampilan (Reference, Product/Internal Reference, …) dan nama teknis / import-compatible (name, product_id/code, …)
+  const KF_NO = /^(reference|name|no\.? ?mo|nomor mo|mo)$/i, KF_PROD = /^(product|produk|product_id)$/i, KF_CODE = /^(kode|kode produk|code|product\/internal reference|product\/default code|product_id\/code|product_id\/default_code)$/i, KF_NAME = /^(nama produk|nama|product\/name|product_id\/name)$/i;
+  const KF_BREF = /^(bill of material\/reference|bom reference|bom ref|reference bom|bom_id\/code|bom_id\/reference)$/i;
+  const KF_QTY = /^(product quantity|qty|quantity|jumlah|product_qty|quantity to produce)$/i, KF_UOM = /^(product unit of measure(\/unit of measure)?|uom|unit of measure|satuan|product_uom\/name|product_uom_id\/name|product_uom|product_uom_id)$/i, KF_WEEK = /^(plotting week|week)$/i, KF_MOEK = /^(mo ekstrak dipakai|mo ekstrak)$/i;
   function parseKonf(wb) {
     for (const sn of wb.SheetNames) {
       const a = sheetRows(wb, sn);
@@ -4162,7 +4163,8 @@
         return { sheet: sn, rows: out, hasRef: iR >= 0 };
       }
     }
-    throw new Error('Kolom tidak dikenali. Pakai export LIST_MO dari Odoo (Reference, Product, Product Quantity, Product Unit of Measure).');
+    const h0 = wb.SheetNames.length ? (sheetRows(wb, wb.SheetNames[0])[0] || []).map((x) => txt(x)).filter(Boolean) : [];
+    throw new Error(`Kolom tidak dikenali. Butuh kolom No MO (Reference / name), Kode produk (Product/Internal Reference / product_id/code) dan Qty (Product Quantity / product_qty). Kolom di file: ${h0.slice(0, 12).join(', ') || '(kosong)'}.`);
   }
   // Upload PC / CP export Odoo (kolom name, product_id/code, move_lines[2]/product_id/code, …/product_qty, …/uom_id)
   function parseCons(wb) {
@@ -4287,7 +4289,7 @@
       $('kfCheck').className = 'check ok';
       $('kfCheck').innerHTML = `File <b>${esc(file.name)}</b> (sheet ${esc(p.sheet)}): <b>${nf.format(p.rows.length)}</b> MO · ${held.length ? nf.format(held.length) + ' ditahan, ' : ''}${nf.format(nNew)} baru, ${nf.format(nUpd)} berubah, ${nf.format(nSame)} sama dengan yang tersimpan.`
         + (noBom.length ? `<br><span class="pl-warn-t">${noBom.length} kode tidak punya BOM:</span> ${esc([...new Set(noBom)].join(', '))}` : '')
-        + (p.hasRef ? '<br>BoM tiap MO mengikuti kolom <b>Bill of Material/Reference</b> dari Odoo.' : '')
+        + (p.hasRef ? '<br>BoM tiap MO mengikuti kolom Reference BoM dari Odoo.' : '')
         + (diff.length ? `<br><span class="pl-warn-t">⚠ ${diff.length} MO memakai BoM beda dengan default Parameter SKU</span> (tetap dipakai): ${esc(diff.slice(0, 6).join(' · '))}${diff.length > 6 ? ' …' : ''}` : '')
         + (held.length ? `<br><span class="pl-bad">${held.length} MO ditahan, tidak disimpan — Reference BoM dari Odoo belum ada di DATABASE:</span> ${esc(held.map((x) => `${x.no} ${x.code} "${x.bref || '(kosong)'}"`).join(' · '))}. Tambahkan BoM-nya lewat Bill of Material → Tambah BoM, lalu upload ulang.` : '')
         + `<br>${P.edit ? 'Lengkapi Plotting Week & MO Ekstrak, lalu klik <b>Simpan perubahan</b>.' : 'Masuk <b>Mode edit</b> untuk melengkapi dan menyimpan.'}`;
