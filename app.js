@@ -4049,7 +4049,7 @@
       const ok = MRP.byProduct.has(code), c = ok ? kfCalc(code, qty, u, f('bom').value) : null;
       // padanan satuan lain: pcs ↔ kg dari batch BoM (batch BoM SKU = pcs per 1.000 kg)
       const b = ok ? activeBom(code, f('bom').value) : null;
-      const other = !ok || !qty || kfIsEk(code) || planUnit(code) === 'pcs' || !b || !b.batch ? '' : u === 'Kg' ? `= <b>${fmtQ(Math.round(qty * b.batch / 1000))} pcs</b>` : `= <b>${fmtKg(c.kg)} kg</b>`;
+      const other = !ok || !qty || kfIsEk(code) || planUnit(code) === 'pcs' || !b || !b.batch ? '' : u === 'Kg' ? `= <b>${fmtQ(Math.ceil(qty * b.batch / 1000 - 1e-9))} pcs</b> <span class="muted">(dibulatkan ke atas)</span>` : `= <b>${fmtKg(c.kg)} kg</b>`;
       $('kfManCalc').innerHTML = !code ? 'Isi kode produk dan qty.' : !ok ? '<span class="pl-bad">Kode tidak punya BoM di DATABASE PPIC.</span>'
         : `${kfIsEk(code) ? '<b>Produksi ekstrak</b> · ' : ''}${qty ? `${fmtQ(qty)} ${u.toLowerCase()} ${other}` : 'Isi qty'}${planUnit(code) === 'pcs' && !kfIsEk(code) ? ' · Banded/KIT dihitung dalam pcs' : ''}${kfIsEk(code) ? '' : c.ek ? ` · ekstrak dibutuhkan <b>${esc(c.ek)} ${esc(ekShortK(c.ek))} ${fmtKg(c.ekKg)} kg</b>` : ' · tidak perlu ekstrak'}`;
       const ekBox = $('kfManEk');
