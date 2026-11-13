@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=a4103dfa">
+<link rel="stylesheet" href="style.css?v=762d935e">
 </head>
 <body>
 <div class="shell">
@@ -34,6 +34,7 @@
           <a class="menu-item sub" href="#/mrp/kalender" data-route="mrp/kalender">Kalender Produksi</a>
           <a class="menu-item sub" href="#/mrp/kebutuhan" data-route="mrp/kebutuhan">Kebutuhan Material</a>
           <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
+          <a class="menu-item sub" href="#/mrp/monitor" data-route="mrp/monitor">Monitoring Kebutuhan</a>
           <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
           <a class="menu-item sub" href="#/mrp/rakitan" data-route="mrp/rakitan">BoM Banded/2in1/KIT</a>
           <a class="menu-item sub" href="#/mrp/update" data-route="mrp/update">Update Data MRP</a>
@@ -578,6 +579,20 @@
       </section>
 
       <!-- ================= MRP: KONFIRMASI PRODUKSI ================= -->
+      <section id="view-mrp-monitor" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Memuat monitoring kebutuhan…</div>
+        <div class="ph-tb mk-tb">
+          <div class="pj-seg" id="mkTabs" role="group" aria-label="Bagian"><button type="button" data-v="sum">Ringkasan</button><button type="button" data-v="tl">Timeline</button><button type="button" data-v="po">Kecocokan PO</button><button type="button" data-v="pr">Saran PR</button></div>
+          <div class="pj-seg" id="mkBasis" role="group" aria-label="Basis kebutuhan"><button type="button" data-v="plan" title="Plan MPS; MO menggantikan plan per SKU-week">MPS</button><button type="button" data-v="plot" title="Sama dengan MPS, tanggal butuh mengikuti tanggal MO di Plotting Harian">Plotting Harian</button><button type="button" data-v="cons" title="Konsumsi PC + CP dari Odoo">PC + CP</button></div>
+          <label class="ph-sel"><span class="sr">Horizon</span><select id="mkHz"><option value="4">4 week</option><option value="8">8 week</option><option value="12">12 week</option><option value="all">Sampai akhir MPS</option></select></label>
+          <label class="ph-sel"><span class="sr">Kategori</span><select id="mkKat"></select></label>
+          <label class="tb-search ph-q"><span class="sr">Cari material</span><input type="search" id="mkQ" placeholder="Cari kode, nama material, supplier"></label>
+        </div>
+        <p class="mrp-count" id="mkInfo"></p>
+        <div class="pl-kpis mk-kpis" id="mkKpi"></div>
+        <div id="mkBody"></div>
+      </section>
+
       <section id="view-mrp-kalender" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Memuat kalender produksi…</div>
         <div class="ph-tb">
@@ -1286,7 +1301,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=85d1e56c"></script>
-<script src="app.js?v=6fa863a9"></script>
+<script src="app.js?v=5dacc90f"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
