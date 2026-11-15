@@ -1917,3 +1917,7 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pr-catx { flex: 1; outline: none; white-space: pre-wrap; min-height: 40px; }
 .pr-catx[contenteditable]:empty::before { content: attr(data-ph); color: #9aa5b1; }
 .pr-catx[contenteditable]:focus { background: #fffbea; }
+
+.pr-in-n.is-auto { background: #f3f8f5; }
+.pr-moq { font-size: 10.5px; color: var(--muted); line-height: 1.25; margin-top: 2px; white-space: nowrap; }
+.pr-moq b { display: block; font-weight: 600; }

@@ -6396,6 +6396,26 @@
 
   // Dialog tambah / ubah PR (mode edit PO)
   const prBlank = () => ({ kode: '', nama: '', jenis: '', note: '', stok: '', butuh: '', ospo: '', kurang: '', buka: '', pakai: '', kirim: '', pos: [], status: 'Aktif' });
+  // Kekurangan otomatis = Stok Awal − Kebutuhan − OS PO (kosong dianggap 0; hanya bila salah satu terisi)
+  function prAutoKurang(r) {
+    if (r.kurangManual) return;
+    const v = ['stok', 'butuh', 'ospo'].map((k) => prNum(r[k]));
+    if (v.every((x) => x === '' || x === null || isNaN(x))) return;
+    const n = (x) => (x === '' || x === null || isNaN(x) ? 0 : Number(x));
+    r.kurang = String(Math.round((n(v[0]) - n(v[1]) - n(v[2])) * 10000) / 10000);
+  }
+  // Saran Jumlah Buka PO: range qty PO terkecil (MoQ) – terbesar dari histori PO (menu Supplier & MoQ)
+  function prMoqHtml(r) {
+    const kode = String(r.kode || '').trim(); if (!kode) return '';
+    const L = (SUP.rows || []).filter((x) => x.code === kode && x.supplier && x.count);
+    if (!L.length) return SUP.loaded ? '<span class="muted">Belum ada histori PO</span>' : '';
+    const mins = L.map((x) => x.moq).filter((x) => x !== null), maxs = L.map((x) => x.max).filter((x) => x !== null);
+    if (!mins.length) return '';
+    const lo = Math.min(...mins), hi = Math.max(...maxs.length ? maxs : mins), n = L.reduce((t, x) => t + x.count, 0), uom = L[0].uom || '';
+    const main = L.find((x) => x.main) || L.slice().sort((a, b) => b.count - a.count)[0];
+    const bk = prNum(r.buka), out = bk === '' || bk === null || isNaN(bk) ? '' : Number(bk) < lo - 1e-9 ? 'di bawah MoQ terkecil' : Number(bk) > hi + 1e-9 ? 'di atas bukaan terbesar' : '';
+    return `<span title="${esc(`${n} PO di histori · ${L.length} supplier${main ? ' · utama ' + main.supplier : ''}`)}">Histori: ${prNumTxt(lo)}–${prNumTxt(hi)} ${esc(uom)}</span>${out ? `<b class="pl-bad">⚠ ${out}</b>` : ''}`;
+  }
   function prEdit(kodePr) {
     if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
     if (state.noPrScript) { toast('Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).'); return; }
@@ -6406,12 +6426,16 @@
       <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"></td>
       <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
       <td><input data-k="note" value="${esc(r.note)}" class="pr-in-s" aria-label="Note"></td>
-      ${PR_NUM.map((k) => `<td><input data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n" aria-label="${k}"></td>`).join('')}
+      ${PR_NUM.map((k) => `<td><input data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${k === 'kurang' && !r.kurangManual ? ' is-auto' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal − Kebutuhan − OS PO. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r)}</div>` : ''}</td>`).join('')}
       <td class="pr-kir">${r.sched ? `<span class="pr-schs">${r.sched.length} jadwal</span>` : `<input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim">`}<button type="button" class="btn-link pr-splitb" data-split="${i}" title="${r.sched ? 'Tambah jadwal kirim' : 'Pecah jadwal kirim: beberapa tanggal dengan qty masing-masing'}">${r.sched ? '+ jadwal' : 'Split'}</button></td>
       <td><input data-k="pos" value="${esc(r.pos.join(', '))}" list="prEdPo${i}" class="pr-in-po" placeholder="PO… , PO…" aria-label="No PO"><datalist id="prEdPo${i}">${prPoSuggest(r.kode, D.tanggal)}</datalist></td>
       <td><select data-k="status" aria-label="Status"><option${r.status !== 'Batal' ? ' selected' : ''}>Aktif</option><option${r.status === 'Batal' ? ' selected' : ''}>Batal</option></select></td>
       <td><button type="button" class="btn-link danger" data-rm="${i}" title="Hapus baris (belum tersimpan)">×</button></td></tr>`;
-    D.rows.forEach((r) => { r.sched = prSched(r.kirim); });
+    D.rows.forEach((r) => {
+      r.sched = prSched(r.kirim);
+      const k0 = prNum(r.kurang);
+      if (k0 !== '' && k0 !== null) { const t = Object.assign({}, r, { kurangManual: false }); prAutoKurang(t); r.kurangManual = Math.abs(Number(t.kurang) - Number(k0)) > 1e-6 || t.kurang === undefined; }
+    });
     const schedSum = (r) => r.sched.reduce((t, x) => t + (Number(x.q) || 0), 0);
     const schedRow = (r, i) => {
       if (!r.sched) return '';
@@ -6465,6 +6489,10 @@
       const i = Number(inp.closest('tr').dataset.i), k = inp.dataset.k, r = D.rows[i];
       if (k === 'pos') r.pos = splitPo(inp.value); else r[k] = inp.value;
       if (k === 'buka' && r.sched) paintSum(i);
+      const tr = inp.closest('tr');
+      if (k === 'kurang') { r.kurangManual = inp.value.trim() !== ''; inp.classList.toggle('is-auto', !r.kurangManual); if (!r.kurangManual) { prAutoKurang(r); inp.value = r.kurang || ''; } }
+      if (k === 'stok' || k === 'butuh' || k === 'ospo') { prAutoKurang(r); if (!r.kurangManual) tr.querySelector('[data-k=kurang]').value = r.kurang || ''; }
+      if (k === 'buka' || k === 'kode') { const mq = tr.querySelector('.pr-moq'); if (mq) mq.innerHTML = prMoqHtml(r); }
       if (k === 'kode') {
         const m = MRP.master && MRP.master.get(inp.value.trim());
         if (m) { r.nama = m.name || ''; r.jenis = m.kat || ''; const tr = inp.closest('tr'); tr.querySelector('[data-k=nama]').value = r.nama; tr.querySelector('[data-k=jenis]').value = r.jenis; tr.querySelector('datalist').innerHTML = prPoSuggest(m.code, D.tanggal); }
