@@ -9,7 +9,7 @@ window.PPIC_CONFIG = {
   CSL_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbzI05llwLoC5huYAdfO1v93K2YlieVLcH7q9eJQZWhWbHJefb9B-QXiZ1-f5LEdiUsu/exec',
   CSL_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1fhu2KSCqjzaNzyrYkLS2oAXeBYxku75zKwLqZo3ITY4/edit',
   // Apps Script di Google Sheet "Value and Qty Inventory (RM, PM, dan FG)" (menu Kebutuhan Report). Kosong = belum dipasang.
-  INV_SCRIPT_URL: '',
+  INV_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxUtbfQ5Bhnq_YIfFlxhAgf5Yxy6A5hYL1XkcXDMq27oSGblCs17fq6xBSPBqyzm9OmWw/exec',
   INV_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1eRIhOhSAC61J_QNCX42G2gOAF6uXiQjpt2W-MJz3uWs/edit',
   SHEET_URL: 'https://docs.google.com/spreadsheets/d/1Dw7HmExGNYYDkbNgYTPA7zwEr6ueUMhdtjdlR7tCBdU/edit',
 };
