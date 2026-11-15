@@ -48,8 +48,8 @@
     kel: 'MAT', all: { MAT: { stok: new Map(), snaps: [] }, FG: { stok: new Map(), snaps: [] } }, selSnap: { MAT: '', FG: '' },
     snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
   };
-  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
-  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel })); } catch (e) { /* abaikan */ } };
+  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
+  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel, pm: I.pm })); } catch (e) { /* abaikan */ } };
 
   /* ---------- Apps Script ---------- */
   async function load(force) {
@@ -107,7 +107,10 @@
   const grpOf = (r) => (I.kel === 'FG' ? (r.brand || 'Tanpa brand') : r.gol);
   const grpLbl = (k) => (I.kel === 'FG' ? k : GOL_LBL[k] || k);
   const grpClr = (k) => { if (I.kel !== 'FG') return GOL_CLR[k] || '#8a94a0'; if (k === 'Lainnya' || k === 'Tanpa brand') return '#8a94a0'; const i = (I.brRank || []).indexOf(k); return i >= 0 && i < BR_PAL.length - 1 ? BR_PAL[i] : '#8a94a0'; };
-  const priceAt = (kode, snap) => { const L = I.harga.get(kode); if (!L) return null; const day = snap.slice(0, 10); let p = null; L.forEach((x) => { if (x.from <= day) p = x; }); return p; };
+  // Dasar harga: 'date' = harga terakhir yang berlaku pada/sebelum tanggal snapshot; 'latest' = harga terkini (paling baru) apa pun tanggal snapshotnya
+  const priceAtMode = (kode, snap, mode) => { const L = I.harga.get(kode); if (!L || !L.length) return null; if (mode === 'latest') return L[L.length - 1]; const day = snap.slice(0, 10); let p = null; L.forEach((x) => { if (x.from <= day) p = x; }); return p; };
+  const priceAt = (kode, snap) => priceAtMode(kode, snap, I.pm);
+  const PM_LBL = { date: 'sesuai tanggal snapshot', latest: 'harga terkini' };
   // KATEGORI berpola "BRAND - JENIS" (FG). Tanpa " - " → tanpa brand, jenis = kategori.
   function splitKat(v) {
     const kat = S(v).replace(/\s+/g, ' ').replace(/\s+-\s+/, ' - ');
@@ -153,6 +156,7 @@
     $('invTop').hidden = false;
     // Saringan
     $('invSnap').innerHTML = I.snaps.length ? I.snaps.slice().reverse().map((m) => `<option value="${esc(m.snap)}"${m.snap === I.snap ? ' selected' : ''}>${esc(fSnap(m.snap))}</option>`).join('') : '<option value="">Belum ada snapshot</option>';
+    document.querySelectorAll('#invPm [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.pm)));
     document.querySelectorAll('#invKel [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.kel)));
     $('invGol').hidden = I.kel === 'FG';
     $('invGol').innerHTML = [['', 'Semua'], ['RM', 'RM'], ['PM', 'PM'], ['WIP', 'WIP']].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === I.g}">${t}</button>`).join('');
@@ -179,7 +183,7 @@
     // Warna brand FG mengikuti urutan value snapshot terpilih (6 terbesar berwarna, sisanya abu)
     I.brRank = I.kel === 'FG' ? [...sumBy(all, (r) => r.brand || 'Tanpa brand')].sort((a, b) => b[1].val - a[1].val).map(([k]) => k).filter((k) => k !== 'Tanpa brand') : [];
     const meta = I.snaps.find((m) => m.snap === I.snap);
-    $('invInfo').innerHTML = `Stok <b>${esc(KEL_LBL[I.kel])}</b> · snapshot <b>${esc(fSnap(I.snap))}</b>${meta && meta.file ? ` · ${esc(meta.file)}` : ''}${pv ? ` · dibandingkan dengan ${esc(fSnap(pv))}` : ' · snapshot pertama'} · harga: terakhir yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`;
+    $('invInfo').innerHTML = `Stok <b>${esc(KEL_LBL[I.kel])}</b> · snapshot <b>${esc(fSnap(I.snap))}</b>${meta && meta.file ? ` · ${esc(meta.file)}` : ''}${pv ? ` · dibandingkan dengan ${esc(fSnap(pv))}` : ' · snapshot pertama'} · harga: ${I.pm === 'latest' ? 'terkini (harga paling baru, apa pun tanggal snapshotnya)' : `terakhir yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`}`;
     renderKpi(rows, prows);
     renderChart();
     $('invBody').innerHTML = renderWarn(rows) + (I.view === 'kat' ? viewKat(rows, prows) : I.view === 'mat' ? viewMat(rows, prows) : viewLok(rows));
@@ -210,7 +214,7 @@
     const li = (L, f) => L.slice(0, 300).map(f).join('') + (L.length > 300 ? `<li class="muted">… ${L.length - 300} lagi</li>` : '');
     return `<details class="inv-warn" id="invWarn"${I.openWarn ? ' open' : ''}><summary><b>Perlu dilengkapi</b> <span>${noP.length ? `${noP.length} kode tanpa harga (value 0)` : ''}${noP.length && noG.length ? ' · ' : ''}${noG.length ? `${noG.length} kode tanpa golongan` : ''}${idle.length ? `${noP.length || noG.length ? ' · ' : ''}<span class="muted">${idle.length} kode golongan tidak ada di stok</span>` : ''}</span></summary>
       <div class="inv-wg">
-        ${noP.length ? `<div><h4>Tanpa harga berlaku per ${esc(fDate(I.snap.slice(0, 10)))}</h4><ul>${li(noP, (r) => `<li><span class="pl-code">${esc(r.kode)}</span> ${esc(r.nama)}${I.harga.has(r.kode) ? ` <small class="muted">(harga baru berlaku ${esc(fDate(I.harga.get(r.kode)[0].from))})</small>` : ''}</li>`)}</ul></div>` : ''}
+        ${noP.length ? `<div><h4>${I.pm === 'latest' ? 'Belum punya harga sama sekali' : `Tanpa harga berlaku per ${esc(fDate(I.snap.slice(0, 10)))}`}</h4><ul>${li(noP, (r) => `<li><span class="pl-code">${esc(r.kode)}</span> ${esc(r.nama)}${I.harga.has(r.kode) ? ` <small class="muted">(harga baru berlaku ${esc(fDate(I.harga.get(r.kode)[0].from))})</small>` : ''}</li>`)}</ul></div>` : ''}
         ${noG.length ? `<div><h4>Tanpa golongan (tidak ada di DB_GOLONGAN)</h4><ul>${li(noG, (r) => `<li><span class="pl-code">${esc(r.kode)}</span> ${esc(r.nama)}</li>`)}</ul></div>` : ''}
         ${idle.length ? `<div><h4>Ada di golongan, tidak ada di stok snapshot ini</h4><ul>${li(idle, (g) => `<li><span class="pl-code">${esc(g.kode)}</span> ${esc(g.nama)} <small class="muted">${esc(g.gol)}</small></li>`)}</ul></div>` : ''}
       </div></details>`;
@@ -444,13 +448,13 @@
     const kodes = new Set(rows.map((r) => r[0])), loks = new Set(rows.map((r) => r[1]));
     const noG = [...kodes].filter((k) => !I.gol.has(k));
     const np = nowParts();
-    const chk = (d, tm) => { const s = `${d} ${tm}`; const p = [...kodes].filter((k) => !priceAt(k, s)).length; const ex = A.stok.has(s); return `<ul class="kfr-ul"><li><b>${rows.length}</b> baris (kode × lokasi) · ${kodes.size} kode · ${loks.size} lokasi</li>${noG.length ? `<li class="pl-bad">${noG.length} kode tidak ada di golongan: ${esc(noG.slice(0, 15).join(', '))}${noG.length > 15 ? '…' : ''}</li>` : ''}${p ? `<li class="pl-bad">${p} kode belum punya harga berlaku per ${esc(fDate(d))} (value 0)</li>` : ''}${ex ? `<li class="pl-bad"><b>Snapshot ${esc(fg ? 'FG' : 'Material')} ${esc(fSnap(s))} sudah ada dan akan ditimpa.</b></li>` : ''}</ul>`; };
+    const chk = (d, tm) => { const s = `${d} ${tm}`; const p = [...kodes].filter((k) => !priceAtMode(k, s, 'date')).length, pl = [...kodes].filter((k) => !priceAtMode(k, s, 'latest')).length; const ex = A.stok.has(s); return `<ul class="kfr-ul"><li><b>${rows.length}</b> baris (kode × lokasi) · ${kodes.size} kode · ${loks.size} lokasi</li>${noG.length ? `<li class="pl-bad">${noG.length} kode tidak ada di golongan: ${esc(noG.slice(0, 15).join(', '))}${noG.length > 15 ? '…' : ''}</li>` : ''}<li class="inv-pmc"><b>Dasar harga untuk value</b> (bisa diganti kapan saja di tampilan):<label><input type="radio" name="pm" value="date"${I.pm === 'date' ? ' checked' : ''}> Sesuai tanggal snapshot <span class="${p ? 'pl-bad' : 'muted'}">· ${p ? `${p} kode tanpa harga per ${esc(fDate(d))} (value 0)` : 'semua kode berharga'}</span></label><label><input type="radio" name="pm" value="latest"${I.pm === 'latest' ? ' checked' : ''}> Harga terkini <span class="${pl ? 'pl-bad' : 'muted'}">· ${pl ? `${pl} kode belum punya harga sama sekali (value 0)` : 'semua kode berharga'}</span></label></li>${ex ? `<li class="pl-bad"><b>Snapshot ${esc(fg ? 'FG' : 'Material')} ${esc(fSnap(s))} sudah ada dan akan ditimpa.</b></li>` : ''}</ul>`; };
     review(`Upload stok ${nm}`, `<p class="dlg-lead">File <b>${esc(file)}</b> (sheet ${esc(t.sn)}) sebagai stok <b>${esc(nm)}</b>. Kode + lokasi yang sama dijumlahkan. Snapshot ${fg ? 'Material' : 'FG'} tidak tersentuh.</p>
       <div class="inv-dt"><label class="fld inv-fld"><span>Tanggal snapshot</span><input type="date" name="d" id="invSD" value="${np.d}" required></label><label class="fld inv-fld"><span>Jam</span><input type="time" name="t" id="invST" value="${np.t}" required></label><label class="fld inv-fld inv-note"><span>Catatan (opsional)</span><input type="text" name="note" maxlength="200" placeholder="mis. stock opname akhir bulan"></label></div>
       <div id="invStChk">${chk(np.d, np.t)}</div>
       ${bad.length ? `<details class="kfr-sec is-bad" open><summary><b>Ditolak</b> <span>${bad.length}</span></summary><ul class="kfr-ul">${bad.slice(0, 200).map((b) => `<li>${esc(b)}</li>`).join('')}</ul></details>` : ''}`,
-    rows.length, (fd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(fd.d || '') || !/^\d{2}:\d{2}$/.test(fd.t || '')) throw new Error('Isi tanggal dan jam snapshot.'); I.kel = kel; savePref(); I.selSnap[kel] = `${fd.d} ${fd.t}`; return api('saveStok', { kel, snapshot: `${fd.d} ${fd.t}`, rows, file, note: fd.note || '' }); },
-    () => { const f = () => { if ($('invSD').value && $('invST').value) $('invStChk').innerHTML = chk($('invSD').value, $('invST').value); }; $('invSD').addEventListener('change', f); $('invST').addEventListener('change', f); });
+    rows.length, (fd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(fd.d || '') || !/^\d{2}:\d{2}$/.test(fd.t || '')) throw new Error('Isi tanggal dan jam snapshot.'); if (fd.pm === 'date' || fd.pm === 'latest') I.pm = fd.pm; I.kel = kel; savePref(); I.selSnap[kel] = `${fd.d} ${fd.t}`; return api('saveStok', { kel, snapshot: `${fd.d} ${fd.t}`, rows, file, note: fd.note || '' }); },
+    () => { const f = () => { const c = document.querySelector('#invStChk input[name=pm]:checked'); const keep = I.pm; if (c) I.pm = c.value; if ($('invSD').value && $('invST').value) $('invStChk').innerHTML = chk($('invSD').value, $('invST').value); I.pm = keep; }; $('invSD').addEventListener('change', f); $('invST').addEventListener('change', f); });
   }
   // Review 2 langkah: langkah 1 isi + tombol lanjut, langkah 2 centang konfirmasi lalu simpan
   function review(title, body, n, save, after) {
@@ -504,6 +508,7 @@
     $('invSnap').addEventListener('change', () => { setSnap($('invSnap').value); render(); });
     $('invGol').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.g = b.dataset.v; render(); });
     $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
+    $('invPm').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.pm) return; I.pm = b.dataset.v; savePref(); render(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
     $('invBrand').addEventListener('change', () => { I.brand = $('invBrand').value; I.jenis = ''; render(); });
     $('invJenis').addEventListener('change', () => { I.jenis = $('invJenis').value; render(); });
