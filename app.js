@@ -6813,21 +6813,28 @@
     if (jr) J.R.weeks.forEach((w, i) => { const k = weeks.indexOf(w); if (k >= 0) cols[k].need += Number(jr.need[i]) || 0; });
     (P.incK || []).forEach((x) => { const d = x.datang || x.tgl; if (x.code === kode && d && d >= d0 && d <= today) cols[wOf(d)].inc += x.qty; });
     (P.kurang || []).forEach((x) => { if (x.code === kode && x.tgl && x.tgl >= d0 && x.tgl <= weeks[n - 1].end) cols[wOf(x.tgl)].add += x.qty; });
-    let poLate = 0;
+    // OS PO dipisah 4: lewat jadwal & belum dijadwalkan (dihitung di week berjalan), terjadwal s/d MPS terakhir (di week jadwalnya),
+    // terjadwal setelah MPS terakhir (tidak masuk kolom week; kolom tersendiri "Setelah MPS")
+    let poLate = 0, poNone = 0, poAfter = 0; const after = [];
+    cols.forEach((c) => { c.poL = 0; c.poN = 0; c.poS = 0; });
     (state.rows || []).filter((x) => x.code === kode && !x.cancel && !x.takeout && x.sisa > 1e-9).forEach((x) => {
       let left = x.sisa;
       (x.sched || []).filter((s) => s.status !== 'Done' && s.date).sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((s) => {
         const q = Math.min(left, Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0))); if (!(q > 0)) return;
-        left -= q; if (s.date < today) { poLate += q; cols[cw].po += q; } else cols[wOf(s.date)].po += q;
+        left -= q;
+        if (s.date < today) { poLate += q; cols[cw].poL += q; }
+        else if (s.date > weeks[n - 1].end) { poAfter += q; after.push({ po: x.po, d: s.date, q: Math.round(q * 1000) / 1000 }); }
+        else cols[wOf(s.date)].poS += q;
       });
-      if (left > 1e-9) cols[cw].po += left;   // tanpa jadwal → dianggap week berjalan
+      if (left > 1e-9) { poNone += left; cols[cw].poN += left; }
     });
+    cols.forEach((c) => { c.po = c.poL + c.poN + c.poS; });
     const stok = R3(st ? st.qty : 0);
     let run = stok;
-    cols.forEach((c) => { c.need = R3(c.need); c.inc = R3(c.inc); c.po = R3(c.po); c.add = R3(c.add); run += c.inc + c.po - c.need - c.add; c.sal = R3(run); });
+    cols.forEach((c) => { c.need = R3(c.need); c.inc = R3(c.inc); c.po = R3(c.po); c.poL = R3(c.poL); c.poN = R3(c.poN); c.poS = R3(c.poS); c.add = R3(c.add); run += c.inc + c.po - c.need - c.add; c.sal = R3(run); });
     const sum = (k) => R3(cols.reduce((t, c) => t + c[k], 0));
     const out = { kode, nama: (jr && jr.name) || m.name || (st && st.name) || '', uom: (jr && jr.uom) || m.uom || (st && st.uom) || '', at: today, stokDate: d0, stok,
-      inc: sum('inc'), ospo: sum('po'), poLate: R3(poLate), butuh: sum('need'), add: sum('add'), cols, last: cols[n - 1].l, note: jr ? '' : 'Tidak ada kebutuhan di plan MPS.' };
+      inc: sum('inc'), ospo: R3(sum('po') + poAfter), poLate: R3(poLate), poNone: R3(poNone), poIn: sum('poS'), poAfter: R3(poAfter), after: after.sort((a, b) => (a.d < b.d ? -1 : 1)), salEnd: R3(run + poAfter), split: 1, butuh: sum('need'), add: sum('add'), cols, last: cols[n - 1].l, note: jr ? '' : 'Tidak ada kebutuhan di plan MPS.' };
     out.kurang = R3(out.stok + out.inc + out.ospo - out.butuh - out.add);
     const neg = cols.find((c) => c.sal < -1e-9); out.minus = neg ? neg.l : ''; out.deep = Math.min(0, ...cols.map((c) => c.sal));
     const S = (sched || []).filter((x) => x.q > 0);
@@ -6855,16 +6862,23 @@
       const head = `<div class="pr-st-m"><b>${esc(r.kode)}</b> ${esc(r.nama)}`;
       if (!d || !d.cols || d.butuh === undefined) return head + '<span>Perhitungan belum dibekukan (klik Perbarui lampiran)</span></div>';
       const u = esc(d.uom || ''), sg = (v) => (v < 0 ? '−' : '+');
-      const rumus = `<div class="pr-hit-f">Stok awal ${esc(fmtDate(d.stokDate))} <b>${prNumTxt(d.stok)}</b> + Incoming sudah datang <b>${prNumTxt(d.inc)}</b> + OS PO <b>${prNumTxt(d.ospo)}</b>${d.poLate ? ` <small>(${prNumTxt(d.poLate)} lewat jadwal)</small>` : ''} − Kebutuhan s/d ${esc(d.last)} <b>${prNumTxt(d.butuh)}</b> − ADD/FOH/RS <b>${prNumTxt(d.add)}</b> = <b class="${d.kurang < -1e-9 ? 'pr-st-late' : 'pr-st-ok'}">${prNumTxt(d.kurang)} ${u}</b>${d.kurang < -1e-9 ? ' (kurang)' : ' (cukup)'}</div>`;
+      const rumus = `<div class="pr-hit-f">Stok awal ${esc(fmtDate(d.stokDate))} <b>${prNumTxt(d.stok)}</b> + Incoming sudah datang <b>${prNumTxt(d.inc)}</b> + OS PO <b>${prNumTxt(d.ospo)}</b>${d.split ? ` <small>(${[['lewat jadwal', d.poLate], ['belum dijadwalkan', d.poNone], [`terjadwal s/d ${d.last}`, d.poIn], ['setelah MPS terakhir', d.poAfter]].filter((x) => x[1] > 1e-9).map((x) => `${esc(x[0])} ${prNumTxt(x[1])}`).join(' + ') || 'tidak ada PO gantung'})</small>` : d.poLate ? ` <small>(${prNumTxt(d.poLate)} lewat jadwal)</small>` : ''} − Kebutuhan s/d ${esc(d.last)} <b>${prNumTxt(d.butuh)}</b> − ADD/FOH/RS <b>${prNumTxt(d.add)}</b> = <b class="${d.kurang < -1e-9 ? 'pr-st-late' : 'pr-st-ok'}">${prNumTxt(d.kurang)} ${u}</b>${d.kurang < -1e-9 ? ' (kurang)' : ' (cukup)'}</div>`;
       const ext = [d.minus ? `<b class="pr-st-late">saldo mulai minus ${esc(d.minus)}</b>, terdalam ${prNumTxt(d.deep)} ${u}` : 'saldo tidak minus sampai MPS terakhir',
         d.prSal ? `bila PR ${prNumTxt(d.prQty)} ${u} datang${d.prFirst ? ` (mulai ${esc(d.prFirst)})` : ''}: ${d.prDeepAfter < -1e-9 ? `<b class="pr-st-late">masih minus ${prNumTxt(d.prDeepAfter)}</b>` : '<b class="pr-st-ok">tertutup</b>'}${d.prDeepBefore < -1e-9 ? `, <span class="pr-st-late">sebelum PR datang minus ${prNumTxt(d.prDeepBefore)}</span>` : ''}${d.prBeyond ? ` (${prNumTxt(d.prBeyond)} di luar MPS)` : ''}` : '', d.note].filter(Boolean).join(' · ');
-      const tr = (lbl, fn, cls) => `<tr${cls ? ` class="${cls}"` : ''}><th>${lbl}</th>${d.cols.map((c, i) => fn(c, i)).join('')}</tr>`;
+      const aft = !!(d.split && (d.poAfter > 1e-9 || d.prBeyond > 1e-9));
+      const R3h = (x) => Math.round((Number(x) || 0) * 1000) / 1000;   // kolom "Setelah MPS" hanya kalau ada PO terjadwal sesudah MPS terakhir
+      const tr = (lbl, fn, cls, ax) => `<tr${cls ? ` class="${cls}"` : ''}><th>${lbl}</th>${d.cols.map((c, i) => fn(c, i)).join('')}${aft ? (ax === undefined ? '<td class="num pr-hit-aft">–</td>' : ax) : ''}</tr>`;
       const sc = (v) => `<td class="num${v < -1e-9 ? ' pr-neg' : ''}">${prNumTxt(v)}</td>`;
-      return `${head}</div>${rumus}<div class="pr-hit-x">${ext}</div><div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u} · awal ${prNumTxt(d.stok)}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}</tr></thead><tbody>
-        ${tr('Kebutuhan', (c) => `<td class="num">${f(c.need)}</td>`)}${tr('Incoming sudah datang', (c) => `<td class="num">${f(c.inc)}</td>`)}${tr('OS PO (jadwal)', (c) => `<td class="num">${f(c.po)}</td>`)}${d.add ? tr('ADD/FOH/RS', (c) => `<td class="num">${f(c.add)}</td>`) : ''}
-        ${tr('Saldo', (c) => sc(c.sal), 'is-sal')}${d.prSal ? tr('PR ini datang', (c, i) => `<td class="num">${f(d.pr[i])}</td>`) + tr('Saldo bila PR datang', (c, i) => sc(d.prSal[i]), 'is-sal') : ''}</tbody></table></div>`;
+      const poRows = d.split
+        ? (d.poLate > 1e-9 ? tr('OS PO lewat jadwal', (c) => `<td class="num">${f(c.poL)}</td>`) : '') + (d.poNone > 1e-9 ? tr('OS PO belum dijadwalkan', (c) => `<td class="num">${f(c.poN)}</td>`) : '')
+          + tr('OS PO terjadwal', (c) => `<td class="num">${f(c.poS)}</td>`, '', aft ? `<td class="num pr-hit-aft" title="${esc((d.after || []).map((x) => `${x.po} ${fmtDate(x.d)}: ${prNumTxt(x.q)}`).join('\n'))}">${prNumTxt(d.poAfter)}</td>` : undefined)
+        : tr('OS PO (jadwal)', (c) => `<td class="num">${f(c.po)}</td>`);
+      const aftNote = aft ? `<div class="pr-hit-x">PO terjadwal setelah MPS terakhir (${esc(d.last)}): ${(d.after || []).map((x) => `${esc(x.po)} ${esc(fmtDate(x.d))} <b>${prNumTxt(x.q)}</b>`).join(' · ')}. Tidak masuk kolom week; dihitung di kolom "Setelah MPS".</div>` : '';
+      return `${head}</div>${rumus}<div class="pr-hit-x">${ext}</div>${aftNote}<div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u} · awal ${prNumTxt(d.stok)}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}${aft ? '<th class="num pr-hit-aft">Setelah MPS</th>' : ''}</tr></thead><tbody>
+        ${tr('Kebutuhan', (c) => `<td class="num">${f(c.need)}</td>`)}${tr('Incoming sudah datang', (c) => `<td class="num">${f(c.inc)}</td>`)}${poRows}${d.add ? tr('ADD/FOH/RS', (c) => `<td class="num">${f(c.add)}</td>`) : ''}
+        ${tr('Saldo', (c) => sc(c.sal), 'is-sal', aft ? sc(d.salEnd).replace('class="num', 'class="num pr-hit-aft') : undefined)}${d.prSal ? tr('PR ini datang', (c, i) => `<td class="num">${f(d.pr[i])}</td>`, '', aft ? `<td class="num pr-hit-aft">${f(d.prBeyond)}</td>` : undefined) + tr('Saldo bila PR datang', (c, i) => sc(d.prSal[i]), 'is-sal', aft ? sc(R3h(d.salEnd + (d.prQty || 0))).replace('class="num', 'class="num pr-hit-aft') : undefined) : ''}</tbody></table></div>`;
     }).join('');
-    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}<span class="muted"> · Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS; kebutuhan dari Kebutuhan Material s/d MPS terakhir; OS PO lewat jadwal / tanpa jadwal dihitung di week berjalan</span></div>`;
+    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}<span class="muted"> · Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS; kebutuhan dari Kebutuhan Material s/d MPS terakhir; OS PO dipisah: lewat jadwal &amp; belum dijadwalkan dihitung di week berjalan, terjadwal di week jadwalnya, setelah MPS terakhir di kolom tersendiri</span></div>`;
     return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
   }
   async function prHitungPayload(rows) {

@@ -1997,3 +1997,4 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ps-wrap td.num { white-space: nowrap; }
 
 .pr-dellist { margin: 6px 0 10px; padding-left: 18px; max-height: 30vh; overflow: auto; font-size: 13px; }
+.pr-hit .pr-hit-aft { background: #f6f1e4; border-left: 2px dashed #c9b88a; }
