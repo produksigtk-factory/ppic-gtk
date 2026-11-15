@@ -3129,6 +3129,8 @@
     const st = d.stock || [];
     P.stockDate = st.reduce((m, r) => (r[0] > m ? r[0] : m), '');
     P.stockSrc = (st.find((r) => r[0] === P.stockDate) || [])[5] || '';
+    P.stockHist = new Map();
+    st.forEach((r) => { if (!r[0]) return; let m = P.stockHist.get(r[0]); if (!m) P.stockHist.set(r[0], (m = new Map())); const o = m.get(r[1]) || { qty: 0, uom: r[4], name: r[2] }; o.qty += Number(r[3]) || 0; m.set(r[1], o); });
     P.stock = new Map();
     st.filter((r) => r[0] === P.stockDate).forEach((r) => {
       const o = P.stock.get(r[1]) || { qty: 0, uom: r[4], name: r[2] };
@@ -6405,8 +6407,8 @@
     if (r.kurangManual) return;
     const v = ['stok', 'butuh', 'ospo'].map((k) => prNum(r[k]));
     if (v.every((x) => x === '' || x === null || isNaN(x))) return;
-    const n = (x) => (x === '' || x === null || isNaN(x) ? 0 : Number(x));
-    r.kurang = String(Math.round((n(v[0]) - n(v[1]) - n(v[2])) * 10000) / 10000);
+    const n = (x) => (x === '' || x === null || x === undefined || isNaN(x) ? 0 : Number(x));
+    r.kurang = String(Math.round((n(v[0]) + n(r._inc) + n(v[2]) - n(v[1]) - n(r._add)) * 10000) / 10000);
   }
   // Histori PO per kode untuk saran Jumlah Buka PO: dari baris PO di Monitoring PO (tanpa yang cancel) + ringkasan Supplier & MoQ
   function prHist(kode) {
@@ -6459,7 +6461,7 @@
       <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"></td>
       <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
       <td><input data-k="note" value="${esc(r.note)}" class="pr-in-s" aria-label="Note"></td>
-      ${PR_NUM.map((k) => `<td><input${k === 'stok' ? ` readonly title="Stok Awal otomatis dari Plotting Harian: saldo pembuka hari ini (terkunci)"` : ''} data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${(k === 'kurang' && !r.kurangManual) || (k === 'ospo' && r.ospoAuto) ? ' is-auto' : ''}${k === 'stok' ? ' is-lock' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal − Kebutuhan − OS PO. Boleh diubah; kosongkan untuk kembali otomatis."' : k === 'ospo' ? ' title="Otomatis: total sisa PO outstanding (Monitoring PO) saat kode diisi. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r, i)}</div>` : ''}</td>`).join('')}
+      ${PR_NUM.map((k) => `<td><input${k === 'stok' ? ` readonly title="Stok Awal otomatis: stok upload pertama di bulan berjalan (terkunci)"` : ''} data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${(k === 'kurang' && !r.kurangManual) || (k === 'ospo' && r.ospoAuto) || (k === 'butuh' && r.butuhAuto) ? ' is-auto' : ''}${k === 'stok' ? ' is-lock' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Boleh diubah; kosongkan untuk kembali otomatis."' : k === 'ospo' ? ' title="Otomatis: total sisa PO outstanding (Monitoring PO) saat kode diisi. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r, i)}</div>` : k === 'stok' ? '<div class="pr-calcn"></div>' : ''}</td>`).join('')}
       <td class="pr-kir">${r.sched ? `<span class="pr-schs">${r.sched.length} jadwal</span>` : `<input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim">`}<button type="button" class="btn-link pr-splitb" data-split="${i}" title="${r.sched ? 'Tambah jadwal kirim' : 'Pecah jadwal kirim: beberapa tanggal dengan qty masing-masing'}">${r.sched ? '+ jadwal' : 'Split'}</button></td>
       <td><input data-k="pos" value="${esc(r.pos.join(', '))}" list="prEdPo${i}" class="pr-in-po" placeholder="PO… , PO…" aria-label="No PO"><datalist id="prEdPo${i}">${prPoSuggest(r.kode, D.tanggal)}</datalist></td>
       <td><select data-k="status" aria-label="Status"><option${r.status !== 'Batal' ? ' selected' : ''}>Aktif</option><option${r.status === 'Batal' ? ' selected' : ''}>Batal</option></select></td>
@@ -6467,6 +6469,7 @@
     D.rows.forEach((r) => {
       r.sched = prSched(r.kirim);
       r.ospoManual = !(prNum(r.ospo) === '' || prNum(r.ospo) === null); r.ospoAuto = false;
+      r.butuhManual = !(prNum(r.butuh) === '' || prNum(r.butuh) === null);
       const k0 = prNum(r.kurang);
       if (k0 !== '' && k0 !== null) { const t = Object.assign({}, r, { kurangManual: false }); prAutoKurang(t); r.kurangManual = Math.abs(Number(t.kurang) - Number(k0)) > 1e-6 || t.kurang === undefined; }
     });
@@ -6484,13 +6487,13 @@
       title: kodePr ? `Ubah ${kodePr}` : 'Tambah PR baru', ok: 'Simpan PR', wide: true,
       body: `<div class="form-grid pr-ed-head"><label class="field"><span>Tanggal PR *</span><input type="date" name="tanggal" value="${esc(D.tanggal)}" required></label>
           <label class="field"><span>Kode PR</span><input value="${esc(kodePr || prDefKode(D.tanggal) + ' (otomatis)')}" readonly></label>
-          <label class="field"><span>Horizon Lampiran Perhitungan</span><select name="hz" id="prHz">${PR_HZ.map(([v, t]) => `<option value="${v}"${v === D.hz ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+
           ${kodePr ? `<label class="field pr-ed-batal"><span>Status seluruh PR</span><select name="allst"><option value="">Ikuti per baris</option><option value="Aktif">Aktifkan semua</option><option value="Batal">Batalkan seluruh PR</option></select></label>` : ''}</div>
         <datalist id="prEdMat">${matOpts}</datalist>
         <div class="table-wrap pr-ed-wrap"><table class="po-table pr-ed"><thead><tr><th>No</th><th>Kode</th><th>Nama Item</th><th>Jenis</th><th>Note</th>${PR_COLS.map((c) => `<th class="num">${c.h}</th>`).join('')}<th>Tgl Kirim</th><th>No PO <small>(pisah koma)</small></th><th>Status</th><th></th></tr></thead><tbody id="prEdRows"></tbody></table></div>
         <div id="prHisPanel"></div>
         <p><button type="button" class="btn btn-ghost btn-sm" id="prEdAdd">Tambah baris</button></p>
-        <p class="hint" id="prMrpNote"></p><p class="hint">Stok Awal terisi otomatis dari Plotting Harian (saldo pembuka hari ini) dan terkunci. Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
+        <p class="hint" id="prMrpNote"></p><p class="hint">Begitu kode diisi: Stok Awal (stok upload pertama bulan ini, terkunci), Kebutuhan (Kebutuhan Material s/d MPS terakhir), dan OS PO (sisa PO gantung) terisi otomatis. Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS (Incoming & ADD/FOH/RS dihitung di belakang, rinciannya di Lampiran Perhitungan). Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
       onSubmit: async (fd) => {
         const rows = D.rows.filter((r) => String(r.kode || '').trim());
         if (!rows.length) throw new Error('Isi minimal satu kode material.');
@@ -6506,7 +6509,7 @@
           r.kirim = r.sched.length > 1 ? prSchedStr(r.sched) : r.sched[0].d;
         }
         const all = fd.allst || '';
-        const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows, fd.hz || D.hz);
+        const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows);
         const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, statusPo: prStatusPayload(rows.map((r) => r.kode)), hitung: hitung || undefined, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
           ...PR_NUM.map((k) => prNum(r[k])), r.kirim || '', r.pos.join(', '), all || r.status]) } });
         setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
@@ -6519,15 +6522,19 @@
     // Stok Awal otomatis dari Plotting Harian (untuk kode baru / kode yang diubah)
     const fillStok = (i) => {
       const r = D.rows[i], k = String(r.kode || '').trim(); if (!k || !MRP.loaded) return;
-      if (!MRP.master.has(k) && !(P.stock || new Map()).has(k)) { r.stok = ''; const x = body.querySelector(`#prEdRows tr[data-i="${i}"] [data-k=stok]`); if (x) x.value = ''; return; }
-      const c = prCalc(k, D.hz, []); if (!c) return;
-      r.stok = String(c.stok); const inp = body.querySelector(`#prEdRows tr[data-i="${i}"] [data-k=stok]`); if (inp) inp.value = r.stok;
-      prAutoKurang(r); const ki = body.querySelector(`#prEdRows tr[data-i="${i}"] [data-k=kurang]`); if (ki && !r.kurangManual) ki.value = r.kurang || '';
+      const tr = body.querySelector(`#prEdRows tr[data-i="${i}"]`); if (!tr) return;
+      const set = (key, v, auto) => { r[key] = v === '' ? '' : String(v); const x = tr.querySelector(`[data-k=${key}]`); if (x) { x.value = r[key]; if (auto !== undefined) x.classList.toggle('is-auto', auto); } };
+      if (!MRP.master.has(k) && !(P.stock || new Map()).has(k)) { set('stok', ''); r._inc = 0; r._add = 0; return; }
+      const c = prCalc(k, 'all', []); if (!c) return;
+      set('stok', c.stok); r._inc = c.inc; r._add = c.add;
+      if (!r.butuhManual) { set('butuh', c.butuh, true); r.butuhAuto = true; }
+      if (!r.ospoManual) { set('ospo', c.ospo, true); r.ospoAuto = true; }
+      prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || '';
+      const mq = tr.querySelector('.pr-calcn'); if (mq) mq.textContent = `stok ${fmtDate(c.stokDate)}${c.inc ? ` · incoming ${prNumTxt(c.inc)}` : ''}${c.add ? ` · ADD/FOH/RS ${prNumTxt(c.add)}` : ''}`;
     };
     D.fillStok = fillStok;
     $('prMrpNote').textContent = MRP.loaded ? '' : 'Memuat data MRP (Plotting Harian & Proyeksi Stok) untuk Stok Awal dan Lampiran Perhitungan…';
     mrpReady().then((ok) => { if (seq !== dlgSeq) return; $('prMrpNote').textContent = ok ? '' : 'Data MRP tidak bisa dimuat: Stok Awal dan Lampiran Perhitungan tidak terisi otomatis.'; if (ok) D.rows.forEach((r, i) => { if (r.stokPending) { r.stokPending = false; fillStok(i); } }); });
-    body.querySelector('#prHz').addEventListener('change', (e) => { D.hz = e.target.value; });
     body.querySelector('[name=tanggal]').addEventListener('change', (e) => { D.tanggal = e.target.value; if (!kodePr) body.querySelector('.pr-ed-head input[readonly]').value = prDefKode(D.tanggal) + ' (otomatis)'; });
     body.querySelector('#prEdAdd').addEventListener('click', () => { D.rows.push(prBlank()); paint(); });
     body.addEventListener('input', (e) => {
@@ -6542,8 +6549,9 @@
       if (k === 'kurang') { r.kurangManual = inp.value.trim() !== ''; inp.classList.toggle('is-auto', !r.kurangManual); if (!r.kurangManual) { prAutoKurang(r); inp.value = r.kurang || ''; } }
       if (k === 'ospo') { r.ospoManual = inp.value.trim() !== ''; r.ospoAuto = !r.ospoManual; }
       if (k === 'kode') { if (MRP.loaded) D.fillStok(i); else r.stokPending = true; }
-      if (k === 'kode' && !r.ospoManual) { const os = prOsSum(r.kode); r.ospo = r.kode && String(r.kode).trim() ? String(Math.round(os * 10000) / 10000) : ''; r.ospoAuto = true; const oi = tr.querySelector('[data-k=ospo]'); if (oi) { oi.value = r.ospo; oi.classList.add('is-auto'); } prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || ''; }
-      if (k === 'ospo') { inp.classList.toggle('is-auto', !r.ospoManual); if (!r.ospoManual) { r.ospo = String(Math.round(prOsSum(r.kode) * 10000) / 10000); inp.value = r.ospo; } }
+      if (k === 'butuh') { r.butuhManual = inp.value.trim() !== ''; inp.classList.toggle('is-auto', !r.butuhManual); }
+      if (false && k === 'kode' && !r.ospoManual) { const os = prOsSum(r.kode); r.ospo = r.kode && String(r.kode).trim() ? String(Math.round(os * 10000) / 10000) : ''; r.ospoAuto = true; const oi = tr.querySelector('[data-k=ospo]'); if (oi) { oi.value = r.ospo; oi.classList.add('is-auto'); } prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || ''; }
+      if (k === 'ospo' || k === 'butuh') { inp.classList.toggle('is-auto', !(k === 'ospo' ? r.ospoManual : r.butuhManual)); if (!(k === 'ospo' ? r.ospoManual : r.butuhManual) && MRP.loaded) D.fillStok(i); }
       if (k === 'stok' || k === 'butuh' || k === 'ospo') { prAutoKurang(r); if (!r.kurangManual) tr.querySelector('[data-k=kurang]').value = r.kurang || ''; }
       if (k === 'buka' || k === 'kode') { const mq = tr.querySelector('.pr-moq'); if (mq) mq.innerHTML = prMoqHtml(r, i); if (k === 'kode' && r.histOpen) { r.histOpen = false; paint(); } }
       if (k === 'kode') {
@@ -6621,7 +6629,7 @@
           ${G.filter((g) => g.kodePr && !exist.has(g.kodePr)).length ? `<li>${nf.format(G.filter((g) => g.kodePr && !exist.has(g.kodePr)).length)} Kode PR di file belum ada di Rekap → dibuat dengan kode tersebut</li>` : ''}</ul>`,
         onSubmit: async () => {
           G.forEach((g) => { g.statusPo = prStatusPayload(g.rows.map((r) => r[0])); });
-          if (!state.noPrHitungScript) for (const g of G) { const h = await prHitungPayload(g.rows.map((r) => ({ kode: r[0], buka: r[8], kirim: r[10] })), '8'); if (h) g.hitung = h; }
+          if (!state.noPrHitungScript) for (const g of G) { const h = await prHitungPayload(g.rows.map((r) => ({ kode: r[0], buka: r[8], kirim: r[10] }))); if (h) g.hitung = h; }
           const res = await api('uploadPr', { data: { file: f.name, groups: G } });
           setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.editLog) state.editLog = res.editLog; renderPrRekap(); renderLog();
           return `${res.codes.length} PR tersimpan.`;
@@ -6638,77 +6646,75 @@
   });
 
   /* ---------- Lampiran PR (per Kode PR): gambar ditempel (Ctrl+V), disimpan di Google Drive lewat Apps Script ---------- */
-  /* ---------- Lampiran Perhitungan: saldo stok harian (Plotting Harian, week berjalan) + mingguan (Proyeksi Stok) ---------- */
-  // Incoming yang dihitung hanya konfirmasi incoming. Stok Awal di formulir PR = saldo pembuka hari ini menurut Plotting Harian (terkunci).
-  const PR_HZ = [['4', '4 week'], ['8', '8 week'], ['12', '12 week'], ['all', 'Sampai akhir MPS']];
+  /* ---------- Lampiran Perhitungan PR ----------
+   * Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS
+   *   Stok Awal  = stok upload pertama di bulan berjalan (MRP)
+   *   Incoming   = konfirmasi incoming yang SUDAH datang sejak tanggal stok itu s/d hari ini (yang belum datang ada di OS PO)
+   *   OS PO      = sisa semua PO gantung (lewat jadwal maupun akan datang) = Lampiran Status PO
+   *   Kebutuhan  = kebutuhan material (Mode Plan: MO menggantikan plan) dari week tanggal stok s/d week MPS terakhir
+   *   ADD/FOH/RS = pengurangan manual pada periode yang sama */
   async function mrpReady() {
     if (!MRP.loaded) await loadMrp();
     for (let i = 0; i < 150 && MRP.loading; i++) await new Promise((r) => setTimeout(r, 200));
     return MRP.loaded && P.weeks && P.weeks.length;
   }
   const prCalcCache = new Map();
-  function prCalcBase(hz) {
-    const key = hz + '|' + todayStr() + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.length;
+  function prCalcBase() {
+    const key = todayStr() + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.stockDate;
     if (prCalcCache.has(key)) return prCalcCache.get(key);
-    const today = todayStr(), W = P.weeks.slice().sort((a, b) => (a.start < b.start ? -1 : 1));
-    let wi = W.findIndex((w) => w.start <= today && w.end >= today); if (wi < 0) wi = W.findIndex((w) => w.end >= today); if (wi < 0) wi = W.length - 1;
-    let last = wi; const has = new Set(); P.plan.forEach((p) => { if (p.kg > 0) has.add(p.bulan + '|' + p.week); }); P.konf.forEach((r) => { if (r.bulan) has.add(r.bulan + '|' + r.week); });
+    const today = todayStr(), mon = today.slice(0, 7), W = P.weeks.slice().sort((a, b) => (a.start < b.start ? -1 : 1));
+    const dates = [...(P.stockHist || new Map()).keys()].sort();
+    const d0 = dates.find((d) => d.slice(0, 7) === mon) || dates.filter((d) => d <= today).pop() || P.stockDate || today;
+    let si = W.findIndex((w) => w.start <= d0 && w.end >= d0); if (si < 0) si = Math.max(0, W.findIndex((w) => w.end >= d0));
+    let ci = W.findIndex((w) => w.start <= today && w.end >= today); if (ci < 0) ci = W.findIndex((w) => w.end >= today); if (ci < 0) ci = W.length - 1;
+    let last = Math.max(si, ci); const has = new Set(); P.plan.forEach((p) => { if (p.kg > 0) has.add(p.bulan + '|' + p.week); }); P.konf.forEach((r) => { if (r.bulan) has.add(r.bulan + '|' + r.week); });
     W.forEach((w, i) => { if (has.has(w.bulan + '|' + w.week) && i > last) last = i; });
-    const end = hz === 'all' ? last : Math.min(W.length - 1, wi + Number(hz));
-    const weeks = W.filter((w, i) => i <= end && (!P.stockDate || w.end >= P.stockDate));
+    const weeks = W.slice(si, last + 1);
     const keep = P.pjCalc; P.pjCalc = 'plan';
     let J; try { J = computeProj({ weeks, all: true }); } finally { P.pjCalc = keep; }
-    const H = harianCalc(W[wi], 'plan');
-    const o = { today, wk: W[wi], J, H, j: J.R.idx.get(W[wi].bulan + '|' + W[wi].week) };
+    const o = { today, d0, weeks, J, cw: weeks.findIndex((w) => w.start <= today && w.end >= today) };
     prCalcCache.clear(); prCalcCache.set(key, o);
     return o;
   }
   // sched: [{d, q}] jadwal datang PR ini (Tgl Kirim / split)
   function prCalc(kode, hz, sched) {
     kode = String(kode || '').trim(); if (!kode) return null;
-    const B = prCalcBase(hz), { J, H, wk, today } = B, j = B.j;
-    const jr = J.rows.find((r) => r.code === kode), hr = H.rows ? H.rows.find((r) => r.code === kode) : null;
-    const m = MRP.master.get(kode) || {}, st = (P.stock || new Map()).get(kode);
-    const out = { kode, nama: (jr && jr.name) || m.name || (st && st.name) || '', uom: (jr && jr.uom) || m.uom || (st && st.uom) || '', hz, at: today, stockDate: P.stockDate || '', week: wLabel(wk), cols: [] };
-    const N = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
-    if (j === undefined || !jr) { out.stok = st ? N(st.qty) : 0; out.note = 'Material tidak ada di perhitungan MRP (tidak dipakai di plan).'; return prCalcFinish(out, sched); }
-    if (hr && H.days) {
-      const t = H.days.indexOf(today), t0 = t < 0 ? 0 : t;
-      out.stok = N(t0 === 0 ? hr.open : hr.sal[t0 - 1]);
-      for (let i = t0; i < H.days.length; i++) out.cols.push({ l: dayLbl(H.days[i]), d: H.days[i], t: 'd', need: N(hr.need[i]), inc: N(hr.inc[i]), out: N(hr.out[i]), sal: N(hr.sal[i]) });
-      if (hr.un > 1e-9) out.cols.push({ l: `Belum dijadwalkan ${wk.week}`, d: wk.end, t: 'u', need: N(hr.un), inc: 0, out: 0, sal: N(hr.end) });
-    } else {
-      const open = j === J.s ? jr.start : j > J.s ? jr.saldo[j - 1] : jr.start;
-      out.stok = N(open);
-      out.cols.push({ l: `${wk.week} ${monShort(wk.bulan)}`, d: wk.start, t: 'w', need: N(jr.need[j]), inc: N(jr.inW[j]), out: N(jr.outW[j]), sal: N(jr.saldo[j]) });
-    }
-    for (let i = j + 1; i < J.R.weeks.length; i++) {
-      const w = J.R.weeks[i];
-      out.cols.push({ l: `${w.week} ${monShort(w.bulan)}`, d: w.start, de: w.end, t: 'w', need: N(jr.need[i]), inc: N(jr.inW[i]), out: N(jr.outW[i]), sal: N(jr.saldo[i]) });
-    }
-    return prCalcFinish(out, sched);
-  }
-  function prCalcFinish(out, sched) {
-    if (!out.cols.length) out.cols.push({ l: 'Hari ini', d: out.at, t: 'd', need: 0, inc: 0, out: 0, sal: out.stok });
-    const neg = out.cols.find((c) => c.sal < -1e-9);
-    out.minus = neg ? neg.l : '';
-    out.deep = Math.min(0, ...out.cols.map((c) => c.sal));
-    out.need = out.cols.reduce((t, c) => t + c.need, 0);
-    // Simulasi kedatangan PR ini
+    const B = prCalcBase(), { J, weeks, d0, today } = B, n = weeks.length;
+    const cw = B.cw < 0 ? (today < (weeks[0] || {}).start ? 0 : n - 1) : B.cw;
+    const jr = J.rows.find((r) => r.code === kode), m = MRP.master.get(kode) || {};
+    const sh = (P.stockHist || new Map()).get(d0), st = sh ? sh.get(kode) : null;
+    const R3 = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
+    const wOf = (d) => { if (!d) return cw; const i = weeks.findIndex((w) => d >= w.start && d <= w.end); return i >= 0 ? i : d < weeks[0].start ? 0 : n - 1; };
+    const cols = weeks.map((w) => ({ l: `${w.week} ${monShort(w.bulan)}`, d: w.start, de: w.end, need: 0, inc: 0, po: 0, add: 0, sal: 0 }));
+    if (!n) return null;
+    if (jr) J.R.weeks.forEach((w, i) => { const k = weeks.indexOf(w); if (k >= 0) cols[k].need += Number(jr.need[i]) || 0; });
+    (P.incK || []).forEach((x) => { const d = x.datang || x.tgl; if (x.code === kode && d && d >= d0 && d <= today) cols[wOf(d)].inc += x.qty; });
+    (P.kurang || []).forEach((x) => { if (x.code === kode && x.tgl && x.tgl >= d0 && x.tgl <= weeks[n - 1].end) cols[wOf(x.tgl)].add += x.qty; });
+    let poLate = 0;
+    (state.rows || []).filter((x) => x.code === kode && !x.cancel && !x.takeout && x.sisa > 1e-9).forEach((x) => {
+      let left = x.sisa;
+      (x.sched || []).filter((s) => s.status !== 'Done' && s.date).sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((s) => {
+        const q = Math.min(left, Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0))); if (!(q > 0)) return;
+        left -= q; if (s.date < today) { poLate += q; cols[cw].po += q; } else cols[wOf(s.date)].po += q;
+      });
+      if (left > 1e-9) cols[cw].po += left;   // tanpa jadwal → dianggap week berjalan
+    });
+    const stok = R3(st ? st.qty : 0);
+    let run = stok;
+    cols.forEach((c) => { c.need = R3(c.need); c.inc = R3(c.inc); c.po = R3(c.po); c.add = R3(c.add); run += c.inc + c.po - c.need - c.add; c.sal = R3(run); });
+    const sum = (k) => R3(cols.reduce((t, c) => t + c[k], 0));
+    const out = { kode, nama: (jr && jr.name) || m.name || (st && st.name) || '', uom: (jr && jr.uom) || m.uom || (st && st.uom) || '', at: today, stokDate: d0, stok,
+      inc: sum('inc'), ospo: sum('po'), poLate: R3(poLate), butuh: sum('need'), add: sum('add'), cols, last: cols[n - 1].l, note: jr ? '' : 'Tidak ada kebutuhan di plan MPS.' };
+    out.kurang = R3(out.stok + out.inc + out.ospo - out.butuh - out.add);
+    const neg = cols.find((c) => c.sal < -1e-9); out.minus = neg ? neg.l : ''; out.deep = Math.min(0, ...cols.map((c) => c.sal));
     const S = (sched || []).filter((x) => x.q > 0);
     if (S.length) {
-      const add = out.cols.map(() => 0); let beyond = 0;
-      S.forEach((x) => {
-        const d = x.d || out.at;
-        let k = out.cols.findIndex((c) => (c.t === 'w' ? d <= (c.de || c.d) : c.t === 'd' ? d <= c.d : false));
-        if (k < 0) { if (d < out.at) k = 0; else { beyond += x.q; return; } }
-        add[k] += x.q;
-      });
-      let cum = 0; out.pr = add; out.prSal = out.cols.map((c, i) => { cum += add[i]; return Math.round((c.sal + cum) * 1000) / 1000; });
-      out.prQty = S.reduce((t, x) => t + x.q, 0); out.prBeyond = beyond;
-      out.prDeep = Math.min(0, ...out.prSal);
-      const fa = add.findIndex((x) => x > 0); out.prFirst = fa >= 0 ? out.cols[fa].l : '';
-      out.prDeepAfter = fa >= 0 ? Math.min(0, ...out.prSal.slice(fa)) : out.prDeep; out.prDeepBefore = fa > 0 ? Math.min(0, ...out.prSal.slice(0, fa)) : 0;
+      const add = cols.map(() => 0); let beyond = 0;
+      S.forEach((x) => { const d = x.d || today; if (d > cols[n - 1].de) { beyond += x.q; return; } add[wOf(d)] += x.q; });
+      let cum = 0; out.pr = add; out.prSal = cols.map((c, i) => { cum += add[i]; return R3(c.sal + cum); });
+      out.prQty = R3(S.reduce((t, x) => t + x.q, 0)); out.prBeyond = R3(beyond);
+      const fa = add.findIndex((x) => x > 0); out.prFirst = fa >= 0 ? cols[fa].l : '';
+      out.prDeepAfter = fa >= 0 ? Math.min(0, ...out.prSal.slice(fa)) : Math.min(0, ...out.prSal); out.prDeepBefore = fa > 0 ? Math.min(0, ...out.prSal.slice(0, fa)) : 0;
     }
     return out;
   }
@@ -6720,30 +6726,28 @@
   function prHitungHtml(g, print) {
     const H = prHitungOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
     const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
-    const f = (v) => (Math.abs(v) < 0.0005 ? '–' : prNumTxt(v));
+    const f = (v) => (Math.abs(Number(v) || 0) < 0.0005 ? '–' : prNumTxt(v));
     const blk = rows.map((r) => {
       const h = H.find((x) => x.kode === String(r.kode).trim()), d = h && h.data;
       const head = `<div class="pr-st-m"><b>${esc(r.kode)}</b> ${esc(r.nama)}`;
-      if (!d || !d.cols) return head + '<span>Perhitungan belum dibekukan</span></div>';
-      const u = esc(d.uom || '');
-      const sum = [`Stok awal <b>${prNumTxt(d.stok)} ${u}</b>${d.at ? ` (${esc(fmtDate(d.at))})` : ''}`, `kebutuhan ${prNumTxt(Math.round(d.need * 1000) / 1000)} ${u}`,
-        d.minus ? `<b class="pr-st-late">mulai minus ${esc(d.minus)}</b>, kekurangan terdalam <b class="pr-st-late">${prNumTxt(d.deep)} ${u}</b>` : '<b>tidak minus dalam horizon</b>',
-        d.prSal ? `bila PR ${prNumTxt(d.prQty)} ${u} datang${d.prFirst ? ` (mulai ${esc(d.prFirst)})` : ''}: ${(d.prDeepAfter !== undefined ? d.prDeepAfter : d.prDeep) < -1e-9 ? `<b class="pr-st-late">masih minus ${prNumTxt(d.prDeepAfter !== undefined ? d.prDeepAfter : d.prDeep)}</b>` : '<b class="pr-st-ok">tertutup</b>'}${d.prDeepBefore < -1e-9 ? `, <span class="pr-st-late">sebelum PR datang minus ${prNumTxt(d.prDeepBefore)}</span>` : ''}${d.prBeyond ? ` (${prNumTxt(d.prBeyond)} di luar horizon)` : ''}` : ''].filter(Boolean).join(' · ');
-      const hasOut = d.cols.some((c) => c.out);
+      if (!d || !d.cols || d.butuh === undefined) return head + '<span>Perhitungan belum dibekukan (klik Perbarui lampiran)</span></div>';
+      const u = esc(d.uom || ''), sg = (v) => (v < 0 ? '−' : '+');
+      const rumus = `<div class="pr-hit-f">Stok awal ${esc(fmtDate(d.stokDate))} <b>${prNumTxt(d.stok)}</b> + Incoming sudah datang <b>${prNumTxt(d.inc)}</b> + OS PO <b>${prNumTxt(d.ospo)}</b>${d.poLate ? ` <small>(${prNumTxt(d.poLate)} lewat jadwal)</small>` : ''} − Kebutuhan s/d ${esc(d.last)} <b>${prNumTxt(d.butuh)}</b> − ADD/FOH/RS <b>${prNumTxt(d.add)}</b> = <b class="${d.kurang < -1e-9 ? 'pr-st-late' : 'pr-st-ok'}">${prNumTxt(d.kurang)} ${u}</b>${d.kurang < -1e-9 ? ' (kurang)' : ' (cukup)'}</div>`;
+      const ext = [d.minus ? `<b class="pr-st-late">saldo mulai minus ${esc(d.minus)}</b>, terdalam ${prNumTxt(d.deep)} ${u}` : 'saldo tidak minus sampai MPS terakhir',
+        d.prSal ? `bila PR ${prNumTxt(d.prQty)} ${u} datang${d.prFirst ? ` (mulai ${esc(d.prFirst)})` : ''}: ${d.prDeepAfter < -1e-9 ? `<b class="pr-st-late">masih minus ${prNumTxt(d.prDeepAfter)}</b>` : '<b class="pr-st-ok">tertutup</b>'}${d.prDeepBefore < -1e-9 ? `, <span class="pr-st-late">sebelum PR datang minus ${prNumTxt(d.prDeepBefore)}</span>` : ''}${d.prBeyond ? ` (${prNumTxt(d.prBeyond)} di luar MPS)` : ''}` : '', d.note].filter(Boolean).join(' · ');
       const tr = (lbl, fn, cls) => `<tr${cls ? ` class="${cls}"` : ''}><th>${lbl}</th>${d.cols.map((c, i) => fn(c, i)).join('')}</tr>`;
       const sc = (v) => `<td class="num${v < -1e-9 ? ' pr-neg' : ''}">${prNumTxt(v)}</td>`;
-      return `${head}<span>${sum}</span></div><div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u}</th>${d.cols.map((c) => `<th class="num${c.t === 'w' ? ' is-w' : c.t === 'u' ? ' is-u' : ''}">${esc(c.l)}</th>`).join('')}</tr></thead><tbody>
-        ${tr('Kebutuhan', (c) => `<td class="num">${f(c.need)}</td>`)}${tr('Incoming (konfirmasi)', (c) => `<td class="num">${f(c.inc)}</td>`)}${hasOut ? tr('Pengurangan', (c) => `<td class="num">${f(c.out)}</td>`) : ''}
+      return `${head}</div>${rumus}<div class="pr-hit-x">${ext}</div><div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u} · awal ${prNumTxt(d.stok)}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}</tr></thead><tbody>
+        ${tr('Kebutuhan', (c) => `<td class="num">${f(c.need)}</td>`)}${tr('Incoming sudah datang', (c) => `<td class="num">${f(c.inc)}</td>`)}${tr('OS PO (jadwal)', (c) => `<td class="num">${f(c.po)}</td>`)}${d.add ? tr('ADD/FOH/RS', (c) => `<td class="num">${f(c.add)}</td>`) : ''}
         ${tr('Saldo', (c) => sc(c.sal), 'is-sal')}${d.prSal ? tr('PR ini datang', (c, i) => `<td class="num">${f(d.pr[i])}</td>`) + tr('Saldo bila PR datang', (c, i) => sc(d.prSal[i]), 'is-sal') : ''}</tbody></table></div>`;
     }).join('');
-    const hz = (H[0] && H[0].hz) || '';
-    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${hz ? ` · horizon ${esc((PR_HZ.find((x) => x[0] === hz) || ['', hz + ' week'])[1])}` : ''}${at ? ` · dihitung ${esc(at)}` : ''}<span class="muted"> · harian = Plotting Harian (week berjalan), mingguan = Proyeksi Stok; incoming hanya yang sudah dikonfirmasi</span></div>`;
+    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}<span class="muted"> · Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS; kebutuhan dari Kebutuhan Material s/d MPS terakhir; OS PO lewat jadwal / tanpa jadwal dihitung di week berjalan</span></div>`;
     return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
   }
-  async function prHitungPayload(rows, hz) {
+  async function prHitungPayload(rows) {
     if (!(await mrpReady())) return null;
     const o = {};
-    rows.forEach((r) => { const k = String(r.kode || '').trim(); if (k && !o[k]) { const d = prCalc(k, hz, prSchedOf(r)); if (d) o[k] = { hz, data: d }; } });
+    rows.forEach((r) => { const k = String(r.kode || '').trim(); if (k && !o[k]) { const d = prCalc(k, 'all', prSchedOf(r)); if (d) o[k] = { hz: 'all', data: d }; } });
     return o;
   }
   /* ---------- Lampiran Status PO: PO outstanding (gantung) per material, dibekukan saat PR disimpan ---------- */
@@ -6791,9 +6795,9 @@
     const rows = g.rows.filter((r) => r.status !== 'Batal'), hz0 = (prHitungOf(kodePr)[0] || {}).hz || '8';
     openDialog({ title: `Perbarui lampiran · ${kodePr}`, ok: 'Perbarui',
       body: `<p class="dlg-lead">Lampiran Perhitungan dan Status PO untuk ${rows.length} material di PR ini dihitung ulang dengan data saat ini, lalu dibekukan lagi.</p>
-        <label class="field"><span>Horizon perhitungan</span><select name="hz">${PR_HZ.map(([v, t]) => `<option value="${v}"${v === hz0 ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`,
+`,
       onSubmit: async (fd) => {
-        const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows, fd.hz || hz0);
+        const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows);
         const res = await api('refreshPrStatus', { data: { kodePr, statusPo: prStatusPayload(rows.map((r) => r.kode)), hitung: hitung || undefined } });
         setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
         if (after) setTimeout(after, 0);
