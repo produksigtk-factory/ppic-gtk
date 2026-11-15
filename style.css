@@ -1844,3 +1844,5 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .inv-br td { font-weight: 600; background: #fbfcfb; }
 .inv-br:hover td { background: #f3f8f4; }
 .inv-br.is-open td { background: var(--brand-soft); }
+.inv-kel { margin: 0 0 10px; }
+.inv-kel button { padding: 8px 16px; font-size: 14px; }

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=ed2e882d">
+<link rel="stylesheet" href="style.css?v=53b46085">
 </head>
 <body>
 <div class="shell">
@@ -1019,17 +1019,19 @@
       <section id="view-rep-inv" class="view" hidden>
         <div class="mrp-loading" data-inv-loading hidden>Memuat data inventory…</div>
         <div class="toolbar inv-acts">
-          <label class="tb-field tb-narrow"><span class="sr">Unduh format</span><select id="invTpl" title="Unduh format Excel"><option value="">Format…</option><option value="gol">Format golongan</option><option value="harga">Format harga</option><option value="stok">Format stok</option></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Unduh format</span><select id="invTpl" title="Unduh format Excel"><option value="">Format…</option><option value="gol">Format golongan</option><option value="harga">Format harga</option><option value="stokmat">Format stok Material (RM, PM, WIP)</option><option value="stokfg">Format stok FG</option></select></label>
           <label class="btn btn-sm btn-ghost" for="invUp-gol">Upload golongan<input type="file" id="invUp-gol" accept=".xls,.xlsx,.csv" hidden></label>
           <label class="btn btn-sm btn-ghost" for="invUp-harga">Upload harga<input type="file" id="invUp-harga" accept=".xls,.xlsx,.csv" hidden></label>
-          <label class="btn btn-sm" for="invUp-stok">Upload stok<input type="file" id="invUp-stok" accept=".xls,.xlsx,.csv" hidden></label>
+          <label class="btn btn-sm" for="invUp-stokmat" title="Stok RM, PM, dan WIP dalam satu file">Upload stok Material<input type="file" id="invUp-stokmat" accept=".xls,.xlsx,.csv" hidden></label>
+          <label class="btn btn-sm" for="invUp-stokfg">Upload stok FG<input type="file" id="invUp-stokfg" accept=".xls,.xlsx,.csv" hidden></label>
           <button type="button" class="btn btn-sm btn-ghost" id="invEdit" title="Koreksi qty manual pada snapshot terpilih">Koreksi stok</button>
         </div>
         <p class="check" id="invMsg"></p>
+        <div class="pj-seg inv-kel" id="invKel" role="group" aria-label="Kelompok stok"><button type="button" data-v="MAT">Material (RM, PM, WIP)</button><button type="button" data-v="FG">FG</button></div>
         <div id="invTop" hidden>
           <div class="toolbar">
             <label class="tb-field"><span class="sr">Snapshot</span><select id="invSnap" title="Snapshot stok"></select></label>
-            <div class="pj-seg" id="invGol" role="group" aria-label="Golongan"><button type="button" data-v="">Semua</button><button type="button" data-v="RM">RM</button><button type="button" data-v="PM">PM</button><button type="button" data-v="FG">FG</button><button type="button" data-v="WIP">WIP</button></div>
+            <div class="pj-seg" id="invGol" role="group" aria-label="Golongan"></div>
             <label class="tb-field tb-narrow"><span class="sr">Brand</span><select id="invBrand" title="Brand (dari KATEGORI berpola BRAND - JENIS)"></select></label>
             <label class="tb-field tb-narrow"><span class="sr">Jenis</span><select id="invJenis" title="Jenis / kategori"></select></label>
             <label class="tb-field tb-narrow"><span class="sr">Lokasi</span><select id="invLok"></select></label>
@@ -1326,7 +1328,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=6c66277d"></script>
 <script src="app.js?v=080dfde2"></script>
-<script src="inv.js?v=aa3b8367"></script>
+<script src="inv.js?v=5f39ebc1"></script>
 <script src="csl.js?v=6986e7dc"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

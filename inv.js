@@ -45,10 +45,11 @@
   const I = {
     loaded: false, loading: false, err: '', raw: null,
     gol: new Map(), harga: new Map(), snaps: [], stok: new Map(), log: [],
+    kel: 'MAT', all: { MAT: { stok: new Map(), snaps: [] }, FG: { stok: new Map(), snaps: [] } }, selSnap: { MAT: '', FG: '' },
     snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
   };
-  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms'].forEach((k) => { if (v[k]) I[k] = v[k]; }); } catch (e) { /* abaikan */ }
-  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms })); } catch (e) { /* abaikan */ } };
+  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
+  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel })); } catch (e) { /* abaikan */ } };
 
   /* ---------- Apps Script ---------- */
   async function load(force) {
@@ -81,14 +82,31 @@
     I.harga = new Map();
     (d.harga || []).forEach((r) => { const k = normCode(r[0]), h = Number(r[1]); if (!k || !isFinite(h)) return; const L = I.harga.get(k) || []; L.push({ h, from: S(r[2]).slice(0, 10), up: S(r[3]), file: S(r[4]) }); I.harga.set(k, L); });
     I.harga.forEach((L) => L.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.up < b.up ? -1 : 1)));
-    I.stok = new Map();
-    (d.stok || []).forEach((r) => { const s = S(r[0]); const k = normCode(r[1]); if (!s || !k) return; const L = I.stok.get(s) || []; L.push({ kode: k, lok: S(r[2]), qty: Number(r[3]) || 0, src: S(r[4]), note: S(r[5]) }); I.stok.set(s, L); });
-    const meta = new Map((d.snapshot || []).map((r) => [S(r[0]), { snap: S(r[0]), file: S(r[1]), n: Number(r[2]) || 0, up: S(r[3]), note: S(r[4]) }]));
-    I.stok.forEach((L, s) => { if (!meta.has(s)) meta.set(s, { snap: s, file: '', n: L.length, up: '', note: '' }); });
-    I.snaps = [...meta.values()].filter((m) => I.stok.has(m.snap)).sort((a, b) => (a.snap < b.snap ? -1 : 1));
-    if (!I.snaps.some((m) => m.snap === I.snap)) I.snap = I.snaps.length ? I.snaps[I.snaps.length - 1].snap : '';
+    // Stok Material (RM + PM + WIP) dan FG disimpan & dilaporkan terpisah. Baris lama tanpa KELOMPOK: ikut golongan kodenya.
+    const kelOf = (v, kode) => { const t = S(v).toUpperCase(); return t === 'FG' ? 'FG' : t ? 'MAT' : golOf(kode) === 'FG' ? 'FG' : 'MAT'; };
+    ['MAT', 'FG'].forEach((kel) => { I.all[kel] = { stok: new Map(), snaps: [] }; });
+    (d.stok || []).forEach((r) => { const s = S(r[0]); const k = normCode(r[1]); if (!s || !k) return; const A = I.all[kelOf(r[6], k)]; const L = A.stok.get(s) || []; L.push({ kode: k, lok: S(r[2]), qty: Number(r[3]) || 0, src: S(r[4]), note: S(r[5]) }); A.stok.set(s, L); });
+    ['MAT', 'FG'].forEach((kel) => {
+      const A = I.all[kel];
+      const meta = new Map((d.snapshot || []).filter((r) => (S(r[5]).toUpperCase() === 'FG' ? 'FG' : 'MAT') === kel).map((r) => [S(r[0]), { snap: S(r[0]), file: S(r[1]), n: Number(r[2]) || 0, up: S(r[3]), note: S(r[4]) }]));
+      A.stok.forEach((L, s) => { if (!meta.has(s)) meta.set(s, { snap: s, file: '', n: L.length, up: '', note: '' }); });
+      A.snaps = [...meta.values()].filter((m) => A.stok.has(m.snap)).sort((a, b) => (a.snap < b.snap ? -1 : 1));
+    });
+    useKel();
     I.loaded = true;
   }
+  function useKel() {
+    const A = I.all[I.kel];
+    I.stok = A.stok; I.snaps = A.snaps;
+    if (!I.snaps.some((m) => m.snap === I.selSnap[I.kel])) I.selSnap[I.kel] = I.snaps.length ? I.snaps[I.snaps.length - 1].snap : '';
+    I.snap = I.selSnap[I.kel];
+  }
+  const setSnap = (sn) => { I.snap = sn; I.selSnap[I.kel] = sn; };
+  const KEL_LBL = { MAT: 'Material (RM, PM, WIP)', FG: 'FG' };
+  const BR_PAL = ['#106a3a', '#2f6db5', '#b07d16', '#8a4fb0', '#c2410c', '#0f766e', '#a8326e', '#5b6b7a'];
+  const grpOf = (r) => (I.kel === 'FG' ? (r.brand || 'Tanpa brand') : r.gol);
+  const grpLbl = (k) => (I.kel === 'FG' ? k : GOL_LBL[k] || k);
+  const grpClr = (k) => { if (I.kel !== 'FG') return GOL_CLR[k] || '#8a94a0'; if (k === 'Lainnya' || k === 'Tanpa brand') return '#8a94a0'; const i = (I.brRank || []).indexOf(k); return i >= 0 && i < BR_PAL.length - 1 ? BR_PAL[i] : '#8a94a0'; };
   const priceAt = (kode, snap) => { const L = I.harga.get(kode); if (!L) return null; const day = snap.slice(0, 10); let p = null; L.forEach((x) => { if (x.from <= day) p = x; }); return p; };
   // KATEGORI berpola "BRAND - JENIS" (FG). Tanpa " - " → tanpa brand, jenis = kategori.
   function splitKat(v) {
@@ -124,7 +142,7 @@
   function paintLoading(on) { document.querySelectorAll('[data-inv-loading]').forEach((x) => { x.hidden = !on; }); }
   function render() {
     if (!$('invBody')) return;
-    $('dataInfo').textContent = I.loaded ? `Value and Qty Inventory dibaca ${I.readAt ? fSnap(I.readAt.slice(0, 16)) : ''} · ${I.gol.size} kode golongan · ${I.snaps.length} snapshot` : I.err === 'noUrl' ? 'Apps Script inventory belum dipasang' : 'Memuat…';
+    $('dataInfo').textContent = I.loaded ? `Value and Qty Inventory dibaca ${I.readAt ? fSnap(I.readAt.slice(0, 16)) : ''} · ${I.gol.size} kode golongan · ${I.all.MAT.snaps.length} snapshot Material · ${I.all.FG.snaps.length} snapshot FG` : I.err === 'noUrl' ? 'Apps Script inventory belum dipasang' : 'Memuat…';
     if (I.err === 'noUrl') {
       $('invTop').hidden = true;
       $('invBody').innerHTML = `<div class="warn-box"><h4>Apps Script belum dipasang</h4><p>Buka Google Sheet <b>Value and Qty Inventory (RM, PM, dan FG)</b> → Extensions → Apps Script → tempel <code>Code_INV.gs</code> → Deploy sebagai Web app (Execute as: Me, Who has access: Anyone), lalu kirim URL /exec-nya untuk dipasang di website.</p></div>`;
@@ -135,7 +153,9 @@
     $('invTop').hidden = false;
     // Saringan
     $('invSnap').innerHTML = I.snaps.length ? I.snaps.slice().reverse().map((m) => `<option value="${esc(m.snap)}"${m.snap === I.snap ? ' selected' : ''}>${esc(fSnap(m.snap))}</option>`).join('') : '<option value="">Belum ada snapshot</option>';
-    document.querySelectorAll('#invGol [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.g)));
+    document.querySelectorAll('#invKel [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.kel)));
+    $('invGol').hidden = I.kel === 'FG';
+    $('invGol').innerHTML = [['', 'Semua'], ['RM', 'RM'], ['PM', 'PM'], ['WIP', 'WIP']].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === I.g}">${t}</button>`).join('');
     document.querySelectorAll('#invView [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.view)));
     const all = I.snap ? calc(I.snap, true) : [];
     const pool = all.filter((r) => !I.g || r.gol === I.g);
@@ -152,31 +172,40 @@
     $('invEdit').disabled = !I.snap;
     if (!I.snap) {
       $('invKpi').innerHTML = ''; $('invChart').innerHTML = '';
-      $('invBody').innerHTML = `<div class="inv-empty"><h3>Belum ada data stok</h3><p>Langkahnya: (1) upload <b>golongan</b> (kode, nama, golongan, kategori, UoM), (2) upload <b>harga</b> dengan tanggal berlaku, (3) upload <b>stok</b> dengan tanggal & jam snapshot. Format Excel masing-masing ada di tombol <b>Format</b>.</p><p class="muted">${I.gol.size} kode golongan · ${I.harga.size} kode berharga tersimpan.</p></div>`;
+      $('invBody').innerHTML = `<div class="inv-empty"><h3>Belum ada data stok ${esc(KEL_LBL[I.kel])}</h3><p>Langkahnya: (1) upload <b>golongan</b> (kode, nama, golongan, kategori, UoM), (2) upload <b>harga</b> dengan tanggal berlaku, (3) upload <b>stok ${I.kel === 'FG' ? 'FG' : 'Material'}</b> dengan tanggal & jam snapshot. Format Excel masing-masing ada di tombol <b>Format</b>.</p><p class="muted">${I.gol.size} kode golongan · ${I.harga.size} kode berharga tersimpan.</p></div>`;
       return;
     }
     const rows = calc(I.snap), pv = prevSnap(), prows = pv ? calc(pv) : null;
+    // Warna brand FG mengikuti urutan value snapshot terpilih (6 terbesar berwarna, sisanya abu)
+    I.brRank = I.kel === 'FG' ? [...sumBy(all, (r) => r.brand || 'Tanpa brand')].sort((a, b) => b[1].val - a[1].val).map(([k]) => k).filter((k) => k !== 'Tanpa brand') : [];
     const meta = I.snaps.find((m) => m.snap === I.snap);
-    $('invInfo').innerHTML = `Snapshot <b>${esc(fSnap(I.snap))}</b>${meta && meta.file ? ` · ${esc(meta.file)}` : ''}${pv ? ` · dibandingkan dengan ${esc(fSnap(pv))}` : ' · snapshot pertama'} · harga: terakhir yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`;
+    $('invInfo').innerHTML = `Stok <b>${esc(KEL_LBL[I.kel])}</b> · snapshot <b>${esc(fSnap(I.snap))}</b>${meta && meta.file ? ` · ${esc(meta.file)}` : ''}${pv ? ` · dibandingkan dengan ${esc(fSnap(pv))}` : ' · snapshot pertama'} · harga: terakhir yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`;
     renderKpi(rows, prows);
     renderChart();
     $('invBody').innerHTML = renderWarn(rows) + (I.view === 'kat' ? viewKat(rows, prows) : I.view === 'mat' ? viewMat(rows, prows) : viewLok(rows));
   }
   function renderKpi(rows, prows) {
     const tot = rows.reduce((t, r) => t + r.val, 0), ptot = prows ? prows.reduce((t, r) => t + r.val, 0) : NaN;
-    const by = sumBy(rows, (r) => r.gol), pby = prows ? sumBy(prows, (r) => r.gol) : new Map();
-    const card = (lbl, v, pvv, sub, g) => `<div class="pk inv-k"${g ? ` style="--gc:${GOL_CLR[g]}"` : ''}><span class="pk-lbl">${lbl}</span><span class="pk-num">${fBig(v)}</span><span class="inv-ksub"><span class="${dCls(delta(v, pvv))}">${isNum(pvv) ? dTxt(delta(v, pvv), fBig) : 'pembanding –'}</span>${sub ? ' · ' + sub : ''}</span></div>`;
-    const gl = [...GOLS, '?'].filter((g) => by.has(g));
+    const by = sumBy(rows, grpOf), pby = prows ? sumBy(prows, grpOf) : new Map();
+    const card = (lbl, v, pvv, sub, g) => `<div class="pk inv-k"${g ? ` style="--gc:${grpClr(g)}"` : ''}><span class="pk-lbl">${lbl}</span><span class="pk-num">${fBig(v)}</span><span class="inv-ksub"><span class="${dCls(delta(v, pvv))}">${isNum(pvv) ? dTxt(delta(v, pvv), fBig) : 'pembanding –'}</span>${sub ? ' · ' + sub : ''}</span></div>`;
+    let gl = [...GOLS, '?'].filter((g) => by.has(g));
+    if (I.kel === 'FG') {
+      gl = [...by.keys()].sort((a, b) => by.get(b).val - by.get(a).val);
+      if (gl.length > 6) {
+        const rest = gl.slice(5), agg = (m) => { const o = { qty: 0, val: 0, n: new Set() }; rest.forEach((k) => { const x = m.get(k); if (x) { o.qty += x.qty; o.val += x.val; x.n.forEach((c) => o.n.add(c)); } }); return o; };
+        by.set('Lainnya', agg(by)); if (prows) pby.set('Lainnya', agg(pby)); gl = gl.slice(0, 5).concat('Lainnya');
+      }
+    }
     const noP = new Set(rows.filter((r) => r.noPrice).map((r) => r.kode)).size, noG = new Set(rows.filter((r) => r.noGol).map((r) => r.kode)).size;
     $('invKpi').innerHTML = card('Total value', tot, ptot, `${nf0.format(new Set(rows.map((r) => r.kode)).size)} kode`)
-      + gl.map((g) => { const o = by.get(g), p = pby.get(g); return card(`${GOL_LBL[g]} <small>${fPct(tot ? o.val / tot : NaN)}</small>`, o.val, prows ? (p ? p.val : 0) : NaN, `qty ${fQ(o.qty)} · ${o.n.size} kode`, g); }).join('')
+      + gl.map((g) => { const o = by.get(g), p = pby.get(g); return card(`${esc(grpLbl(g))}${g === 'Lainnya' ? ' brand' : ''} <small>${fPct(tot ? o.val / tot : NaN)}</small>`, o.val, prows ? (p ? p.val : 0) : NaN, `qty ${fQ(o.qty)} · ${o.n.size} kode`, g); }).join('')
       + (noP || noG ? `<button type="button" class="pk is-warn inv-kw" data-inv-warn="1"><span class="pk-lbl">Perlu dilengkapi</span><span class="pk-num">${noP + noG}</span><span class="inv-ksub">${noP ? `${noP} tanpa harga` : ''}${noP && noG ? ' · ' : ''}${noG ? `${noG} tanpa golongan` : ''}</span></button>` : '');
   }
   function renderWarn(rows) {
     const noP = [...new Map(rows.filter((r) => r.noPrice).map((r) => [r.kode, r])).values()];
     const noG = [...new Map(rows.filter((r) => r.noGol).map((r) => [r.kode, r])).values()];
     const inStok = new Set(calc(I.snap, true).map((r) => r.kode));
-    const idle = [...I.gol.values()].filter((g) => !inStok.has(g.kode) && (!I.g || g.gol === I.g));
+    const idle = [...I.gol.values()].filter((g) => !inStok.has(g.kode) && (I.kel === 'FG' ? g.gol === 'FG' : g.gol !== 'FG') && (!I.g || g.gol === I.g));
     if (!noP.length && !noG.length && !idle.length) return '';
     const li = (L, f) => L.slice(0, 300).map(f).join('') + (L.length > 300 ? `<li class="muted">… ${L.length - 300} lagi</li>` : '');
     return `<details class="inv-warn" id="invWarn"${I.openWarn ? ' open' : ''}><summary><b>Perlu dilengkapi</b> <span>${noP.length ? `${noP.length} kode tanpa harga (value 0)` : ''}${noP.length && noG.length ? ' · ' : ''}${noG.length ? `${noG.length} kode tanpa golongan` : ''}${idle.length ? `${noP.length || noG.length ? ' · ' : ''}<span class="muted">${idle.length} kode golongan tidak ada di stok</span>` : ''}</span></summary>
@@ -247,7 +276,7 @@
     return I.snaps.map((m) => {
       const rows = calc(m.snap).filter((r) => !I.chart || r.kode === I.chart);
       const o = { snap: m.snap, tot: { v: 0, q: 0 } };
-      rows.forEach((r) => { o[r.gol] = o[r.gol] || { v: 0, q: 0 }; o[r.gol].v += r.val; o[r.gol].q += r.qty; o.tot.v += r.val; o.tot.q += r.qty; });
+      rows.forEach((r) => { const k = grpOf(r); o[k] = o[k] || { v: 0, q: 0 }; o[k].v += r.val; o[k].q += r.qty; o.tot.v += r.val; o.tot.q += r.qty; });
       return o;
     });
   }
@@ -256,10 +285,16 @@
     document.querySelectorAll('#invMs [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ms)));
     const data = series(), key = I.ms === 'v' ? 'v' : 'q';
     const mat = I.chart ? I.gol.get(I.chart) : null;
-    $('invChartTitle').innerHTML = I.chart ? `Pergerakan <span class="pl-code">${esc(I.chart)}</span> ${esc(mat ? mat.nama : '')} <button type="button" class="btn-link" data-inv-chart="">kembali ke per golongan</button>` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} per golongan${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
+    $('invChartTitle').innerHTML = I.chart ? `Pergerakan <span class="pl-code">${esc(I.chart)}</span> ${esc(mat ? mat.nama : '')} <button type="button" class="btn-link" data-inv-chart="">kembali</button>` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} ${I.kel === 'FG' ? 'FG per brand' : 'Material per golongan'}${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
     if (!data.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
-    const gl = I.chart ? ['tot'] : [...GOLS, '?'].filter((g) => data.some((d) => d[g]) && (!I.g || g === I.g));
-    const showTot = !I.chart && !I.g && gl.length > 1;
+    let gl = I.chart ? ['tot'] : [...GOLS, '?'].filter((g) => data.some((d) => d[g]) && (!I.g || g === I.g));
+    if (!I.chart && I.kel === 'FG') {
+      const cur = data.find((d) => d.snap === I.snap) || data[data.length - 1];
+      const keys = [...new Set(data.flatMap((d) => Object.keys(d).filter((k) => k !== 'snap' && k !== 'tot')))].sort((a, b) => (cur[b] ? cur[b].v : 0) - (cur[a] ? cur[a].v : 0));
+      gl = keys;
+      if (keys.length > 7) { const rest = keys.slice(6); data.forEach((d) => { const o = { v: 0, q: 0 }; rest.forEach((k) => { if (d[k]) { o.v += d[k].v; o.q += d[k].q; } }); d.Lainnya = o; }); gl = keys.slice(0, 6).concat('Lainnya'); }
+    }
+    const showTot = !I.chart && (I.kel === 'FG' || !I.g) && gl.length > 1;
     const ser = (showTot ? ['tot'] : []).concat(I.chart ? ['tot'] : gl);
     const val = (d, g) => (d[g] ? d[g][key] : 0);
     const W = Math.max(Math.round(box.clientWidth || 900), data.length * 60), H = 260, L = 78, R = 24, T = 14, B = 34;
@@ -273,24 +308,24 @@
     const step = Math.ceil(data.length / 12);
     data.forEach((d, i) => { if (i % step === 0 || i === data.length - 1) g += `<text class="cslc-ax" x="${x(i)}" y="${H - 12}" text-anchor="middle">${esc(fDate(d.snap.slice(0, 10)).slice(0, 6))}</text>`; });
     ser.forEach((s) => {
-      const c = s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : '#24313d') : GOL_CLR[s];
+      const c = s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : '#24313d') : grpClr(s);
       const pts = data.map((d, i) => `${x(i)},${y(val(d, s))}`).join(' ');
       g += `<polyline fill="none" stroke="${c}" stroke-width="2"${s === 'tot' && !I.chart ? ' stroke-dasharray="5 4"' : ''} points="${pts}"/>`;
       data.forEach((d, i) => { g += `<circle cx="${x(i)}" cy="${y(val(d, s))}" r="${d.snap === I.snap ? 5 : 3.5}" fill="${c}" stroke="#fff" stroke-width="2"/>`; });
     });
     data.forEach((d, i) => { g += `<rect class="inv-hit" data-i="${i}" x="${x(i) - 18}" y="${T}" width="36" height="${H - T - B}" fill="transparent"/>`; });
-    const lg = ser.map((s) => `<span class="inv-lg"><i style="background:${s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : '#24313d') : GOL_CLR[s]}"></i>${s === 'tot' ? (I.chart ? esc(I.chart) : 'Total') : esc(GOL_LBL[s])}</span>`).join('');
+    const lg = ser.map((s) => `<span class="inv-lg"><i style="background:${s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : '#24313d') : grpClr(s)}"></i>${s === 'tot' ? (I.chart ? esc(I.chart) : 'Total') : esc(grpLbl(s))}</span>`).join('');
     box.innerHTML = `<div class="inv-legend">${lg}<span class="muted">Arahkan kursor ke titik; klik untuk memilih snapshot.</span></div><div class="inv-cbox"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Grafik pergerakan inventory">${g}</svg><div class="cslc-tip" id="invTip" hidden></div></div>`;
     const svg = box.querySelector('svg'), tip = $('invTip');
     svg.addEventListener('mousemove', (e) => {
       const h = e.target.closest('.inv-hit'); if (!h) { tip.hidden = true; return; }
       const d = data[+h.dataset.i];
-      tip.innerHTML = `<b>${esc(fSnap(d.snap))}</b>` + ser.map((s) => `<div>${s === 'tot' ? (I.chart ? esc(I.chart) : 'Total') : esc(GOL_LBL[s])}: ${I.ms === 'v' ? fRp(val(d, s)) : fQ(val(d, s))}</div>`).join('');
+      tip.innerHTML = `<b>${esc(fSnap(d.snap))}</b>` + ser.map((s) => `<div>${s === 'tot' ? (I.chart ? esc(I.chart) : 'Total') : esc(grpLbl(s))}: ${I.ms === 'v' ? fRp(val(d, s)) : fQ(val(d, s))}</div>`).join('');
       const r = box.querySelector('.inv-cbox').getBoundingClientRect();
       tip.style.left = Math.min(e.clientX - r.left + 12, r.width - 200) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false;
     });
     svg.addEventListener('mouseleave', () => { tip.hidden = true; });
-    svg.addEventListener('click', (e) => { const h = e.target.closest('.inv-hit'); if (h) { I.snap = data[+h.dataset.i].snap; render(); } });
+    svg.addEventListener('click', (e) => { const h = e.target.closest('.inv-hit'); if (h) { setSnap(data[+h.dataset.i].snap); render(); } });
   }
 
   /* ---------- Excel ---------- */
@@ -324,9 +359,12 @@
       sheet('PETUNJUK', [['PETUNJUK'], ['KODE, HARGA', 'Wajib. Harga per UoM (Rp). Baris dengan HARGA kosong diabaikan.'], ['Tanggal berlaku', 'Dipilih saat upload. Snapshot stok memakai harga terakhir yang berlaku pada/sebelum tanggal snapshot.'], ['Kolom (info)', 'Hanya keterangan, tidak ikut disimpan.']], [16, 90]);
       XLSX.writeFile(wb, 'Format_Harga_Inventory.xlsx');
     } else {
-      sheet('STOK', [['KODE', 'LOKASI', 'QTY'], ['10002', 'WH/Stock', 125.5]], [14, 24, 12]);
-      sheet('PETUNJUK', [['PETUNJUK'], ['KODE, LOKASI, QTY', 'Wajib KODE dan QTY. LOKASI boleh kosong. Kode + lokasi yang sama dijumlahkan.'], ['Export Odoo', 'Boleh juga langsung export stok Odoo yang punya kolom Product/Internal Reference, Location, dan Quantity/On Hand Quantity.'], ['Tanggal & jam', 'Dipilih saat upload. Upload dengan tanggal & jam yang sama menimpa snapshot itu.']], [18, 90]);
-      XLSX.writeFile(wb, 'Format_Stok_Inventory.xlsx');
+      const fg = kind === 'stokfg', nm = fg ? 'FG' : 'Material (RM, PM, WIP)';
+      const L = [...I.gol.values()].filter((g) => (fg ? g.gol === 'FG' : g.gol !== 'FG')).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true }));
+      sheet(fg ? 'STOK FG' : 'STOK MATERIAL', [['KODE', 'LOKASI', 'QTY'], L.length ? [L[0].kode, fg ? 'FG/Stock' : 'WH/Stock', 100] : ['10002', 'WH/Stock', 125.5]], [14, 24, 12]);
+      sheet('PETUNJUK', [['PETUNJUK'], ['Untuk', `Stok ${nm} saja. ${fg ? 'Kode RM/PM/WIP' : 'Kode FG'} di file ini ditolak.`], ['KODE, LOKASI, QTY', 'Wajib KODE dan QTY. LOKASI boleh kosong. Kode + lokasi yang sama dijumlahkan. Baris dengan QTY kosong dilewati.'], ['Export Odoo', 'Boleh juga langsung export stok Odoo yang punya kolom Product/Internal Reference, Location, dan Quantity/On Hand Quantity.'], ['Tanggal & jam', `Dipilih saat upload. Upload ${fg ? 'FG' : 'Material'} dengan tanggal & jam yang sama menimpa snapshot ${fg ? 'FG' : 'Material'} itu (snapshot ${fg ? 'Material' : 'FG'} tidak tersentuh).`]], [18, 100]);
+      sheet(fg ? 'DAFTAR FG' : 'DAFTAR MATERIAL', [['KODE', 'NAMA', 'GOLONGAN', 'KATEGORI', 'UOM'], ...L.map((g) => [g.kode, g.nama, g.gol, g.kat, g.uom])], [14, 60, 10, 26, 8]);
+      XLSX.writeFile(wb, fg ? 'Format_Stok_FG.xlsx' : 'Format_Stok_Material.xlsx');
     }
   }
 
@@ -381,7 +419,9 @@
     () => { $('invBerlaku').addEventListener('change', () => { if (/^\d{4}-\d{2}-\d{2}$/.test($('invBerlaku').value)) $('invHrgCmp').innerHTML = body($('invBerlaku').value); }); });
   }
   /* ---------- Upload: stok ---------- */
-  function upStok(wb, file) {
+  function upStok(wb, file, kel) {
+    const fg = kel === 'FG', nm = fg ? 'FG' : 'Material (RM, PM, WIP)';
+    const A = I.all[kel];
     let t = findTable(wb, [rx('^KODE$|^INTERNAL REFERENCE|^PRODUCT/INTERNAL|^DEFAULT_CODE|^PRODUCT_ID/DEFAULT_CODE'), rx('^LOKASI|^LOCATION', 1), rx('^QTY$|^QTY |^QUANTITY|^ON HAND|^QUANTITY ON HAND|^AVAILABLE')], /stok|stock|quant/i);
     let fromName = false;
     if (!t) { t = findTable(wb, [rx('^PRODUCT$|^PRODUK$'), rx('^LOKASI|^LOCATION', 1), rx('^QTY$|^QUANTITY|^ON HAND|^QUANTITY ON HAND')], /stok|stock|quant/i); fromName = !!t; }
@@ -392,6 +432,9 @@
       if (fromName) { const m = kode.match(/^\[([^\]]+)\]/); kode = m ? m[1].trim() : ''; }
       kode = normCode(kode);
       if (!kode) { if (S(r[iK]) || S(r[iQ])) bad.push(`Baris ${t.hi + k + 2}: kode kosong / tidak terbaca`); return; }
+      const g0 = I.gol.get(kode);
+      if (g0 && (fg ? g0.gol !== 'FG' : g0.gol === 'FG')) { bad.push(`Baris ${t.hi + k + 2} · ${kode}: golongan ${g0.gol}, bukan stok ${nm}${fg ? '' : ' (upload lewat Upload stok FG)'}`); return; }
+      if (S(r[iQ]) === '') return;
       const q = num(r[iQ]);
       if (!isNum(q)) { bad.push(`Baris ${t.hi + k + 2} · ${kode}: qty "${S(r[iQ])}" tidak terbaca`); return; }
       const lok = iL >= 0 ? S(r[iL]) : '', key = kode + '\u0001' + lok;
@@ -401,12 +444,12 @@
     const kodes = new Set(rows.map((r) => r[0])), loks = new Set(rows.map((r) => r[1]));
     const noG = [...kodes].filter((k) => !I.gol.has(k));
     const np = nowParts();
-    const chk = (d, tm) => { const s = `${d} ${tm}`; const p = [...kodes].filter((k) => !priceAt(k, s)).length; const ex = I.stok.has(s); return `<ul class="kfr-ul"><li><b>${rows.length}</b> baris (kode × lokasi) · ${kodes.size} kode · ${loks.size} lokasi</li>${noG.length ? `<li class="pl-bad">${noG.length} kode tidak ada di golongan: ${esc(noG.slice(0, 15).join(', '))}${noG.length > 15 ? '…' : ''}</li>` : ''}${p ? `<li class="pl-bad">${p} kode belum punya harga berlaku per ${esc(fDate(d))} (value 0)</li>` : ''}${ex ? `<li class="pl-bad"><b>Snapshot ${esc(fSnap(s))} sudah ada dan akan ditimpa.</b></li>` : ''}</ul>`; };
-    review('Upload stok', `<p class="dlg-lead">File <b>${esc(file)}</b> (sheet ${esc(t.sn)}). Kode + lokasi yang sama dijumlahkan.</p>
+    const chk = (d, tm) => { const s = `${d} ${tm}`; const p = [...kodes].filter((k) => !priceAt(k, s)).length; const ex = A.stok.has(s); return `<ul class="kfr-ul"><li><b>${rows.length}</b> baris (kode × lokasi) · ${kodes.size} kode · ${loks.size} lokasi</li>${noG.length ? `<li class="pl-bad">${noG.length} kode tidak ada di golongan: ${esc(noG.slice(0, 15).join(', '))}${noG.length > 15 ? '…' : ''}</li>` : ''}${p ? `<li class="pl-bad">${p} kode belum punya harga berlaku per ${esc(fDate(d))} (value 0)</li>` : ''}${ex ? `<li class="pl-bad"><b>Snapshot ${esc(fg ? 'FG' : 'Material')} ${esc(fSnap(s))} sudah ada dan akan ditimpa.</b></li>` : ''}</ul>`; };
+    review(`Upload stok ${nm}`, `<p class="dlg-lead">File <b>${esc(file)}</b> (sheet ${esc(t.sn)}) sebagai stok <b>${esc(nm)}</b>. Kode + lokasi yang sama dijumlahkan. Snapshot ${fg ? 'Material' : 'FG'} tidak tersentuh.</p>
       <div class="inv-dt"><label class="fld inv-fld"><span>Tanggal snapshot</span><input type="date" name="d" id="invSD" value="${np.d}" required></label><label class="fld inv-fld"><span>Jam</span><input type="time" name="t" id="invST" value="${np.t}" required></label><label class="fld inv-fld inv-note"><span>Catatan (opsional)</span><input type="text" name="note" maxlength="200" placeholder="mis. stock opname akhir bulan"></label></div>
       <div id="invStChk">${chk(np.d, np.t)}</div>
       ${bad.length ? `<details class="kfr-sec is-bad" open><summary><b>Ditolak</b> <span>${bad.length}</span></summary><ul class="kfr-ul">${bad.slice(0, 200).map((b) => `<li>${esc(b)}</li>`).join('')}</ul></details>` : ''}`,
-    rows.length, (fd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(fd.d || '') || !/^\d{2}:\d{2}$/.test(fd.t || '')) throw new Error('Isi tanggal dan jam snapshot.'); I.snap = `${fd.d} ${fd.t}`; return api('saveStok', { snapshot: `${fd.d} ${fd.t}`, rows, file, note: fd.note || '' }); },
+    rows.length, (fd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(fd.d || '') || !/^\d{2}:\d{2}$/.test(fd.t || '')) throw new Error('Isi tanggal dan jam snapshot.'); I.kel = kel; savePref(); I.selSnap[kel] = `${fd.d} ${fd.t}`; return api('saveStok', { kel, snapshot: `${fd.d} ${fd.t}`, rows, file, note: fd.note || '' }); },
     () => { const f = () => { if ($('invSD').value && $('invST').value) $('invStChk').innerHTML = chk($('invSD').value, $('invST').value); }; $('invSD').addEventListener('change', f); $('invST').addEventListener('change', f); });
   }
   // Review 2 langkah: langkah 1 isi + tombol lanjut, langkah 2 centang konfirmasi lalu simpan
@@ -426,11 +469,11 @@
   function editDialog() {
     if (!I.snap) return;
     const L = I.stok.get(I.snap) || [];
-    const kodes = [...new Set([...L.map((r) => r.kode), ...I.gol.keys()])].sort();
+    const kodes = [...new Set([...L.map((r) => r.kode), ...[...I.gol.values()].filter((g) => (I.kel === 'FG' ? g.gol === 'FG' : g.gol !== 'FG')).map((g) => g.kode)])].sort();
     const loks = [...new Set(L.map((r) => r.lok))].sort();
     const line = (i) => `<div class="inv-er" data-i="${i}"><input type="text" name="k${i}" list="invKL" placeholder="Kode" autocomplete="off"><input type="text" name="l${i}" list="invLL" placeholder="Lokasi" autocomplete="off"><input type="text" name="q${i}" inputmode="decimal" placeholder="Qty baru"><span class="muted inv-eo" id="invEo${i}"></span></div>`;
     openDialog({
-      title: `Koreksi stok · ${fSnap(I.snap)}`, ok: 'Simpan koreksi', wide: true,
+      title: `Koreksi stok ${I.kel === 'FG' ? 'FG' : 'Material'} · ${fSnap(I.snap)}`, ok: 'Simpan koreksi', wide: true,
       body: `<p class="dlg-lead">Ubah qty kode + lokasi yang sudah ada, atau tambah baris baru pada snapshot ini. Tercatat sebagai <b>manual</b> beserta alasannya di LOG.</p>
         <datalist id="invKL">${kodes.map((k) => `<option value="${esc(k)}">${esc((I.gol.get(k) || {}).nama || '')}</option>`).join('')}</datalist><datalist id="invLL">${loks.map((k) => `<option value="${esc(k)}">`).join('')}</datalist>
         <div class="inv-eh"><span>Kode</span><span>Lokasi</span><span>Qty baru</span><span>Saat ini</span></div><div id="invEl">${[0, 1, 2].map(line).join('')}</div>
@@ -441,7 +484,7 @@
         Object.keys(fd).filter((k) => /^k\d+$/.test(k)).forEach((k) => { const i = k.slice(1), kode = normCode(fd[k]); if (!kode) return; const q = num(fd['q' + i]); if (!isNum(q)) throw new Error(`Qty untuk ${kode} belum diisi / tidak terbaca.`); ch.push({ kode, lokasi: S(fd['l' + i]), qty: q }); });
         if (!ch.length) throw new Error('Isi minimal satu baris.');
         if (!S(fd.reason)) throw new Error('Isi alasan koreksi.');
-        return api('editStok', { snapshot: I.snap, changes: ch, reason: S(fd.reason) });
+        return api('editStok', { kel: I.kel, snapshot: I.snap, changes: ch, reason: S(fd.reason) });
       },
     });
     let n = 3;
@@ -458,7 +501,7 @@
   /* ---------- Event ---------- */
   function bind() {
     if (!$('view-rep-inv') || bind.done) return; bind.done = true;
-    $('invSnap').addEventListener('change', () => { I.snap = $('invSnap').value; render(); });
+    $('invSnap').addEventListener('change', () => { setSnap($('invSnap').value); render(); });
     $('invGol').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.g = b.dataset.v; render(); });
     $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
@@ -468,11 +511,12 @@
     let tq; $('invQ').addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(() => { I.q = $('invQ').value.trim(); render(); }, 200); });
     $('invEdit').addEventListener('click', editDialog);
     $('invTpl').addEventListener('change', () => { const v = $('invTpl').value; $('invTpl').value = ''; if (v) downloadTpl(v); });
-    ['gol', 'harga', 'stok'].forEach((k) => {
+    $('invKel').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.kel) return; I.kel = b.dataset.v; I.g = ''; I.brand = ''; I.jenis = ''; I.lok = ''; I.chart = ''; I.open.clear(); savePref(); useKel(); render(); });
+    ['gol', 'harga', 'stokmat', 'stokfg'].forEach((k) => {
       const inp = $('invUp-' + k);
       inp.addEventListener('change', async () => {
         const f = inp.files[0]; inp.value = ''; if (!f) return;
-        try { const wb = await readBook(f); (k === 'gol' ? upGol : k === 'harga' ? upHarga : upStok)(wb, f.name); }
+        try { const wb = await readBook(f); if (k === 'gol') upGol(wb, f.name); else if (k === 'harga') upHarga(wb, f.name); else upStok(wb, f.name, k === 'stokfg' ? 'FG' : 'MAT'); }
         catch (err) { toast(err.message); $('invMsg').className = 'check err'; $('invMsg').textContent = err.message; }
       });
     });
