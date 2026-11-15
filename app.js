@@ -6342,6 +6342,8 @@
   const prKirimLines = (v) => { const L = prSched(v); return L ? L.map((x) => `${prDateTxt(x.d)}: ${prNumTxt(x.q)}`) : (v ? [prDateTxt(v)] : []); };
   const prKirimFirst = (v) => { const L = prSched(v); return L ? L.map((x) => x.d).filter(Boolean).sort()[0] || '' : v || ''; };
   const prNum = (v) => (v === '' || v === null || v === undefined ? '' : Number(String(v).replace(',', '.')));
+  // Pemakaian (Bulan): angka disimpan sebagai angka, selain itu (mis. "2-3", "3 bulan") disimpan apa adanya sebagai teks
+  const prPakaiVal = (v) => { const t = String(v === undefined || v === null ? '' : v).trim(); if (!t) return ''; const n = Number(t.replace(',', '.')); return isNaN(n) ? t : n; };
   const prNumTxt = (v, dash = '-') => { if (v === '' || v === null || v === undefined) return dash; const n = Number(v); return isNaN(n) ? esc(v) : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(n); };
   // qty PO (dari Monitoring PO) untuk No PO yang tercatat + kode material yang sama
   function prPoQty(r) {
@@ -6574,9 +6576,11 @@
           r.kirim = r.sched.length > 1 ? prSchedStr(r.sched) : r.sched[0].d;
         }
         const all = fd.allst || '';
+        const PR_LBL = { stok: 'Stok Awal', butuh: 'Kebutuhan', ospo: 'OS PO', kurang: 'Kekurangan', buka: 'Jumlah Buka PO' };
+        rows.forEach((r) => Object.keys(PR_LBL).forEach((k) => { const v = String(r[k] === undefined || r[k] === null ? '' : r[k]).trim(); if (v !== '' && isNaN(prNum(v))) throw new Error(`${PR_LBL[k]} untuk ${r.kode} harus angka (tertulis "${v}").`); }));
         const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows);
         const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, statusPo: prStatusPayload(rows.map((r) => r.kode)), hitung: hitung || undefined, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
-          ...PR_NUM.map((k) => prNum(r[k])), r.kirim || '', r.pos.join(', '), all || r.status]) } });
+          ...PR_NUM.map((k) => (k === 'pakai' ? prPakaiVal(r.pakai) : prNum(r[k]))), r.kirim || '', r.pos.join(', '), all || r.status]) } });
         setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
         renderPrRekap(); renderLog();
         return `${res.codes[0]} tersimpan.`;
@@ -6737,7 +6741,7 @@
         const key = kp || 'NEW|' + tg, g = groups.get(key) || { kodePr: kp, tanggal: tg, rows: [] };
         const m = MRP.master && MRP.master.get(kode), g2 = (n) => (ix(n) >= 0 ? r[ix(n)] : '');
         g.rows.push([kode, txt(g2('NAMA ITEM')) || (m ? m.name : ''), txt(g2('JENIS')) || (m ? m.kat : ''), txt(g2('NOTE')),
-          ...['STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO', 'PEMAKAIAN (BULAN)'].map((n) => prNum(g2(n) === '' ? '' : g2(n))),
+          ...['STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO'].map((n) => prNum(g2(n) === '' ? '' : g2(n))), prPakaiVal(g2('PEMAKAIAN (BULAN)')),
           (prSched(txt(g2('TANGGAL KIRIM'))) ? prSchedStr(prSched(txt(g2('TANGGAL KIRIM')))) : xlDate(g2('TANGGAL KIRIM'))), splitPo(g2('NO PO')).join(', '), /batal/i.test(txt(g2('STATUS'))) ? 'Batal' : 'Aktif']);
         groups.set(key, g);
       });

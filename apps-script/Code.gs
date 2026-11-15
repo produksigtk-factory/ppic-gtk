@@ -690,7 +690,7 @@ function readPr_(ss, tz) {
   const sh = ss.getSheetByName(CONFIG.PR_SHEET);
   if (!sh) return [];
   return readRows_(sh, PR_COLS).map(r => [str_(r[0]), fmtDate_(r[1], tz), Number(r[2]) || 0, str_(r[3]), String(r[4] || ''), String(r[5] || ''), String(r[6] || ''),
-    numOrBlank_(r[7]), numOrBlank_(r[8]), numOrBlank_(r[9]), numOrBlank_(r[10]), numOrBlank_(r[11]), numOrBlank_(r[12]),
+    numOrBlank_(r[7]), numOrBlank_(r[8]), numOrBlank_(r[9]), numOrBlank_(r[10]), numOrBlank_(r[11]), numOrTxt_(r[12]),
     fmtDate_(r[13], tz), str_(r[14]), str_(r[15]) || 'Aktif', show_(r[16], tz), String(r[17] || '')]);
 }
 function nextPrCode_(all, tanggal) {
@@ -713,6 +713,8 @@ function applyPr_(all, d, stamp, user, log) {
   const oldPo = {}; old.forEach(r => { oldPo[r[3]] = r[14]; });
   const keep = all.filter(r => r[0] !== kode);
   const nb = (v) => (v === '' || v === null || v === undefined || isNaN(Number(v)) ? '' : Number(v));
+  // PEMAKAIAN (BULAN): angka → angka; teks (mis. "2-3", "3 bulan") disimpan apa adanya
+  const nbTxt = (v) => { const t = str_(v); if (!t) return ''; const n = Number(t.replace(',', '.')); return isNaN(n) ? t : n; };
   // TANGGAL KIRIM: satu tanggal, atau split jadwal "yyyy-mm-dd=qty; yyyy-mm-dd=qty"
   const dt = (v) => {
     const t = str_(v);
@@ -723,7 +725,7 @@ function applyPr_(all, d, stamp, user, log) {
     return L.map(x => x[0] + '=' + Number(x[1])).join('; ');
   };
   const add = rows.map((r, i) => [kode, tanggal, i + 1, str_(r[0]), String(r[1] || ''), String(r[2] || ''), String(r[3] || ''),
-    nb(r[4]), nb(r[5]), nb(r[6]), nb(r[7]), nb(r[8]), nb(r[9]), dt(r[10]),
+    nb(r[4]), nb(r[5]), nb(r[6]), nb(r[7]), nb(r[8]), nbTxt(r[9]), dt(r[10]),
     String(r[11] || '').split(/[,;\s]+/).map(str_).filter(Boolean).join(', '), str_(r[12]) === 'Batal' ? 'Batal' : 'Aktif', stamp, user]);
   log.push([stamp, user, isNew ? 'Buat PR' : (old.length ? 'Ubah PR' : 'Buat PR'), kode, '', 'Jumlah baris', old.length ? String(old.length) : '', String(add.length)]);
   add.forEach(r => { if ((oldPo[r[3]] || '') !== r[14] && (old.length || r[14])) log.push([stamp, user, 'No PO di PR', kode, r[3], 'No PO', oldPo[r[3]] || '', r[14]]); });
@@ -1153,6 +1155,7 @@ function num_(v) {
   const n = Number(v);
   return isNaN(n) ? '' : n;
 }
+function numOrTxt_(v) { if (v === '' || v === null || v === undefined) return ''; return isNaN(Number(v)) ? String(v) : Number(v); }
 function numOrBlank_(v) { return v === '' || v === null || v === undefined || isNaN(Number(v)) ? '' : Number(v); }
 
 /* ================= Tab MONITORING_PO (tampilan di Google Sheet) ================= */
