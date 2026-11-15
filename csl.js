@@ -1137,7 +1137,20 @@
       const a = soIn[m + '|' + grp] || 0, x = rek[m] || 0;
       if (Math.abs(a - x) > 0.5) soGap.push([m, grp, a, x]);
     }));
-    return { file: file.name, months, nSo: s.so.length, nDo: s.dos.length, bad: s.bad, diff: s.diff, fct: g.fct.concat(b.fct), soGap,
+    // Forecast per bulan: berubah bila isinya beda dengan Google Sheet
+    const fct = g.fct.concat(b.fct);
+    const fKey = (L) => L.map((r) => [r[1], r[2], Math.round(Number(r[3]) * 1000) / 1000].join('|')).sort().join(';');
+    const fNew = new Map(), fOld = new Map();
+    fct.forEach((r) => { if (!fNew.has(r[0])) fNew.set(r[0], []); fNew.get(r[0]).push(r); });
+    (C.fctRows || []).forEach((r) => { if (!fOld.has(r[0])) fOld.set(r[0], []); fOld.get(r[0]).push(r); });
+    const sheetMonths = new Set(C.months.map((x) => x.bulan));
+    const list = [...new Set([...months.map((x) => x.m), ...fNew.keys()])].sort().reverse().map((m) => {
+      const o = months.find((x) => x.m === m), fn = fNew.get(m) || [];
+      return { m, nSo: o ? o.so.length : 0, nDo: o ? o.do.length : 0, soChanged: !!(o && o.changed), soNew: !!o && !sheetMonths.has(m),
+        nFct: fn.length, fctChanged: fKey(fn) !== fKey(fOld.get(m) || []) && (fn.length > 0 || (fOld.get(m) || []).length > 0) && !!fn.length };
+    });
+    U.sel = new Set(list.filter((x) => x.soChanged || x.fctChanged).map((x) => x.m));
+    return { file: file.name, months, list, nSo: s.so.length, nDo: s.dos.length, bad: s.bad, diff: s.diff, fct, soGap,
       removed: C.months.map((x) => x.bulan).filter((m) => !by.has(m)) };
   }
   function checkExcel(p) {
@@ -1145,21 +1158,41 @@
     const fm = [...new Set(p.fct.map((r) => r[0]))].sort();
     const pcs = (rg) => nf0.format(sum(p.fct.filter((r) => r[2] === rg).map((r) => r[3])));
     let html = `<p class="ok">INPUT SODO: ${nf0.format(p.nSo)} baris SO · ${nf0.format(p.nDo)} baris DO · ${monShort(p.months[0].m)} – ${monShort(p.months[p.months.length - 1].m)} (${p.months.length} bulan).</p>`;
-    html += `<p class="ok">Forecast: (GTK) ${pcs('GTK')} pcs · (BIMS) ${pcs('ONLINE')} pcs · ${fm.length ? monShort(fm[0]) + ' – ' + monShort(fm[fm.length - 1]) : 'kosong'}. Forecast di Google Sheet diganti seluruhnya.</p>`;
-    html += ch.length ? `<p>Yang dikirim: <b>${ch.length} bulan berubah</b> (${ch.map((x) => monShort(x.m)).join(', ')}) · ${nf0.format(sum(ch.map((x) => x.so.length)))} baris SO. ${p.months.length - ch.length} bulan lain sama persis, dilewati.</p>`
-      : '<p>Data SO-DO sama persis dengan Google Sheet — hanya forecast yang diperbarui.</p>';
-    if (p.removed.length) html += `<p class="warn">Bulan ${p.removed.map(monShort).join(', ')} tidak ada di file → dihapus dari Google Sheet.</p>`;
+    html += `<p class="ok">Forecast: (GTK) ${pcs('GTK')} pcs · (BIMS) ${pcs('ONLINE')} pcs · ${fm.length ? monShort(fm[0]) + ' – ' + monShort(fm[fm.length - 1]) : 'kosong'}. Forecast hanya diganti untuk bulan yang dipilih.</p>`;
+    html += excelMonthsHtml(p);
     if (p.bad) html += `<p class="err">${p.bad} baris INPUT SODO dilewati karena tanggal SO kosong / tidak terbaca.</p>`;
     html += p.diff.length ? `<p class="warn">${nf0.format(p.diff.length)} baris: hitungan DO / DO-OS / SISA website berbeda dengan kolom Excel (contoh ${p.diff.slice(0, 3).map((d) => esc(d.no + ' ' + d.kode)).join(', ')}). Rinciannya ada di Pemeriksaan Data setelah disimpan.</p>`
       : '<p class="ok">DO, DO-OS, dan SISA SO cocok dengan kolom Excel di semua baris.</p>';
     if (p.soGap.length) html += `<p class="warn">Total SO di (GTK)/(BIMS) beda dengan INPUT SODO di ${p.soGap.length} bulan-kelompok (mis. ${p.soGap.slice(0, 2).map((x) => `${monShort(x[0])} ${x[1] === 'ONLINE' ? 'BIMS' : 'GTK'}: ${nf0.format(x[2])} vs ${nf0.format(x[3])}`).join('; ')}) — biasanya ada SKU yang belum masuk daftar (GTK)/(BIMS).</p>`;
     return html;
   }
+  // Pilihan bulan yang diperbarui dari Excel (bulan tidak dipilih / tidak ada di file tidak disentuh)
+  function excelMonthsHtml(p) {
+    const sel = U.sel, L = p.list;
+    const skip = L.filter((x) => (x.soChanged || x.fctChanged) && !sel.has(x.m));
+    const tag = (on, t, cls) => (on ? `<span class="cu-tag ${cls}">${t}</span>` : '');
+    return `<div class="cu-months"><div class="cu-mh"><b>Pilih bulan yang diperbarui</b> <span class="muted">${sel.size} dari ${L.length} bulan di file</span>
+        <span class="cu-mq"><button type="button" class="btn-link" data-cum="chg">Yang berubah</button><button type="button" class="btn-link" data-cum="cur">Bulan berjalan</button><button type="button" class="btn-link" data-cum="all">Semua</button><button type="button" class="btn-link" data-cum="none">Kosongkan</button></span></div>
+      <div class="cu-mlist">${L.map((x) => `<label class="cu-m${sel.has(x.m) ? ' is-on' : ''}"><input type="checkbox" data-cumon="${x.m}"${sel.has(x.m) ? ' checked' : ''}><b>${monLabel(x.m)}</b>
+        <span class="muted">${x.nSo ? `${nf0.format(x.nSo)} SO · ${nf0.format(x.nDo)} DO` : 'tanpa SO'}${x.nFct ? ` · FCT ${nf0.format(x.nFct)}` : ''}</span>
+        ${tag(x.soNew, 'SO baru', 'is-new')}${tag(x.soChanged && !x.soNew, 'SO-DO berubah', 'is-chg')}${tag(x.fctChanged, 'FCT berubah', 'is-chg')}${!x.soChanged && !x.fctChanged ? '<span class="cu-tag">sama</span>' : ''}</label>`).join('')}</div>
+      ${skip.length ? `<p class="warn">Berubah tapi tidak dipilih: ${skip.map((x) => monShort(x.m)).join(', ')}. Data bulan itu di Google Sheet tetap yang lama${skip.some((x) => x.soChanged) ? ' (DO baru untuk SO bulan itu belum masuk, CSL-nya bisa lebih rendah)' : ''}.</p>` : ''}
+      <p class="hint">Bulan yang tidak dipilih, dan bulan di Google Sheet yang tidak ada di file, tidak diubah maupun dihapus. Bulan terpilih yang isinya sama dilewati otomatis.</p></div>`;
+  }
+  function paintExcelMonths() {
+    const box = $('cuXCheck').querySelector('.cu-months'); if (!box || !U.x) return;
+    const tmp = document.createElement('div'); tmp.innerHTML = excelMonthsHtml(U.x); box.replaceWith(tmp.firstElementChild);
+    $('cuXSend').disabled = !U.sel.size;
+  }
   async function sendExcel() {
     const p = U.x; if (!p) return;
     const btn = $('cuXSend'), res = $('cuXResult');
     btn.disabled = true; res.className = 'send-result';
-    const ch = p.months.filter((x) => x.changed);
+    const sel = U.sel || new Set();
+    if (!sel.size) { res.className = 'send-result err'; res.textContent = 'Pilih minimal satu bulan.'; btn.disabled = false; return; }
+    const ch = p.months.filter((x) => x.changed && sel.has(x.m));
+    const fctSend = (C.fctRows || []).filter((r) => !sel.has(r[0])).map((r) => [r[0], r[1], r[2], r[3]]).concat(p.fct.filter((r) => sel.has(r[0])));
+    const keep = [...new Set([...C.months.map((x) => x.bulan), ...p.months.map((x) => x.m)])];
     // Bagi per kelompok bulan, ±9.000 baris SO+DO per kiriman
     const parts = []; let cur = [], n = 0;
     ch.forEach((x) => { const k = x.so.length + x.do.length; if (cur.length && n + k > 9000) { parts.push(cur); cur = []; n = 0; } cur.push(x); n += k; });
@@ -1172,13 +1205,13 @@
         await api('replaceMonths', { months: parts[i].map((x) => x.m), so: [].concat(...parts[i].map((x) => x.so)), do: [].concat(...parts[i].map((x) => x.do)), hash, file: p.file });
       }
       res.textContent = `Menyimpan forecast & merapikan… ${sec()} detik`;
-      await api('finishExcel', { keep: p.months.map((x) => x.m), fct: p.fct, file: p.file, nSo: p.nSo, changed: ch.length, note: p.diff.length ? `${p.diff.length} baris beda hitungan Excel` : '' });
+      await api('finishExcel', { keep, fct: fctSend, file: p.file, nSo: p.nSo, changed: ch.length, note: `bulan dipilih: ${[...sel].sort().map(monShort).join(', ')}` + (p.diff.length ? ` · ${p.diff.length} baris beda hitungan Excel` : '') });
       C.excelDiff = p.diff; C.excelGap = p.soGap;
       res.className = 'send-result ok';
       res.textContent = `Tersimpan dalam ${sec()} detik. Memuat ulang data…`;
       U.x = null;
       await load({ fresh: true });
-      res.textContent = `Tersimpan: ${ch.length} bulan diperbarui${p.removed.length ? `, ${p.removed.length} bulan dihapus` : ''}, forecast ${nf0.format(p.fct.length)} baris (${sec()} detik).`;
+      res.textContent = `Tersimpan: ${ch.length} bulan SO-DO diperbarui, forecast ${[...sel].filter((m) => p.fct.some((r) => r[0] === m)).length} bulan (${sec()} detik).`;
       toast('Data CSL diperbarui dari Excel.');
     } catch (err) {
       res.className = 'send-result err';
@@ -1597,6 +1630,13 @@
   on('cmBody', 'click', (e) => { const b = e.target.closest('[data-season]'); if (b) editSeason(b.dataset.season); });
   on('ckTabs', 'click', (e) => { const b = e.target.closest('[data-t]'); if (!b) return; CK.tab = b.dataset.t; renderCek(); });
 
+  on('cuXCheck', 'change', (e) => { const c = e.target.closest('[data-cumon]'); if (!c || !U.x) return; if (c.checked) U.sel.add(c.dataset.cumon); else U.sel.delete(c.dataset.cumon); paintExcelMonths(); });
+  on('cuXCheck', 'click', (e) => {
+    const b = e.target.closest('[data-cum]'); if (!b || !U.x) return;
+    const L = U.x.list, v = b.dataset.cum, cur = curMonth();
+    U.sel = new Set(v === 'all' ? L.map((x) => x.m) : v === 'none' ? [] : v === 'cur' ? L.filter((x) => x.m === cur).map((x) => x.m) : L.filter((x) => x.soChanged || x.fctChanged).map((x) => x.m));
+    paintExcelMonths();
+  });
   on('cuXFile', 'change', async () => {
     const inp = $('cuXFile'), f = inp.files[0];
     $('cuXResult').textContent = '';
@@ -1609,7 +1649,7 @@
     try {
       U.x = await parseExcel(f);
       $('cuXCheck').innerHTML = checkExcel(U.x) + `<p class="hint">Dibaca dalam ${Math.round((Date.now() - t0) / 100) / 10} detik.</p>`;
-      $('cuXSend').disabled = false;
+      $('cuXSend').disabled = !U.sel.size;
     } catch (err) { U.x = null; $('cuXCheck').innerHTML = `<p class="err">${esc(err.message)}</p>`; }
     inp.value = '';
   });

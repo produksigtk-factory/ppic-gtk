@@ -1948,3 +1948,14 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pr-st-t th { background: #f1f4f2; font-weight: 600; }
 .pr-st-t .num { text-align: right; white-space: nowrap; }
 .pr-st-late { color: #b3261e; font-weight: 600; }
+
+.cu-months { margin: 10px 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.cu-mh { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin-bottom: 8px; }
+.cu-mq { display: inline-flex; gap: 12px; margin-left: auto; font-size: 12.5px; }
+.cu-mlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; max-height: 340px; overflow: auto; }
+.cu-m { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 13px; }
+.cu-m.is-on { border-color: var(--brand); background: var(--brand-soft); }
+.cu-m .muted { font-size: 12px; }
+.cu-tag { font-size: 11px; padding: 0 6px; border-radius: 999px; background: #eef1f4; color: var(--muted); }
+.cu-tag.is-chg { background: var(--wait-soft); color: #8a5a00; font-weight: 600; }
+.cu-tag.is-new { background: var(--done-soft); color: var(--done); font-weight: 600; }
