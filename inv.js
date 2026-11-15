@@ -275,98 +275,124 @@
       </tbody></table></div><p class="hint">Klik lokasi untuk menyaring semua tampilan ke lokasi itu.</p>`;
   }
 
-  /* ---------- Grafik pergerakan ---------- */
-  function series() {
-    // per snapshot: value & qty per golongan (atau satu material bila I.chart diisi), mengikuti saringan
-    return I.snaps.map((m) => {
-      const rows = calc(m.snap).filter((r) => !I.chart || r.kode === I.chart);
-      const o = { snap: m.snap, tot: { v: 0, q: 0 } };
+  /* ---------- Grafik & ringkasan pergerakan ---------- */
+  const BDIM = { MAT: [['gol', 'Golongan'], ['kat', 'Kategori']], FG: [['brand', 'Brand'], ['jenis', 'Jenis'], ['kat', 'Brand - jenis']] };
+  const bKey = (r, dim) => (dim === 'brand' ? r.brand || 'Tanpa brand' : dim === 'jenis' ? r.jenis : dim === 'gol' ? GOL_LBL[r.gol] || r.gol : r.kat);
+  const dimOf = () => { const d = I.bdim[I.kel]; return BDIM[I.kel].some((x) => x[0] === d) ? d : BDIM[I.kel][0][0]; };
+  const dimLbl = (d) => (BDIM[I.kel].find((x) => x[0] === d) || ['', ''])[1];
+  const SNAP_PAL = ['#c9dccf', '#93bba0', '#5d9a73', '#2f7a4c', '#106a3a', '#0b4a29'];
+  const niceUp = (m) => { const p = Math.pow(10, Math.floor(Math.log10(m))), f = m / p; return ([1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((x) => f <= x + 1e-9) || 10) * p; };
+  const C_UP = '#1e7a46', C_DN = '#c0392b', C_TOT = '#24313d';
+  // Snapshot terpilih (berlaku untuk semua grafik & ringkasan): default 3 terakhir
+  function pickedSnaps() {
+    const all = I.snaps.map((m) => m.snap);
+    if (!I.bsnaps || !I.bsnaps.length || I.bsnaps.some((x) => !all.includes(x))) I.bsnaps = all.slice(-3);
+    return all.filter((x) => I.bsnaps.includes(x));
+  }
+  const filtTxt = () => [I.kel === 'MAT' && I.g ? GOL_LBL[I.g] : '', I.brand, I.jenis, I.lok, I.q ? `cari "${I.q}"` : ''].filter(Boolean).join(' · ');
+  const fmtM = (v) => (I.ms === 'v' ? fBig(v) : fQ(v));
+  const pctTxt = (d, a) => (a ? ` (${d >= 0 ? '+' : '−'}${nf1.format(Math.abs(d / a) * 100)}%)` : '');
+
+  /* Ringkasan pergerakan snapshot pertama → terakhir yang dipilih, mengikuti saringan */
+  function movement(snaps) {
+    if (snaps.length < 2) return null;
+    const A = snaps[0], B = snaps[snaps.length - 1], dim = dimOf();
+    const per = snaps.map((sn) => sumBy(calc(sn), (r) => r.kode));
+    const mA = per[0], mB = per[per.length - 1];
+    const codes = new Set([...mA.keys(), ...mB.keys()]);
+    let vA = 0, vB = 0, qA = 0, qB = 0, effQ = 0, effP = 0;
+    const mats = [], nw = [], gone = [], still = [];
+    const cat = new Map();
+    codes.forEach((k) => {
+      const a = mA.get(k), b = mB.get(k), r0 = (b || a).rows[0];
+      const qa = a ? a.qty : 0, qb = b ? b.qty : 0, va = a ? a.val : 0, vb = b ? b.val : 0;
+      const pa = (priceAt(k, A) || {}).h || 0, pb = (priceAt(k, B) || {}).h || 0;
+      vA += va; vB += vb; qA += qa; qB += qb;
+      effQ += (qb - qa) * pa; effP += qb * (pb - pa);
+      const m = { kode: k, nama: r0.nama, uom: r0.uom, qa, qb, va, vb, dv: vb - va, dq: qb - qa };
+      mats.push(m);
+      if (qa <= 0 && qb > 0) nw.push(m);
+      if (qa > 0 && qb <= 0) gone.push(m);
+      if (qb > 0 && per.every((p) => { const x = p.get(k); return x && Math.abs(x.qty - qb) < 1e-9; })) still.push(m);
+      const ck = bKey(r0, dim), c = cat.get(ck) || { va: 0, vb: 0, qa: 0, qb: 0 };
+      c.va += va; c.vb += vb; c.qa += qa; c.qb += qb; cat.set(ck, c);
+    });
+    const key = I.ms === 'v' ? 'v' : 'q';
+    const cats = [...cat].map(([k, c]) => ({ k, a: key === 'v' ? c.va : c.qa, b: key === 'v' ? c.vb : c.qb })).map((c) => Object.assign(c, { d: c.b - c.a }));
+    const byD = (L, f) => L.slice().sort((x, y) => f(y) - f(x));
+    const dk = key === 'v' ? 'dv' : 'dq';
+    return {
+      A, B, dim, vA, vB, qA, qB, effQ, effP, cats,
+      up: byD(mats.filter((m) => m[dk] > 1e-9), (m) => m[dk]).slice(0, 5),
+      dn: byD(mats.filter((m) => m[dk] < -1e-9), (m) => -m[dk]).slice(0, 5),
+      nw: byD(nw, (m) => m.vb), gone: byD(gone, (m) => m.va), still: byD(still, (m) => m.vb), stillV: still.reduce((t, m) => t + m.vb, 0),
+    };
+  }
+  // Kalimat ringkasan (dipakai di layar & di JPG)
+  function sumLines(M) {
+    if (!M) return [];
+    const L = [], dV = M.vB - M.vA, dQ = M.qB - M.qA, nm = I.kel === 'FG' ? 'FG' : 'Material';
+    const per = `${fDate(M.A.slice(0, 10))} → ${fDate(M.B.slice(0, 10))}`;
+    L.push({ tone: dV >= 0 ? 'up' : 'dn', t: `Value ${nm} ${dV >= 0 ? 'naik' : 'turun'} ${fRp(Math.abs(dV))}${pctTxt(dV, M.vA)} dari ${fRp(M.vA)} menjadi ${fRp(M.vB)} (${per}); qty ${dQ >= 0 ? 'naik' : 'turun'} ${fQ(Math.abs(dQ))}${pctTxt(dQ, M.qA)}.` });
+    if (I.pm === 'date' && Math.abs(M.effP) >= 1) L.push({ tone: '', t: `Penyebab: perubahan qty ${dTxt(M.effQ, fRp)}, perubahan harga ${dTxt(M.effP, fRp)}.` });
+    else L.push({ tone: '', t: `Seluruh perubahan value berasal dari perubahan qty${I.pm === 'latest' ? ' (dinilai dengan harga terkini)' : ' (harga tidak berubah)'}.` });
+    const cs = M.cats.filter((c) => Math.abs(c.d) > 1e-9), cu = cs.slice().sort((a, b) => b.d - a.d)[0], cd = cs.slice().sort((a, b) => a.d - b.d)[0];
+    const lbl = dimLbl(M.dim).toLowerCase();
+    if (cd && cd.d < 0) L.push({ tone: 'dn', t: `Penurunan terbesar per ${lbl}: ${cd.k} ${dTxt(cd.d, fmtM)}${pctTxt(cd.d, cd.a)}.` });
+    if (cu && cu.d > 0) L.push({ tone: 'up', t: `Kenaikan terbesar per ${lbl}: ${cu.k} ${dTxt(cu.d, fmtM)}${pctTxt(cu.d, cu.a)}.` });
+    const mt = (m) => `${m.kode} ${m.nama.length > 38 ? m.nama.slice(0, 37) + '…' : m.nama} (${dTxt(I.ms === 'v' ? m.dv : m.dq, fmtM)})`;
+    if (M.dn.length) L.push({ tone: 'dn', t: `Material paling turun: ${M.dn.slice(0, 3).map(mt).join('; ')}.` });
+    if (M.up.length) L.push({ tone: 'up', t: `Material paling naik: ${M.up.slice(0, 3).map(mt).join('; ')}.` });
+    const ex = [];
+    if (M.gone.length) ex.push(`${M.gone.length} kode habis (value awal ${fBig(M.gone.reduce((t, m) => t + m.va, 0))})`);
+    if (M.nw.length) ex.push(`${M.nw.length} kode baru masuk (${fBig(M.nw.reduce((t, m) => t + m.vb, 0))})`);
+    if (M.still.length) ex.push(`${M.still.length} kode tidak bergerak di semua snapshot terpilih, value tertahan ${fBig(M.stillV)} (${fPct(M.vB ? M.stillV / M.vB : NaN)} dari total)`);
+    if (ex.length) L.push({ tone: '', t: ex.join(' · ') + '.' });
+    return L;
+  }
+  function sumHtml(M) {
+    if (!M) return '<p class="muted inv-sumn">Pilih minimal 2 snapshot untuk melihat ringkasan pergerakan.</p>';
+    const li = (L, f) => L.length ? `<ul>${L.map(f).join('')}</ul>` : '<p class="muted">–</p>';
+    const mrow = (m, k) => `<tr><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(m.kode)}"><span class="pl-code">${esc(m.kode)}</span><span class="pl-name">${esc(m.nama)}</span></button></td><td class="num ${dCls(k === 'v' ? m.dv : m.dq)}">${dTxt(k === 'v' ? m.dv : m.dq, k === 'v' ? fRp : fQ)}</td><td class="num muted">${fQ(m.qa)} → ${fQ(m.qb)} <small>${esc(m.uom)}</small></td></tr>`;
+    const tbl = (L) => (L.length ? `<table class="po-table pl-mini inv-mv"><tbody>${L.map((m) => mrow(m, k)).join('')}</tbody></table>` : '<p class="muted">–</p>');
+    const k = I.ms === 'v' ? 'v' : 'q';
+    return `<div class="inv-sum"><h4>Ringkasan pergerakan</h4><ul class="inv-suml">${sumLines(M).map((l) => `<li class="${l.tone ? 'is-' + l.tone : ''}">${esc(l.t)}</li>`).join('')}</ul>
+      <div class="inv-sumg">
+        <div><h5>Paling turun</h5>${tbl(M.dn)}</div>
+        <div><h5>Paling naik</h5>${tbl(M.up)}</div>
+        <details><summary><b>Kode habis</b> ${M.gone.length} · <b>baru</b> ${M.nw.length} · <b>tidak bergerak</b> ${M.still.length}</summary>
+          <h5>Habis</h5>${li(M.gone.slice(0, 30), (m) => `<li><span class="pl-code">${esc(m.kode)}</span> ${esc(m.nama)} <small class="muted">${fRp(m.va)}</small></li>`)}
+          <h5>Baru</h5>${li(M.nw.slice(0, 30), (m) => `<li><span class="pl-code">${esc(m.kode)}</span> ${esc(m.nama)} <small class="muted">${fRp(m.vb)}</small></li>`)}
+          <h5>Tidak bergerak (value terbesar)</h5>${li(M.still.slice(0, 30), (m) => `<li><span class="pl-code">${esc(m.kode)}</span> ${esc(m.nama)} <small class="muted">${fQ(m.qb)} ${esc(m.uom)} · ${fRp(m.vb)}</small></li>`)}
+        </details>
+      </div></div>`;
+  }
+
+  /* Garis pergerakan */
+  function buildLine(W, snaps) {
+    const key = I.ms === 'v' ? 'v' : 'q';
+    const data = snaps.map((sn) => {
+      const rows = calc(sn).filter((r) => !I.chart || r.kode === I.chart);
+      const o = { snap: sn, tot: { v: 0, q: 0 } };
       rows.forEach((r) => { const k = grpOf(r); o[k] = o[k] || { v: 0, q: 0 }; o[k].v += r.val; o[k].q += r.qty; o.tot.v += r.val; o.tot.q += r.qty; });
       return o;
     });
-  }
-  /* ---------- Grafik batang per kategori (snapshot berdampingan) ---------- */
-  const BDIM = { MAT: [['gol', 'Golongan'], ['kat', 'Kategori']], FG: [['brand', 'Brand'], ['jenis', 'Jenis'], ['kat', 'Brand - jenis']] };
-  const bKey = (r, dim) => (dim === 'brand' ? r.brand || 'Tanpa brand' : dim === 'jenis' ? r.jenis : dim === 'gol' ? GOL_LBL[r.gol] || r.gol : r.kat);
-  const SNAP_PAL = ['#c9dccf', '#93bba0', '#5d9a73', '#2f7a4c', '#106a3a', '#0b4a29'];
-  function renderBar(box) {
-    const dim = I.bdim[I.kel] || BDIM[I.kel][0][0], key = I.ms === 'v' ? 'val' : 'qty';
-    const all = I.snaps.map((m) => m.snap);
-    if (!I.bsnaps || !I.bsnaps.length || I.bsnaps.some((x) => !all.includes(x))) I.bsnaps = all.slice(-3);
-    const snaps = all.filter((x) => I.bsnaps.includes(x));
-    const per = snaps.map((sn) => sumBy(calc(sn), (r) => bKey(r, dim)));
-    const last = per[per.length - 1] || new Map();
-    const cats = [...new Set(per.flatMap((m) => [...m.keys()]))].sort((a, b) => ((last.get(b) || {})[key] || 0) - ((last.get(a) || {})[key] || 0));
-    if (!I.bcats) I.bcats = cats.slice(0, 8);
-    const show = cats.filter((c) => I.bcats.includes(c));
-    const fmtV = (v) => (I.ms === 'v' ? fBig(v) : fQ(v));
-    const max = Math.max(1, ...show.flatMap((c) => per.map((m) => (m.get(c) || {})[key] || 0)));
-    const pal = snaps.length === 1 ? [SNAP_PAL[4]] : snaps.map((_, i) => SNAP_PAL[Math.round(1 + i * (SNAP_PAL.length - 2) / Math.max(1, snaps.length - 1))]);
-    const W = Math.max(Math.round(box.clientWidth || 900), 560), LBL = Math.min(260, Math.max(120, Math.round(W * 0.22))), RT = 250, bh = 14, gap = 3, grp = 16;
-    const rowH = snaps.length * (bh + gap) - gap + grp, H = 24 + show.length * rowH;
-    const x = (v) => LBL + (W - LBL - RT) * (v / max);
-    let g = '';
-    for (let k = 0; k <= 4; k++) { const xv = LBL + (W - LBL - RT) * k / 4; g += `<line class="cslc-grid" x1="${xv}" x2="${xv}" y1="14" y2="${H - 4}"/><text class="cslc-ax" x="${xv}" y="10" text-anchor="middle">${fmtV(max * k / 4).replace('Rp ', '')}</text>`; }
-    show.forEach((c, ci) => {
-      const y0 = 20 + ci * rowH;
-      g += `<text class="inv-bl" x="${LBL - 10}" y="${y0 + (snaps.length * (bh + gap)) / 2 + 2}" text-anchor="end">${esc(c.length > 34 ? c.slice(0, 33) + '…' : c)}</text>`;
-      per.forEach((m, si) => {
-        const o = m.get(c) || { val: 0, qty: 0 }, v = o[key], y = y0 + si * (bh + gap), w = Math.max(v > 0 ? 2 : 0, x(v) - LBL);
-        g += `<rect class="inv-bar" data-c="${ci}" data-s="${si}" x="${LBL}" y="${y}" width="${w}" height="${bh}" rx="3" fill="${pal[si]}"/>`;
-        if (si === per.length - 1 || per.length <= 2) g += `<text class="inv-bv" x="${LBL + w + 6}" y="${y + bh - 3}">${fmtV(v)}</text>`;
-      });
-      if (per.length > 1) {
-        const a = (per[0].get(c) || {})[key] || 0, b = (last.get(c) || {})[key] || 0, d = b - a;
-        g += `<text class="inv-bd ${dCls(d)}" x="${W - 4}" y="${y0 + (snaps.length * (bh + gap)) / 2 + 2}" text-anchor="end">${dTxt(d, fmtV)}${a ? ` (${d >= 0 ? '+' : '−'}${nf1.format(Math.abs(d / a) * 100)}%)` : ''}</text>`;
-      }
-    });
-    const dimSeg = `<div class="pj-seg" id="invBdim" role="group" aria-label="Kelompokkan per">${BDIM[I.kel].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === dim}">${t}</button>`).join('')}</div>`;
-    const snapPick = `<details class="inv-pick"><summary>Snapshot (${snaps.length})</summary><div class="inv-pl">${all.slice().reverse().map((sn) => `<label><input type="checkbox" data-bsnap="${esc(sn)}"${snaps.includes(sn) ? ' checked' : ''}> ${esc(fSnap(sn))}</label>`).join('')}</div></details>`;
-    const catPick = `<details class="inv-pick" id="invCatPick"${I.catOpen ? ' open' : ''}><summary>${esc(BDIM[I.kel].find((d) => d[0] === dim)[1])} ditampilkan (${show.length}/${cats.length})</summary><div class="inv-pa"><button type="button" class="btn-link" data-bcat-all="1">Pilih semua</button><button type="button" class="btn-link" data-bcat-all="0">Kosongkan</button><button type="button" class="btn-link" data-bcat-all="8">8 terbesar</button></div><div class="inv-pl inv-pl2">${cats.map((c) => `<label><input type="checkbox" data-bcat="${esc(c)}"${show.includes(c) ? ' checked' : ''}> ${esc(c)} <small class="muted">${fmtV((last.get(c) || {})[key] || 0)}</small></label>`).join('')}</div></details>`;
-    const lg = snaps.map((sn, i) => `<span class="inv-lg"><i style="background:${pal[i]};height:10px;width:14px"></i>${esc(fSnap(sn))}</span>`).join('');
-    box.innerHTML = `<div class="inv-bctl">${dimSeg}${snapPick}${catPick}</div><div class="inv-legend">${lg}${per.length > 1 ? `<span class="muted">Angka kanan = selisih ${esc(fDate(snaps[0].slice(0, 10)))} → ${esc(fDate(snaps[snaps.length - 1].slice(0, 10)))}</span>` : ''}</div>
-      ${show.length ? `<div class="inv-cbox"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Grafik batang per kategori">${g}</svg><div class="cslc-tip" id="invTip" hidden></div></div>` : '<p class="muted">Pilih minimal satu kategori.</p>'}`;
-    const svg = box.querySelector('svg'), tip = $('invTip');
-    if (svg) {
-      svg.addEventListener('mousemove', (e) => {
-        const b = e.target.closest('.inv-bar'); if (!b) { tip.hidden = true; return; }
-        const c = show[+b.dataset.c], si = +b.dataset.s, o = per[si].get(c) || { val: 0, qty: 0, n: new Set() };
-        tip.innerHTML = `<b>${esc(c)}</b><div>${esc(fSnap(snaps[si]))}</div><div>Value ${fRp(o.val)}</div><div>Qty ${fQ(o.qty)} · ${o.n ? o.n.size : 0} kode</div>`;
-        const r = box.querySelector('.inv-cbox').getBoundingClientRect();
-        tip.style.left = Math.min(e.clientX - r.left + 12, r.width - 220) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false;
-      });
-      svg.addEventListener('mouseleave', () => { tip.hidden = true; });
-    }
-    box.querySelector('#invBdim').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.bdim[I.kel] = b.dataset.v; I.bcats = null; renderChart(); });
-    I._barCats = cats;
-    box.querySelector('#invCatPick').addEventListener('toggle', (e) => { I.catOpen = e.target.open; });
-  }
-  function renderChart() {
-    const box = $('invChart'); if (!box) return;
-    document.querySelectorAll('#invMs [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ms)));
-    document.querySelectorAll('#invCt [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ct)));
-    if (I.ct === 'bar') {
-      $('invChartTitle').innerHTML = `${I.ms === 'v' ? 'Value' : 'Qty'} ${I.kel === 'FG' ? 'FG' : 'Material'} per kategori${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
-      if (!I.snaps.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
-      renderBar(box); return;
-    }
-    const data = series(), key = I.ms === 'v' ? 'v' : 'q';
-    const mat = I.chart ? I.gol.get(I.chart) : null;
-    $('invChartTitle').innerHTML = I.chart ? `Pergerakan <span class="pl-code">${esc(I.chart)}</span> ${esc(mat ? mat.nama : '')} <button type="button" class="btn-link" data-inv-chart="">kembali</button>` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} ${I.kel === 'FG' ? 'FG per brand' : 'Material per golongan'}${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
-    if (!data.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
     let gl = I.chart ? ['tot'] : [...GOLS, '?'].filter((g) => data.some((d) => d[g]) && (!I.g || g === I.g));
     if (!I.chart && I.kel === 'FG') {
-      const cur = data.find((d) => d.snap === I.snap) || data[data.length - 1];
+      const cur = data[data.length - 1];
       const keys = [...new Set(data.flatMap((d) => Object.keys(d).filter((k) => k !== 'snap' && k !== 'tot')))].sort((a, b) => (cur[b] ? cur[b].v : 0) - (cur[a] ? cur[a].v : 0));
       gl = keys;
       if (keys.length > 7) { const rest = keys.slice(6); data.forEach((d) => { const o = { v: 0, q: 0 }; rest.forEach((k) => { if (d[k]) { o.v += d[k].v; o.q += d[k].q; } }); d.Lainnya = o; }); gl = keys.slice(0, 6).concat('Lainnya'); }
     }
     const showTot = !I.chart && (I.kel === 'FG' || !I.g) && gl.length > 1;
     const ser = (showTot ? ['tot'] : []).concat(I.chart ? ['tot'] : gl);
+    const clr = (s) => (s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : C_TOT) : grpClr(s));
+    const name = (s) => (s === 'tot' ? (I.chart ? I.chart : 'Total') : grpLbl(s));
     const val = (d, g) => (d[g] ? d[g][key] : 0);
-    const W = Math.max(Math.round(box.clientWidth || 900), data.length * 60), H = 260, L = 78, R = 24, T = 14, B = 34;
+    W = Math.max(W, data.length * 60);
+    const H = 280, L = 78, R = 150, T = 14, B = 34;
     const max = Math.max(1, ...data.flatMap((d) => ser.map((g) => val(d, g))));
-    const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); const f = max / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; })();
+    const nice = niceUp(max);
     const x = (i) => (data.length === 1 ? L + (W - L - R) / 2 : L + i * (W - L - R) / (data.length - 1));
     const y = (v) => T + (H - T - B) * (1 - v / nice);
     const fmtAx = (v) => (I.ms === 'v' ? fBig(v).replace('Rp ', '') : v >= 1e6 ? nf1.format(v / 1e6) + ' jt' : nf0.format(v));
@@ -374,25 +400,170 @@
     for (let k = 0; k <= 4; k++) { const v = nice * k / 4; g += `<line class="cslc-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="cslc-ax" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${fmtAx(v)}</text>`; }
     const step = Math.ceil(data.length / 12);
     data.forEach((d, i) => { if (i % step === 0 || i === data.length - 1) g += `<text class="cslc-ax" x="${x(i)}" y="${H - 12}" text-anchor="middle">${esc(fDate(d.snap.slice(0, 10)).slice(0, 6))}</text>`; });
+    // label akhir garis (nilai terakhir) — dihindarkan saling tumpuk
+    const ends = ser.map((s) => ({ s, y: y(val(data[data.length - 1], s)) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 14) ends[i].y = ends[i - 1].y + 14;
     ser.forEach((s) => {
-      const c = s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : '#24313d') : grpClr(s);
-      const pts = data.map((d, i) => `${x(i)},${y(val(d, s))}`).join(' ');
+      const c = clr(s), pts = data.map((d, i) => `${x(i)},${y(val(d, s))}`).join(' ');
       g += `<polyline fill="none" stroke="${c}" stroke-width="2"${s === 'tot' && !I.chart ? ' stroke-dasharray="5 4"' : ''} points="${pts}"/>`;
       data.forEach((d, i) => { g += `<circle cx="${x(i)}" cy="${y(val(d, s))}" r="${d.snap === I.snap ? 5 : 3.5}" fill="${c}" stroke="#fff" stroke-width="2"/>`; });
+      const e = ends.find((z) => z.s === s), lv = val(data[data.length - 1], s);
+      g += `<text class="inv-bv" x="${x(data.length - 1) + 10}" y="${e.y + 4}" style="fill:${c}">${esc(name(s).length > 12 ? name(s).slice(0, 11) + '…' : name(s))} ${fmtM(lv)}</text>`;
     });
     data.forEach((d, i) => { g += `<rect class="inv-hit" data-i="${i}" x="${x(i) - 18}" y="${T}" width="36" height="${H - T - B}" fill="transparent"/>`; });
-    const lg = ser.map((s) => `<span class="inv-lg"><i style="background:${s === 'tot' ? (I.chart ? GOL_CLR[golOf(I.chart)] : '#24313d') : grpClr(s)}"></i>${s === 'tot' ? (I.chart ? esc(I.chart) : 'Total') : esc(grpLbl(s))}</span>`).join('');
-    box.innerHTML = `<div class="inv-legend">${lg}<span class="muted">Arahkan kursor ke titik; klik untuk memilih snapshot.</span></div><div class="inv-cbox"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Grafik pergerakan inventory">${g}</svg><div class="cslc-tip" id="invTip" hidden></div></div>`;
-    const svg = box.querySelector('svg'), tip = $('invTip');
-    svg.addEventListener('mousemove', (e) => {
-      const h = e.target.closest('.inv-hit'); if (!h) { tip.hidden = true; return; }
-      const d = data[+h.dataset.i];
-      tip.innerHTML = `<b>${esc(fSnap(d.snap))}</b>` + ser.map((s) => `<div>${s === 'tot' ? (I.chart ? esc(I.chart) : 'Total') : esc(grpLbl(s))}: ${I.ms === 'v' ? fRp(val(d, s)) : fQ(val(d, s))}</div>`).join('');
-      const r = box.querySelector('.inv-cbox').getBoundingClientRect();
-      tip.style.left = Math.min(e.clientX - r.left + 12, r.width - 200) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false;
+    return { W, H, body: g, legend: ser.map((s) => ({ c: clr(s), t: name(s), dash: s === 'tot' && !I.chart })), data, ser, val, name };
+  }
+  /* Batang per kategori, snapshot berdampingan */
+  function buildBar(W, snaps) {
+    const dim = dimOf(), key = I.ms === 'v' ? 'val' : 'qty';
+    const per = snaps.map((sn) => sumBy(calc(sn), (r) => bKey(r, dim)));
+    const last = per[per.length - 1] || new Map();
+    const cats = [...new Set(per.flatMap((m) => [...m.keys()]))].sort((a, b) => ((last.get(b) || {})[key] || 0) - ((last.get(a) || {})[key] || 0));
+    if (!I.bcats) I.bcats = cats.slice(0, 8);
+    const show = cats.filter((c) => I.bcats.includes(c));
+    const max = Math.max(1, ...show.flatMap((c) => per.map((m) => (m.get(c) || {})[key] || 0)));
+    const pal = snaps.length === 1 ? [SNAP_PAL[4]] : snaps.map((_, i) => SNAP_PAL[Math.round(1 + i * (SNAP_PAL.length - 2) / Math.max(1, snaps.length - 1))]);
+    W = Math.max(W, 560);
+    const LBL = Math.min(260, Math.max(120, Math.round(W * 0.22))), RT = 250, bh = 14, gap = 3, grp = 16;
+    const rowH = snaps.length * (bh + gap) - gap + grp, H = 24 + Math.max(1, show.length) * rowH;
+    const x = (v) => LBL + (W - LBL - RT) * (v / max);
+    let g = '';
+    for (let k = 0; k <= 4; k++) { const xv = LBL + (W - LBL - RT) * k / 4; g += `<line class="cslc-grid" x1="${xv}" x2="${xv}" y1="14" y2="${H - 4}"/><text class="cslc-ax" x="${xv}" y="10" text-anchor="middle">${fmtM(max * k / 4).replace('Rp ', '')}</text>`; }
+    show.forEach((c, ci) => {
+      const y0 = 20 + ci * rowH, mid = y0 + (snaps.length * (bh + gap)) / 2 + 2;
+      g += `<text class="inv-bl" x="${LBL - 10}" y="${mid}" text-anchor="end">${esc(c.length > 34 ? c.slice(0, 33) + '…' : c)}</text>`;
+      per.forEach((m, si) => {
+        const v = (m.get(c) || {})[key] || 0, yy = y0 + si * (bh + gap), w = Math.max(v > 0 ? 2 : 0, x(v) - LBL);
+        g += `<rect class="inv-bar" data-c="${ci}" data-s="${si}" x="${LBL}" y="${yy}" width="${w}" height="${bh}" rx="3" fill="${pal[si]}"/>`;
+        if (si === per.length - 1 || per.length <= 2) g += `<text class="inv-bv" x="${LBL + w + 6}" y="${yy + bh - 3}">${fmtM(v)}</text>`;
+      });
+      if (per.length > 1) {
+        const a = (per[0].get(c) || {})[key] || 0, b = (last.get(c) || {})[key] || 0, d = b - a;
+        g += `<text class="inv-bd ${dCls(d)}" x="${W - 4}" y="${mid}" text-anchor="end">${dTxt(d, fmtM)}${pctTxt(d, a)}</text>`;
+      }
     });
-    svg.addEventListener('mouseleave', () => { tip.hidden = true; });
-    svg.addEventListener('click', (e) => { const h = e.target.closest('.inv-hit'); if (h) { setSnap(data[+h.dataset.i].snap); render(); } });
+    return { W, H, body: g, legend: snaps.map((sn, i) => ({ c: pal[i], t: fSnap(sn), box: true })), cats, show, per, snaps, empty: !show.length };
+  }
+  /* Waterfall: total awal → naik/turun per kategori → total akhir */
+  function buildWater(W, snaps, M) {
+    if (!M) return { W, H: 60, body: `<text class="cslc-ax" x="${W / 2}" y="30" text-anchor="middle">Pilih minimal 2 snapshot.</text>`, legend: [], empty: true };
+    const vA = I.ms === 'v' ? M.vA : M.qA, vB = I.ms === 'v' ? M.vB : M.qB;
+    let cs = M.cats.filter((c) => Math.abs(c.d) > 1e-9).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+    if (cs.length > 10) { const rest = cs.slice(9); cs = cs.slice(0, 9).concat({ k: `Lainnya (${rest.length})`, d: rest.reduce((t, c) => t + c.d, 0), a: 0 }); }
+    cs.sort((a, b) => b.d - a.d);
+    const steps = [{ k: fDate(M.A.slice(0, 10)), tot: true, v0: 0, v1: vA }];
+    let run = vA;
+    cs.forEach((c) => { steps.push({ k: c.k, v0: run, v1: run + c.d, d: c.d, a: c.a }); run += c.d; });
+    steps.push({ k: fDate(M.B.slice(0, 10)), tot: true, v0: 0, v1: vB });
+    W = Math.max(W, 560);
+    const L = 78, R = 16, T = 26, B = 58, H = 340;
+    const hi = Math.max(1, ...steps.map((s) => Math.max(s.v0, s.v1))), lo = Math.min(0, ...steps.map((s) => Math.min(s.v0, s.v1)));
+    const nice = niceUp(hi);
+    const y = (v) => T + (H - T - B) * (1 - (v - lo) / (nice - lo));
+    const cw = (W - L - R) / steps.length, bw = Math.min(70, cw * 0.62);
+    let g = '';
+    for (let k = 0; k <= 4; k++) { const v = lo + (nice - lo) * k / 4; g += `<line class="cslc-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="cslc-ax" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${fmtM(v).replace('Rp ', '')}</text>`; }
+    const wrap = (t, n) => { const w = String(t).split(' '), out = ['']; w.forEach((x) => { if ((out[out.length - 1] + ' ' + x).trim().length > n && out[out.length - 1]) out.push(x); else out[out.length - 1] = (out[out.length - 1] + ' ' + x).trim(); }); return out.slice(0, 3); };
+    const nch = Math.max(6, Math.floor(cw / 6.6));
+    steps.forEach((s, i) => {
+      const cx = L + cw * i + cw / 2, top = y(Math.max(s.v0, s.v1)), bot = y(Math.min(s.v0, s.v1));
+      const c = s.tot ? C_TOT : s.d >= 0 ? C_UP : C_DN;
+      g += `<rect class="inv-wf" data-w="${i}" x="${cx - bw / 2}" y="${top}" width="${bw}" height="${Math.max(1.5, bot - top)}" rx="3" fill="${c}"${s.tot ? '' : ' fill-opacity=".85"'}/>`;
+      if (i < steps.length - 1) { const yn = y(s.v1); g += `<line x1="${cx + bw / 2}" x2="${cx + cw - bw / 2}" y1="${yn}" y2="${yn}" stroke="#9aa5b1" stroke-dasharray="3 3"/>`; }
+      g += `<text class="inv-bd" x="${cx}" y="${top - 6}" text-anchor="middle" style="fill:${s.tot ? C_TOT : c}">${s.tot ? fmtM(s.v1) : dTxt(s.d, fmtM)}</text>`;
+      wrap(s.k, nch).forEach((ln, li) => { g += `<text class="inv-bl" x="${cx}" y="${H - B + 16 + li * 13}" text-anchor="middle"${s.tot ? ' style="font-weight:700"' : ''}>${esc(ln)}</text>`; });
+    });
+    return { W, H, body: g, steps, legend: [{ c: C_TOT, t: 'Total snapshot', box: true }, { c: C_UP, t: 'Naik', box: true }, { c: C_DN, t: 'Turun', box: true }] };
+  }
+
+  function renderChart() {
+    const box = $('invChart'); if (!box) return;
+    document.querySelectorAll('#invMs [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ms)));
+    document.querySelectorAll('#invCt [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ct)));
+    const mat = I.chart ? I.gol.get(I.chart) : null, f = filtTxt(), nm = I.kel === 'FG' ? 'FG' : 'Material';
+    const title = I.chart ? `Pergerakan ${I.chart} ${mat ? mat.nama : ''}` : I.ct === 'bar' ? `${I.ms === 'v' ? 'Value' : 'Qty'} ${nm} per ${dimLbl(dimOf()).toLowerCase()}` : I.ct === 'wf' ? `Penyebab perubahan ${I.ms === 'v' ? 'value' : 'qty'} ${nm} per ${dimLbl(dimOf()).toLowerCase()}` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} ${I.kel === 'FG' ? 'FG per brand' : 'Material per golongan'}`;
+    I._title = title + (f ? ' · ' + f : '');
+    $('invChartTitle').innerHTML = esc(I._title) + (I.chart ? ' <button type="button" class="btn-link" data-inv-chart="">kembali</button>' : '');
+    if (!I.snaps.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
+    const snaps = pickedSnaps(), all = I.snaps.map((m) => m.snap), dim = dimOf();
+    const M = movement(snaps);
+    const W = Math.round(box.clientWidth || 900);
+    const C = I.chart || I.ct === 'line' ? buildLine(W, snaps) : I.ct === 'bar' ? buildBar(W, snaps) : buildWater(W, snaps, M);
+    I._chart = C; I._sum = sumLines(M); I._snaps = snaps;
+    const dimSeg = I.ct !== 'line' && !I.chart ? `<div class="pj-seg" id="invBdim" role="group" aria-label="Kelompokkan per">${BDIM[I.kel].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === dim}">${t}</button>`).join('')}</div>` : '';
+    const snapPick = `<details class="inv-pick" id="invSnapPick"${I.snapOpen ? ' open' : ''}><summary>Snapshot (${snaps.length}/${all.length})</summary><div class="inv-pa"><button type="button" class="btn-link" data-bsnap-all="1">Semua</button><button type="button" class="btn-link" data-bsnap-all="3">3 terakhir</button><button type="button" class="btn-link" data-bsnap-all="2">2 terakhir</button></div><div class="inv-pl">${all.slice().reverse().map((sn) => `<label><input type="checkbox" data-bsnap="${esc(sn)}"${snaps.includes(sn) ? ' checked' : ''}> ${esc(fSnap(sn))}</label>`).join('')}</div></details>`;
+    let catPick = '';
+    if (I.ct === 'bar' && !I.chart) {
+      const key = I.ms === 'v' ? 'val' : 'qty', last = C.per[C.per.length - 1] || new Map();
+      catPick = `<details class="inv-pick" id="invCatPick"${I.catOpen ? ' open' : ''}><summary>${esc(dimLbl(dim))} ditampilkan (${C.show.length}/${C.cats.length})</summary><div class="inv-pa"><button type="button" class="btn-link" data-bcat-all="1">Pilih semua</button><button type="button" class="btn-link" data-bcat-all="0">Kosongkan</button><button type="button" class="btn-link" data-bcat-all="8">8 terbesar</button></div><div class="inv-pl inv-pl2">${C.cats.map((c) => `<label><input type="checkbox" data-bcat="${esc(c)}"${C.show.includes(c) ? ' checked' : ''}> ${esc(c)} <small class="muted">${fmtM((last.get(c) || {})[key] || 0)}</small></label>`).join('')}</div></details>`;
+      I._barCats = C.cats;
+    }
+    const lg = C.legend.map((l) => `<span class="inv-lg"><i style="background:${l.c}${l.box ? ';height:10px;width:14px' : ''}${l.dash ? ';background:repeating-linear-gradient(90deg,' + l.c + ' 0 4px,transparent 4px 7px)' : ''}"></i>${esc(l.t)}</span>`).join('');
+    const note = I.ct === 'bar' && snaps.length > 1 ? `<span class="muted">Angka kanan = selisih ${esc(fDate(snaps[0].slice(0, 10)))} → ${esc(fDate(snaps[snaps.length - 1].slice(0, 10)))}</span>` : I.ct === 'wf' && M ? `<span class="muted">${esc(fDate(M.A.slice(0, 10)))} → ${esc(fDate(M.B.slice(0, 10)))}; maks. 10 ${esc(dimLbl(dim).toLowerCase())} dengan perubahan terbesar</span>` : '<span class="muted">Arahkan kursor ke grafik untuk rincian.</span>';
+    box.innerHTML = `<div class="inv-bctl">${dimSeg}${snapPick}${catPick}</div><div class="inv-legend">${lg}${note}</div>
+      ${C.empty && I.ct === 'bar' ? '<p class="muted">Pilih minimal satu kategori.</p>' : `<div class="inv-cbox"><svg viewBox="0 0 ${C.W} ${C.H}" width="${C.W}" height="${C.H}" role="img" aria-label="${esc(I._title)}">${C.body}</svg><div class="cslc-tip" id="invTip" hidden></div></div>`}
+      ${sumHtml(M)}`;
+    const svg = box.querySelector('svg'), tip = $('invTip');
+    if (svg) {
+      const place = (e, w) => { const r = box.querySelector('.inv-cbox').getBoundingClientRect(); tip.style.left = Math.min(e.clientX - r.left + 12, r.width - w) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false; };
+      svg.addEventListener('mousemove', (e) => {
+        const h = e.target.closest('.inv-hit'), b = e.target.closest('.inv-bar'), w = e.target.closest('.inv-wf');
+        if (h && C.data) { const d = C.data[+h.dataset.i]; tip.innerHTML = `<b>${esc(fSnap(d.snap))}</b>` + C.ser.map((s) => `<div>${esc(C.name(s))}: ${I.ms === 'v' ? fRp(C.val(d, s)) : fQ(C.val(d, s))}</div>`).join(''); place(e, 200); return; }
+        if (b && C.per) { const c = C.show[+b.dataset.c], si = +b.dataset.s, o = C.per[si].get(c) || { val: 0, qty: 0 }; tip.innerHTML = `<b>${esc(c)}</b><div>${esc(fSnap(C.snaps[si]))}</div><div>Value ${fRp(o.val)}</div><div>Qty ${fQ(o.qty)} · ${o.n ? o.n.size : 0} kode</div>`; place(e, 220); return; }
+        if (w && C.steps) { const s = C.steps[+w.dataset.w]; tip.innerHTML = s.tot ? `<b>Total ${esc(s.k)}</b><div>${fmtM(s.v1)}</div>` : `<b>${esc(s.k)}</b><div>${dTxt(s.d, fmtM)}${pctTxt(s.d, s.a)}</div><div class="muted">${fmtM(s.v0)} → ${fmtM(s.v1)} (kumulatif)</div>`; place(e, 220); return; }
+        tip.hidden = true;
+      });
+      svg.addEventListener('mouseleave', () => { tip.hidden = true; });
+      svg.addEventListener('click', (e) => { const h = e.target.closest('.inv-hit'); if (h && C.data) { setSnap(C.data[+h.dataset.i].snap); render(); } });
+    }
+    const bd = box.querySelector('#invBdim'); if (bd) bd.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.bdim[I.kel] = b.dataset.v; I.bcats = null; renderChart(); });
+    const cp = box.querySelector('#invCatPick'); if (cp) cp.addEventListener('toggle', (e) => { I.catOpen = e.target.open; });
+    const sp = box.querySelector('#invSnapPick'); if (sp) sp.addEventListener('toggle', (e) => { I.snapOpen = e.target.open; });
+  }
+
+  /* Unduh JPG: judul + subjudul + legenda + grafik + ringkasan, siap tempel ke PowerPoint */
+  function exportJpg() {
+    const C = I._chart; if (!C || C.empty) { toast('Belum ada grafik untuk diunduh.'); return; }
+    const W = 1600, PAD = 48, cw = W - PAD * 2;
+    const snaps = I._snaps || [];
+    const C2 = I.chart || I.ct === 'line' ? buildLine(cw, snaps) : I.ct === 'bar' ? buildBar(cw, snaps) : buildWater(cw, snaps, movement(snaps));
+    const sc = cw / C2.W;
+    const sub = [`Stok ${KEL_LBL[I.kel]}`, snaps.length ? `${fSnap(snaps[0])}${snaps.length > 1 ? ' → ' + fSnap(snaps[snaps.length - 1]) : ''}` : '', `harga ${PM_LBL[I.pm]}`, I.ms === 'v' ? 'Value (Rp)' : 'Qty'].filter(Boolean).join(' · ');
+    const wrap = (t, n) => { const w = t.split(' '), out = ['']; w.forEach((x) => { if ((out[out.length - 1] + ' ' + x).length > n && out[out.length - 1]) out.push(x); else out[out.length - 1] = (out[out.length - 1] + ' ' + x).trim(); }); return out; };
+    let y = 64, s = '';
+    s += `<text x="${PAD}" y="${y}" style="font-size:30px;font-weight:700;fill:#1f2933">${esc(I._title)}</text>`; y += 34;
+    s += `<text x="${PAD}" y="${y}" style="font-size:17px;fill:#6b7684">${esc(sub)}</text>`; y += 34;
+    let lx = PAD;
+    C2.legend.forEach((l) => { s += `<rect x="${lx}" y="${y - 12}" width="18" height="${l.box ? 12 : 4}" rx="2" fill="${l.c}"/><text x="${lx + 26}" y="${y}" style="font-size:16px;fill:#1f2933">${esc(l.t)}</text>`; lx += 26 + l.t.length * 9 + 26; });
+    y += 18;
+    s += `<g transform="translate(${PAD},${y}) scale(${sc})">${C2.body.replace(/<rect class="inv-hit"[^>]*\/>/g, '')}</g>`; y += C2.H * sc + 36;
+    const lines = I._sum || [];
+    if (lines.length) {
+      s += `<line x1="${PAD}" x2="${W - PAD}" y1="${y - 16}" y2="${y - 16}" stroke="#e1e6eb"/><text x="${PAD}" y="${y + 6}" style="font-size:20px;font-weight:700;fill:#1f2933">Ringkasan</text>`; y += 36;
+      lines.forEach((l) => {
+        const col = l.tone === 'up' ? C_UP : l.tone === 'dn' ? C_DN : '#1f2933';
+        wrap(l.t, 150).forEach((ln, i) => { s += `${i === 0 ? `<circle cx="${PAD + 6}" cy="${y - 6}" r="4" fill="${col}"/>` : ''}<text x="${PAD + 20}" y="${y}" style="font-size:17px;fill:${col}">${esc(ln)}</text>`; y += 25; });
+        y += 4;
+      });
+    }
+    y += 10;
+    s += `<text x="${PAD}" y="${y}" style="font-size:13px;fill:#9aa5b1">Sumber: Value and Qty Inventory · PPIC Gondowangi · dibuat ${esc(fSnap(nowParts().d + ' ' + nowParts().t))}</text>`; y += 24;
+    const css = `text{font-family:Inter,'Segoe UI',Arial,sans-serif}.cslc-grid{stroke:#e7ebf0;stroke-width:1}.cslc-ax{fill:#6b7684;font-size:11px}.inv-bl{fill:#1f2933;font-size:12px}.inv-bv{fill:#6b7684;font-size:11px}.inv-bd{font-size:12px;font-weight:600}.inv-bd.inv-up{fill:${C_UP}}.inv-bd.inv-dn{fill:${C_DN}}.inv-bd.muted{fill:#6b7684}`;
+    const H = Math.ceil(y);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>${css}</style><rect width="${W}" height="${H}" fill="#fff"/>${s}</svg>`;
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas'), k = 2; cv.width = W * k; cv.height = H * k;
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.scale(k, k); cx.drawImage(img, 0, 0);
+      cv.toBlob((b) => {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+        const tag = (snaps.length ? snaps[0].slice(5, 10) + (snaps.length > 1 ? '_' + snaps[snaps.length - 1].slice(5, 10) : '') : '').replace(/-/g, '');
+        a.download = `Inventory_${I.kel === 'FG' ? 'FG' : 'Material'}_${I.ct === 'bar' ? 'batang' : I.ct === 'wf' ? 'waterfall' : 'garis'}_${tag}.jpg`;
+        document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      }, 'image/jpeg', 0.95);
+    };
+    img.onerror = () => toast('Gagal membuat gambar.');
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   }
 
   /* ---------- Excel ---------- */
@@ -573,10 +744,14 @@
     $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
     $('invPm').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.pm) return; I.pm = b.dataset.v; savePref(); render(); });
     $('invChart').addEventListener('change', (e) => {
-      const s1 = e.target.closest('[data-bsnap]'); if (s1) { const set = new Set(I.bsnaps); if (s1.checked) set.add(s1.dataset.bsnap); else set.delete(s1.dataset.bsnap); if (!set.size) { s1.checked = true; return; } I.bsnaps = [...set]; renderChart(); $('invChart').querySelector('.inv-pick').open = true; return; }
+      const s1 = e.target.closest('[data-bsnap]'); if (s1) { const set = new Set(I.bsnaps); if (s1.checked) set.add(s1.dataset.bsnap); else set.delete(s1.dataset.bsnap); if (!set.size) { s1.checked = true; return; } I.bsnaps = [...set]; I.snapOpen = true; renderChart(); return; }
       const c1 = e.target.closest('[data-bcat]'); if (c1) { const set = new Set(I.bcats); if (c1.checked) set.add(c1.dataset.bcat); else set.delete(c1.dataset.bcat); I.bcats = [...set]; I.catOpen = true; renderChart(); }
     });
-    $('invChart').addEventListener('click', (e) => { const a = e.target.closest('[data-bcat-all]'); if (!a) return; const v = a.dataset.bcatAll; I.bcats = v === '1' ? I._barCats.slice() : v === '0' ? ['\u0000'] : I._barCats.slice(0, 8); I.catOpen = true; renderChart(); });
+    $('invChart').addEventListener('click', (e) => {
+      const a = e.target.closest('[data-bcat-all]'); if (a) { const v = a.dataset.bcatAll; I.bcats = v === '1' ? I._barCats.slice() : v === '0' ? [] : I._barCats.slice(0, 8); I.catOpen = true; renderChart(); return; }
+      const sa = e.target.closest('[data-bsnap-all]'); if (sa) { const all = I.snaps.map((m) => m.snap), v = sa.dataset.bsnapAll; I.bsnaps = v === '1' ? all : all.slice(-Number(v)); I.snapOpen = true; renderChart(); }
+    });
+    $('invJpg').addEventListener('click', exportJpg);
     $('invCt').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.ct) return; I.ct = b.dataset.v; savePref(); renderChart(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
     $('invBrand').addEventListener('change', () => { I.brand = $('invBrand').value; I.jenis = ''; render(); });
