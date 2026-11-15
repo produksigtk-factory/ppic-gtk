@@ -45,11 +45,12 @@
   const I = {
     loaded: false, loading: false, err: '', raw: null,
     gol: new Map(), harga: new Map(), snaps: [], stok: new Map(), log: [],
+    ct: 'line', bdim: { MAT: 'gol', FG: 'brand' }, bsnaps: null, bcats: null,
     kel: 'MAT', all: { MAT: { stok: new Map(), snaps: [] }, FG: { stok: new Map(), snaps: [] } }, selSnap: { MAT: '', FG: '' },
     snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
   };
-  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
-  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel, pm: I.pm })); } catch (e) { /* abaikan */ } };
+  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm', 'ct'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
+  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel, pm: I.pm, ct: I.ct })); } catch (e) { /* abaikan */ } };
 
   /* ---------- Apps Script ---------- */
   async function load(force) {
@@ -284,9 +285,71 @@
       return o;
     });
   }
+  /* ---------- Grafik batang per kategori (snapshot berdampingan) ---------- */
+  const BDIM = { MAT: [['gol', 'Golongan'], ['kat', 'Kategori']], FG: [['brand', 'Brand'], ['jenis', 'Jenis'], ['kat', 'Brand - jenis']] };
+  const bKey = (r, dim) => (dim === 'brand' ? r.brand || 'Tanpa brand' : dim === 'jenis' ? r.jenis : dim === 'gol' ? GOL_LBL[r.gol] || r.gol : r.kat);
+  const SNAP_PAL = ['#c9dccf', '#93bba0', '#5d9a73', '#2f7a4c', '#106a3a', '#0b4a29'];
+  function renderBar(box) {
+    const dim = I.bdim[I.kel] || BDIM[I.kel][0][0], key = I.ms === 'v' ? 'val' : 'qty';
+    const all = I.snaps.map((m) => m.snap);
+    if (!I.bsnaps || !I.bsnaps.length || I.bsnaps.some((x) => !all.includes(x))) I.bsnaps = all.slice(-3);
+    const snaps = all.filter((x) => I.bsnaps.includes(x));
+    const per = snaps.map((sn) => sumBy(calc(sn), (r) => bKey(r, dim)));
+    const last = per[per.length - 1] || new Map();
+    const cats = [...new Set(per.flatMap((m) => [...m.keys()]))].sort((a, b) => ((last.get(b) || {})[key] || 0) - ((last.get(a) || {})[key] || 0));
+    if (!I.bcats) I.bcats = cats.slice(0, 8);
+    const show = cats.filter((c) => I.bcats.includes(c));
+    const fmtV = (v) => (I.ms === 'v' ? fBig(v) : fQ(v));
+    const max = Math.max(1, ...show.flatMap((c) => per.map((m) => (m.get(c) || {})[key] || 0)));
+    const pal = snaps.length === 1 ? [SNAP_PAL[4]] : snaps.map((_, i) => SNAP_PAL[Math.round(1 + i * (SNAP_PAL.length - 2) / Math.max(1, snaps.length - 1))]);
+    const W = Math.max(Math.round(box.clientWidth || 900), 560), LBL = Math.min(260, Math.max(120, Math.round(W * 0.22))), RT = 250, bh = 14, gap = 3, grp = 16;
+    const rowH = snaps.length * (bh + gap) - gap + grp, H = 24 + show.length * rowH;
+    const x = (v) => LBL + (W - LBL - RT) * (v / max);
+    let g = '';
+    for (let k = 0; k <= 4; k++) { const xv = LBL + (W - LBL - RT) * k / 4; g += `<line class="cslc-grid" x1="${xv}" x2="${xv}" y1="14" y2="${H - 4}"/><text class="cslc-ax" x="${xv}" y="10" text-anchor="middle">${fmtV(max * k / 4).replace('Rp ', '')}</text>`; }
+    show.forEach((c, ci) => {
+      const y0 = 20 + ci * rowH;
+      g += `<text class="inv-bl" x="${LBL - 10}" y="${y0 + (snaps.length * (bh + gap)) / 2 + 2}" text-anchor="end">${esc(c.length > 34 ? c.slice(0, 33) + '…' : c)}</text>`;
+      per.forEach((m, si) => {
+        const o = m.get(c) || { val: 0, qty: 0 }, v = o[key], y = y0 + si * (bh + gap), w = Math.max(v > 0 ? 2 : 0, x(v) - LBL);
+        g += `<rect class="inv-bar" data-c="${ci}" data-s="${si}" x="${LBL}" y="${y}" width="${w}" height="${bh}" rx="3" fill="${pal[si]}"/>`;
+        if (si === per.length - 1 || per.length <= 2) g += `<text class="inv-bv" x="${LBL + w + 6}" y="${y + bh - 3}">${fmtV(v)}</text>`;
+      });
+      if (per.length > 1) {
+        const a = (per[0].get(c) || {})[key] || 0, b = (last.get(c) || {})[key] || 0, d = b - a;
+        g += `<text class="inv-bd ${dCls(d)}" x="${W - 4}" y="${y0 + (snaps.length * (bh + gap)) / 2 + 2}" text-anchor="end">${dTxt(d, fmtV)}${a ? ` (${d >= 0 ? '+' : '−'}${nf1.format(Math.abs(d / a) * 100)}%)` : ''}</text>`;
+      }
+    });
+    const dimSeg = `<div class="pj-seg" id="invBdim" role="group" aria-label="Kelompokkan per">${BDIM[I.kel].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === dim}">${t}</button>`).join('')}</div>`;
+    const snapPick = `<details class="inv-pick"><summary>Snapshot (${snaps.length})</summary><div class="inv-pl">${all.slice().reverse().map((sn) => `<label><input type="checkbox" data-bsnap="${esc(sn)}"${snaps.includes(sn) ? ' checked' : ''}> ${esc(fSnap(sn))}</label>`).join('')}</div></details>`;
+    const catPick = `<details class="inv-pick" id="invCatPick"${I.catOpen ? ' open' : ''}><summary>${esc(BDIM[I.kel].find((d) => d[0] === dim)[1])} ditampilkan (${show.length}/${cats.length})</summary><div class="inv-pa"><button type="button" class="btn-link" data-bcat-all="1">Pilih semua</button><button type="button" class="btn-link" data-bcat-all="0">Kosongkan</button><button type="button" class="btn-link" data-bcat-all="8">8 terbesar</button></div><div class="inv-pl inv-pl2">${cats.map((c) => `<label><input type="checkbox" data-bcat="${esc(c)}"${show.includes(c) ? ' checked' : ''}> ${esc(c)} <small class="muted">${fmtV((last.get(c) || {})[key] || 0)}</small></label>`).join('')}</div></details>`;
+    const lg = snaps.map((sn, i) => `<span class="inv-lg"><i style="background:${pal[i]};height:10px;width:14px"></i>${esc(fSnap(sn))}</span>`).join('');
+    box.innerHTML = `<div class="inv-bctl">${dimSeg}${snapPick}${catPick}</div><div class="inv-legend">${lg}${per.length > 1 ? `<span class="muted">Angka kanan = selisih ${esc(fDate(snaps[0].slice(0, 10)))} → ${esc(fDate(snaps[snaps.length - 1].slice(0, 10)))}</span>` : ''}</div>
+      ${show.length ? `<div class="inv-cbox"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Grafik batang per kategori">${g}</svg><div class="cslc-tip" id="invTip" hidden></div></div>` : '<p class="muted">Pilih minimal satu kategori.</p>'}`;
+    const svg = box.querySelector('svg'), tip = $('invTip');
+    if (svg) {
+      svg.addEventListener('mousemove', (e) => {
+        const b = e.target.closest('.inv-bar'); if (!b) { tip.hidden = true; return; }
+        const c = show[+b.dataset.c], si = +b.dataset.s, o = per[si].get(c) || { val: 0, qty: 0, n: new Set() };
+        tip.innerHTML = `<b>${esc(c)}</b><div>${esc(fSnap(snaps[si]))}</div><div>Value ${fRp(o.val)}</div><div>Qty ${fQ(o.qty)} · ${o.n ? o.n.size : 0} kode</div>`;
+        const r = box.querySelector('.inv-cbox').getBoundingClientRect();
+        tip.style.left = Math.min(e.clientX - r.left + 12, r.width - 220) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false;
+      });
+      svg.addEventListener('mouseleave', () => { tip.hidden = true; });
+    }
+    box.querySelector('#invBdim').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.bdim[I.kel] = b.dataset.v; I.bcats = null; renderChart(); });
+    I._barCats = cats;
+    box.querySelector('#invCatPick').addEventListener('toggle', (e) => { I.catOpen = e.target.open; });
+  }
   function renderChart() {
     const box = $('invChart'); if (!box) return;
     document.querySelectorAll('#invMs [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ms)));
+    document.querySelectorAll('#invCt [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ct)));
+    if (I.ct === 'bar') {
+      $('invChartTitle').innerHTML = `${I.ms === 'v' ? 'Value' : 'Qty'} ${I.kel === 'FG' ? 'FG' : 'Material'} per kategori${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
+      if (!I.snaps.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
+      renderBar(box); return;
+    }
     const data = series(), key = I.ms === 'v' ? 'v' : 'q';
     const mat = I.chart ? I.gol.get(I.chart) : null;
     $('invChartTitle').innerHTML = I.chart ? `Pergerakan <span class="pl-code">${esc(I.chart)}</span> ${esc(mat ? mat.nama : '')} <button type="button" class="btn-link" data-inv-chart="">kembali</button>` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} ${I.kel === 'FG' ? 'FG per brand' : 'Material per golongan'}${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
@@ -509,6 +572,12 @@
     $('invGol').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.g = b.dataset.v; render(); });
     $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
     $('invPm').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.pm) return; I.pm = b.dataset.v; savePref(); render(); });
+    $('invChart').addEventListener('change', (e) => {
+      const s1 = e.target.closest('[data-bsnap]'); if (s1) { const set = new Set(I.bsnaps); if (s1.checked) set.add(s1.dataset.bsnap); else set.delete(s1.dataset.bsnap); if (!set.size) { s1.checked = true; return; } I.bsnaps = [...set]; renderChart(); $('invChart').querySelector('.inv-pick').open = true; return; }
+      const c1 = e.target.closest('[data-bcat]'); if (c1) { const set = new Set(I.bcats); if (c1.checked) set.add(c1.dataset.bcat); else set.delete(c1.dataset.bcat); I.bcats = [...set]; I.catOpen = true; renderChart(); }
+    });
+    $('invChart').addEventListener('click', (e) => { const a = e.target.closest('[data-bcat-all]'); if (!a) return; const v = a.dataset.bcatAll; I.bcats = v === '1' ? I._barCats.slice() : v === '0' ? ['\u0000'] : I._barCats.slice(0, 8); I.catOpen = true; renderChart(); });
+    $('invCt').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.ct) return; I.ct = b.dataset.v; savePref(); renderChart(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
     $('invBrand').addEventListener('change', () => { I.brand = $('invBrand').value; I.jenis = ''; render(); });
     $('invJenis').addEventListener('change', () => { I.jenis = $('invJenis').value; render(); });
@@ -516,7 +585,7 @@
     let tq; $('invQ').addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(() => { I.q = $('invQ').value.trim(); render(); }, 200); });
     $('invEdit').addEventListener('click', editDialog);
     $('invTpl').addEventListener('change', () => { const v = $('invTpl').value; $('invTpl').value = ''; if (v) downloadTpl(v); });
-    $('invKel').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.kel) return; I.kel = b.dataset.v; I.g = ''; I.brand = ''; I.jenis = ''; I.lok = ''; I.chart = ''; I.open.clear(); savePref(); useKel(); render(); });
+    $('invKel').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.kel) return; I.kel = b.dataset.v; I.bsnaps = null; I.bcats = null; I.g = ''; I.brand = ''; I.jenis = ''; I.lok = ''; I.chart = ''; I.open.clear(); savePref(); useKel(); render(); });
     ['gol', 'harga', 'stokmat', 'stokfg'].forEach((k) => {
       const inp = $('invUp-' + k);
       inp.addEventListener('change', async () => {

@@ -1848,3 +1848,25 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .inv-kel button { padding: 8px 16px; font-size: 14px; }
 .inv-pmc label { display: block; margin: 4px 0 0 4px; font-weight: 400; cursor: pointer; }
 .inv-pmc input { margin-right: 6px; }
+
+.inv-chr { display: flex; flex-wrap: wrap; gap: 8px; }
+.inv-bctl { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.inv-pick { position: relative; }
+.inv-pick > summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; background: var(--surface); }
+.inv-pick > summary::-webkit-details-marker { display: none; }
+.inv-pick > summary::after { content: ' ▾'; color: var(--muted); }
+.inv-pick[open] > summary { border-color: var(--brand); }
+.inv-pick > div { position: absolute; z-index: 5; left: 0; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+.inv-pick .inv-pa { top: 36px; border-radius: 8px 8px 0 0; border-bottom: 0; padding: 6px 10px; display: flex; gap: 12px; min-width: 300px; font-size: 12.5px; }
+.inv-pick .inv-pl { top: 36px; border-radius: 8px; padding: 6px 10px; max-height: 300px; overflow: auto; min-width: 220px; }
+.inv-pick .inv-pa + .inv-pl { top: 66px; border-radius: 0 0 8px 8px; min-width: 300px; }
+.inv-pl label { display: block; padding: 3px 0; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.inv-pl input { margin-right: 6px; }
+.inv-bl { font-size: 12px; fill: var(--ink); }
+.inv-bv { font-size: 11px; fill: var(--muted); }
+.inv-bd { font-size: 12px; font-weight: 600; }
+.inv-bd.inv-up { fill: var(--done); } .inv-bd.inv-dn { fill: var(--late); } .inv-bd.muted { fill: var(--muted); }
+.inv-pick > div { position: static; box-shadow: none; margin-top: 4px; }
+.inv-pick .inv-pa, .inv-pick .inv-pa + .inv-pl { border-radius: 8px; border: 1px solid var(--line); }
+.inv-pick .inv-pa { margin-bottom: 0; border-bottom: 0; border-radius: 8px 8px 0 0; }
+.inv-pick .inv-pa + .inv-pl { margin-top: 0; border-radius: 0 0 8px 8px; max-height: 260px; }
