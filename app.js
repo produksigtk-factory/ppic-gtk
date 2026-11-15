@@ -6859,37 +6859,49 @@
     const H = prHitungOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
     const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
     const f = (v) => (Math.abs(Number(v) || 0) < 0.0005 ? '–' : prNumTxt(v));
+    const R3h = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
+    const nz = (v) => Math.abs(Number(v) || 0) > 1e-9;
     const blk = rows.map((r) => {
       const h = H.find((x) => x.kode === String(r.kode).trim()), d = h && h.data;
-      const head = `<div class="pr-st-m"><b>${esc(r.kode)}</b> ${esc(r.nama)}`;
-      if (!d || !d.cols || d.butuh === undefined) return head + '<span>Perhitungan belum dibekukan (klik Perbarui lampiran)</span></div>';
-      const u = esc(d.uom || ''), sg = (v) => (v < 0 ? '−' : '+');
-      const rumus = `<div class="pr-hit-f">Stok awal ${esc(fmtDate(d.stokDate))} <b>${prNumTxt(d.stok)}</b> + Incoming sudah datang <b>${prNumTxt(d.inc)}</b> + OS PO <b>${prNumTxt(d.ospo)}</b>${d.split ? ` <small>(${[['lewat jadwal', d.poLate], ['belum dijadwalkan', d.poNone], [`terjadwal s/d ${d.last}`, d.poIn], ['setelah MPS terakhir', d.poAfter]].filter((x) => x[1] > 1e-9).map((x) => `${esc(x[0])} ${prNumTxt(x[1])}`).join(' + ') || 'tidak ada PO gantung'})</small>` : d.poLate ? ` <small>(${prNumTxt(d.poLate)} lewat jadwal)</small>` : ''} − Kebutuhan s/d ${esc(d.last)} <b>${prNumTxt(d.butuh)}</b> − ADD/FOH/RS <b>${prNumTxt(d.add)}</b> = <b class="${d.kurang < -1e-9 ? 'pr-st-late' : 'pr-st-ok'}">${prNumTxt(d.kurang)} ${u}</b>${d.kurang < -1e-9 ? ' (kurang)' : ' (cukup)'}</div>`;
-      const ext = [d.minus ? `<b class="pr-st-late">saldo mulai minus ${esc(d.minus)}</b>, terdalam ${prNumTxt(d.deep)} ${u}` : 'saldo tidak minus sampai MPS terakhir',
-        d.prSal ? `bila PR ${prNumTxt(d.prQty)} ${u} datang${d.prFirst ? ` (mulai ${esc(d.prFirst)})` : ''}: ${d.prDeepAfter < -1e-9 ? `<b class="pr-st-late">masih minus ${prNumTxt(d.prDeepAfter)}</b>` : '<b class="pr-st-ok">tertutup</b>'}${d.prDeepBefore < -1e-9 ? `, <span class="pr-st-late">sebelum PR datang minus ${prNumTxt(d.prDeepBefore)}</span>` : ''}${d.prBeyond ? ` (${prNumTxt(d.prBeyond)} di luar MPS)` : ''}` : '', d.note].filter(Boolean).join(' · ');
-      const R3h = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
-      const v2 = d.split === 2;   // versi 2: PO lewat jadwal / belum dijadwalkan di kolom tersendiri, bukan di week berjalan
-      const xLN = v2 && (d.poLate > 1e-9 || d.poNone > 1e-9);
-      const aft = !!(d.split && (d.poAfter > 1e-9 || d.prBeyond > 1e-9));
-      const X = (v, extra) => `<td class="num pr-hit-aft"${extra || ''}>${v}</td>`;
+      if (!d || !d.cols || d.butuh === undefined) return `<div class="lp-card"><div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc(r.nama)}</span><span class="lp-chip is-muted">Belum dihitung</span></div><p class="lp-empty">Perhitungan belum dibekukan. Klik "Perbarui lampiran".</p></div>`;
+      const u = esc(d.uom || ''), ok = !(d.kurang < -1e-9);
+      // 1) Kepala: kode, nama, hasil
+      const head = `<div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc(d.nama || r.nama)}</span><span class="lp-chip ${ok ? 'is-ok' : 'is-bad'}">${ok ? 'Cukup' : 'Kurang'} ${prNumTxt(Math.abs(d.kurang))} ${u}</span></div>`;
+      // 2) Rumus sebagai kotak berurutan
+      const osParts = d.split ? [['telat', d.poLate], ['tanpa jadwal', d.poNone], ['terjadwal', d.poIn], ['setelah MPS', d.poAfter]].filter((x) => nz(x[1])).map((x) => `${x[0]} ${prNumTxt(x[1])}`).join(' · ') : (nz(d.poLate) ? `telat ${prNumTxt(d.poLate)}` : '');
+      const box = (op, lbl, sub, v, cls) => `<div class="lp-box${cls ? ' ' + cls : ''}"><span class="lp-lbl">${op ? `<b class="lp-op">${op}</b> ` : ''}${lbl}</span><b class="lp-v">${prNumTxt(v)}</b><span class="lp-sub">${sub}</span></div>`;
+      const eq = `<div class="lp-eq">${box('', 'Stok awal', esc(fmtDate(d.stokDate)), d.stok)}${box('+', 'Incoming', 'sudah datang', d.inc)}${box('+', 'OS PO', esc(osParts) || 'tidak ada', d.ospo)}${box('−', 'Kebutuhan', 's/d ' + esc(d.last), d.butuh)}${box('−', 'ADD/FOH/RS', '', d.add)}${box('=', ok ? 'Sisa' : 'Kekurangan', u, d.kurang, ok ? 'is-ok' : 'is-bad')}</div>`;
+      // 3) Catatan singkat
+      const v2 = d.split === 2, hasLN = v2 && (nz(d.poLate) || nz(d.poNone)), aft = !!(d.split && (nz(d.poAfter) || nz(d.prBeyond)));
+      const notes = [
+        d.minus ? `<b class="pr-st-late">Saldo mulai minus ${esc(d.minus)}</b> (terdalam ${prNumTxt(d.deep)} ${u})${hasLN ? (d.minusNoLN ? ', tertutup bila PO telat / tanpa jadwal datang' : ', belum memperhitungkan PO telat / tanpa jadwal') : ''}.` : 'Saldo tidak minus sampai MPS terakhir.',
+        d.prSal ? `Bila PR ini (${prNumTxt(d.prQty)} ${u}) datang${d.prFirst ? ` mulai ${esc(d.prFirst)}` : ''}: ${d.prDeepAfter < -1e-9 ? `<b class="pr-st-late">masih minus ${prNumTxt(d.prDeepAfter)}</b>` : '<b class="pr-st-ok">kekurangan tertutup</b>'}${d.prDeepBefore < -1e-9 ? `; sebelum PR datang minus ${prNumTxt(d.prDeepBefore)}` : ''}${nz(d.prBeyond) ? `; ${prNumTxt(d.prBeyond)} datang setelah MPS terakhir` : ''}.` : '',
+        hasLN ? `PO telat / tanpa jadwal (${prNumTxt((d.poLate || 0) + (d.poNone || 0))} ${u}) belum pasti kapan datang, jadi dipisah di kolom sendiri dan tidak dihitung di week mana pun.` : '',
+        nz(d.poAfter) ? `PO setelah MPS terakhir: ${(d.after || []).map((x) => `${esc(x.po)} ${esc(fmtDate(x.d))} (${prNumTxt(x.q)})`).join(', ')}.` : '',
+        d.note ? esc(d.note) : '',
+      ].filter(Boolean);
+      // 4) Tabel per week (baris yang semuanya kosong disembunyikan)
+      const X = (v, extra) => `<td class="num lp-x"${extra || ''}>${v}</td>`;
       const salX = R3h(d.cols[d.cols.length - 1].sal + (d.poLate || 0) + (d.poNone || 0));
-      // ex = [isi kolom PO telat/tanpa jadwal, isi kolom Setelah MPS]; undefined → "–"
-      const tr = (lbl, fn, cls, ex) => `<tr${cls ? ` class="${cls}"` : ''}><th>${lbl}</th>${d.cols.map((c, i) => fn(c, i)).join('')}${xLN ? (ex && ex[0] !== undefined ? ex[0] : X('–')) : ''}${aft ? (ex && ex[1] !== undefined ? ex[1] : X('–')) : ''}</tr>`;
+      const tr = (lbl, fn, cls, ex) => `<tr${cls ? ` class="${cls}"` : ''}><th>${lbl}</th>${d.cols.map((c, i) => fn(c, i)).join('')}${hasLN ? (ex && ex[0] !== undefined ? ex[0] : X('')) : ''}${aft ? (ex && ex[1] !== undefined ? ex[1] : X('')) : ''}</tr>`;
       const sc = (v) => `<td class="num${v < -1e-9 ? ' pr-neg' : ''}">${prNumTxt(v)}</td>`;
-      const scX = (v) => sc(v).replace('class="num', 'class="num pr-hit-aft');
-      const aftTitle = ` title="${esc((d.after || []).map((x) => `${x.po} ${fmtDate(x.d)}: ${prNumTxt(x.q)}`).join('\n'))}"`;
-      const poRows = !d.split ? tr('OS PO (jadwal)', (c) => `<td class="num">${f(c.po)}</td>`)
-        : v2 ? (d.poLate > 1e-9 ? tr('OS PO lewat jadwal', () => '<td class="num">–</td>', '', [X(prNumTxt(d.poLate))]) : '') + (d.poNone > 1e-9 ? tr('OS PO belum dijadwalkan', () => '<td class="num">–</td>', '', [X(prNumTxt(d.poNone))]) : '')
-          + tr('OS PO terjadwal', (c) => `<td class="num">${f(c.poS)}</td>`, '', [undefined, aft ? X(f(d.poAfter), aftTitle) : undefined])
-        : (d.poLate > 1e-9 ? tr('OS PO lewat jadwal', (c) => `<td class="num">${f(c.poL)}</td>`) : '') + (d.poNone > 1e-9 ? tr('OS PO belum dijadwalkan', (c) => `<td class="num">${f(c.poN)}</td>`) : '')
-          + tr('OS PO terjadwal', (c) => `<td class="num">${f(c.poS)}</td>`, '', [undefined, aft ? X(f(d.poAfter), aftTitle) : undefined]);
-      const aftNote = [xLN ? `Kolom "PO telat / tanpa jadwal": OS PO yang tanggal kirimnya sudah lewat atau belum dijadwalkan, belum datang. Tidak dimasukkan ke week mana pun karena tanggal datangnya belum pasti; saldo per week dihitung tanpa PO ini${d.minusNoLN ? `, <b class="pr-st-late">dan saldo baru aman bila PO ini datang</b>` : ''}.` : '',
-        aft && d.poAfter > 1e-9 ? `PO terjadwal setelah MPS terakhir (${esc(d.last)}): ${(d.after || []).map((x) => `${esc(x.po)} ${esc(fmtDate(x.d))} <b>${prNumTxt(x.q)}</b>`).join(' · ')}.` : ''].filter(Boolean).map((t) => `<div class="pr-hit-x">${t}</div>`).join('');
-      return `${head}</div>${rumus}<div class="pr-hit-x">${ext}</div>${aftNote}<div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u} · awal ${prNumTxt(d.stok)}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}${xLN ? '<th class="num pr-hit-aft">PO telat / tanpa jadwal</th>' : ''}${aft ? '<th class="num pr-hit-aft">Setelah MPS</th>' : ''}</tr></thead><tbody>
-        ${tr('Kebutuhan', (c) => `<td class="num">${f(c.need)}</td>`)}${tr('Incoming sudah datang', (c) => `<td class="num">${f(c.inc)}</td>`)}${poRows}${d.add ? tr('ADD/FOH/RS', (c) => `<td class="num">${f(c.add)}</td>`) : ''}
-        ${tr('Saldo', (c) => sc(c.sal), 'is-sal', [xLN ? scX(salX) : undefined, aft ? scX(d.salEnd) : undefined])}${d.prSal ? tr('PR ini datang', (c, i) => `<td class="num">${f(d.pr[i])}</td>`, '', [undefined, aft ? X(f(d.prBeyond)) : undefined]) + tr('Saldo bila PR datang', (c, i) => sc(d.prSal[i]), 'is-sal', [xLN ? scX(R3h(salX + R3h(d.prSal[d.prSal.length - 1] - d.cols[d.cols.length - 1].sal))) : undefined, aft ? scX(R3h(d.salEnd + (d.prQty || 0))) : undefined]) : ''}</tbody></table></div>`;
+      const scX = (v) => sc(v).replace('class="num', 'class="num lp-x');
+      const any = (k) => d.cols.some((c) => nz(c[k]));
+      const rowsHtml = [
+        tr('Kebutuhan', (c) => `<td class="num">${f(c.need)}</td>`),
+        any('inc') ? tr('Incoming sudah datang', (c) => `<td class="num">${f(c.inc)}</td>`) : '',
+        !d.split ? tr('OS PO', (c) => `<td class="num">${f(c.po)}</td>`)
+          : (!v2 && any('poL') ? tr('PO telat', (c) => `<td class="num">${f(c.poL)}</td>`) : '') + (!v2 && any('poN') ? tr('PO tanpa jadwal', (c) => `<td class="num">${f(c.poN)}</td>`) : '')
+            + (hasLN ? tr('PO telat / tanpa jadwal', () => '<td class="num">–</td>', '', [X(prNumTxt((d.poLate || 0) + (d.poNone || 0)))]) : '')
+            + tr('PO terjadwal', (c) => `<td class="num">${f(c.poS)}</td>`, '', [undefined, aft ? X(f(d.poAfter)) : undefined]),
+        nz(d.add) ? tr('ADD/FOH/RS', (c) => `<td class="num">${f(c.add)}</td>`) : '',
+        tr('Saldo', (c) => sc(c.sal), 'is-sal', [hasLN ? scX(salX) : undefined, aft ? scX(d.salEnd) : undefined]),
+        d.prSal ? tr('PR ini datang', (c, i) => `<td class="num">${f(d.pr[i])}</td>`, 'is-pr', [undefined, aft ? X(f(d.prBeyond)) : undefined]) + tr('Saldo bila PR datang', (c, i) => sc(d.prSal[i]), 'is-sal is-pr', [hasLN ? scX(R3h(salX + d.prSal[d.prSal.length - 1] - d.cols[d.cols.length - 1].sal)) : undefined, aft ? scX(R3h(d.salEnd + (d.prQty || 0))) : undefined]) : '',
+      ].join('');
+      const table = `<div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}${hasLN ? '<th class="num lp-x">PO telat /<br>tanpa jadwal</th>' : ''}${aft ? '<th class="num lp-x">Setelah<br>MPS</th>' : ''}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+      return `<div class="lp-card">${head}${eq}${notes.length ? `<ul class="lp-notes">${notes.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}${table}</div>`;
     }).join('');
-    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}<span class="muted"> · Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS; kebutuhan dari Kebutuhan Material s/d MPS terakhir; OS PO dipisah: terjadwal di week jadwalnya; PO telat / tanpa jadwal dan PO setelah MPS terakhir masing-masing di kolom tersendiri setelah week terakhir</span></div>`;
+    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Kekurangan = Stok awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Kebutuhan dari Kebutuhan Material s/d MPS terakhir. Angka minus di tabel = saldo kurang pada week itu.</p>`;
     return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
   }
   async function prHitungPayload(rows) {
@@ -6921,15 +6933,20 @@
   function prStatusHtml(g, print) {
     const st = prStatusOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
     const at = st.map((x) => x.at).filter(Boolean).sort().pop() || '';
+    const stCls = (s) => (/^Telat/.test(s) ? 'is-bad' : /Kurang/.test(s) ? 'is-warn' : /Belum ada jadwal/.test(s) ? 'is-muted' : 'is-ok');
     const blk = rows.map((r) => {
       const L = st.filter((x) => x.kode === String(r.kode).trim());
-      const os = L.filter((x) => x.po), tot = os.reduce((t, x) => t + (Number(x.sisa) || 0), 0);
-      const head = `<div class="pr-st-m"><b>${esc(r.kode)}</b> ${esc(r.nama)}<span>${!L.length ? 'Status belum dibekukan' : os.length ? `OS PO <b>${prNumTxt(tot)} ${esc(os[0].uom)}</b> · ${os.length} jadwal PO terbuka` : '<b>Tidak ada PO outstanding (PO gantung)</b>'}</span></div>`;
-      if (!os.length) return head;
-      return head + `<table class="pr-st-t"><thead><tr><th>No PO</th><th>Supplier</th><th>Tgl order</th><th class="num">Qty PO</th><th class="num">Diterima</th><th class="num">Sisa (OS)</th><th>Jadwal kirim belum datang</th><th>Status</th></tr></thead><tbody>
-        ${os.map((x) => `<tr><td>${esc(x.po)}</td><td>${esc(x.supplier)}</td><td>${esc(x.tgl ? fmtDate(x.tgl) : '')}</td><td class="num">${prNumTxt(x.qty)}</td><td class="num">${prNumTxt(x.rec)}</td><td class="num"><b>${prNumTxt(x.sisa)}</b> ${esc(x.uom)}</td><td>${esc(x.jadwal).replace(/; /g, '<br>') || '–'}</td><td class="${/^Telat/.test(x.status) ? 'pr-st-late' : ''}">${esc(x.status)}</td></tr>`).join('')}</tbody></table>`;
+      const os = L.filter((x) => x.po), tot = os.reduce((t, x) => t + (Number(x.sisa) || 0), 0), u = esc((os[0] || {}).uom || '');
+      const late = os.filter((x) => /^Telat/.test(x.status));
+      const chip = !L.length ? '<span class="lp-chip is-muted">Belum dibekukan</span>' : os.length ? `<span class="lp-chip is-neutral">OS PO ${prNumTxt(tot)} ${u}</span>${late.length ? `<span class="lp-chip is-bad">${late.length} PO telat</span>` : ''}` : '<span class="lp-chip is-ok">Tidak ada PO gantung</span>';
+      const head = `<div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc(r.nama)}</span>${chip}</div>`;
+      if (!os.length) return `<div class="lp-card">${head}</div>`;
+      const lateD = (x) => (/^Telat/.test(x.status) ? Number((String(x.status).match(/\d+/) || [0])[0]) || 0.5 : 0);
+      const sorted = os.slice().sort((a, b) => (lateD(b) - lateD(a)) || String(a.jadwal).localeCompare(String(b.jadwal)));
+      return `<div class="lp-card">${head}<table class="pr-st-t lp-po"><thead><tr><th>No PO</th><th>Supplier</th><th class="num">Sisa belum datang</th><th>Jadwal kirim</th><th>Status</th></tr></thead><tbody>
+        ${sorted.map((x) => `<tr><td class="lp-nopo"><b>${esc(x.po)}</b><small>order ${esc(x.tgl ? fmtDate(x.tgl) : '–')}</small></td><td>${esc(x.supplier)}</td><td class="num"><b>${prNumTxt(x.sisa)}</b> ${esc(x.uom)}<small>diterima ${prNumTxt(x.rec)} dari ${prNumTxt(x.qty)}</small></td><td>${esc(x.jadwal).replace(/; /g, '<br>') || '–'}</td><td><span class="lp-chip ${stCls(x.status)}">${esc(x.status)}</span></td></tr>`).join('')}</tbody></table></div>`;
     }).join('');
-    const title = `<div class="pr-lamp-h"><b>Lampiran Status PO</b> · ${esc(g.kodePr)}${at ? ` · status per ${esc(at)}` : ''}</div>`;
+    const title = `<div class="pr-lamp-h"><b>Lampiran Status PO</b> · ${esc(g.kodePr)}${at ? ` · status per ${esc(at)}` : ''}</div><p class="lp-how">PO yang masih gantung (belum datang semua) per material. PO telat ditaruh paling atas.</p>`;
     return print ? `<section class="pr-lamp-page pr-st-page">${title}${blk}</section>` : `${title}${blk}`;
   }
   // Panel Lampiran Perhitungan + Status PO (Formulir PR & Rekap PR)

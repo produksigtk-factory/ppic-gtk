@@ -1998,3 +1998,32 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 
 .pr-dellist { margin: 6px 0 10px; padding-left: 18px; max-height: 30vh; overflow: auto; font-size: 13px; }
 .pr-hit .pr-hit-aft { background: #f6f1e4; border-left: 2px dashed #c9b88a; }
+
+/* Lampiran Perhitungan & Status PO: kartu per material */
+.lp-how { margin: 2px 0 10px; font-size: 12px; color: #555; }
+.lp-card { border: 1px solid #d5dbd7; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; page-break-inside: avoid; break-inside: avoid; }
+.lp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
+.lp-code { font-weight: 700; font-size: 14px; }
+.lp-name { font-size: 14px; flex: 1 1 auto; }
+.lp-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.lp-chip.is-ok { background: #e3f1e6; color: #1d5e2f; border-color: #b9d9c0; }
+.lp-chip.is-bad { background: #fdecea; color: #a1231b; border-color: #f2c1bc; }
+.lp-chip.is-warn { background: #fff4d6; color: #7a5300; border-color: #ecd391; }
+.lp-chip.is-neutral { background: #eef1f4; color: #2f3a45; border-color: #d4dae0; }
+.lp-chip.is-muted { background: #f3f3f3; color: #666; border-color: #ddd; }
+.lp-empty { margin: 0; font-size: 12px; color: #666; }
+.lp-eq { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.lp-box { border: 1px solid #dde2df; border-radius: 6px; padding: 5px 8px 6px; background: #fafbfa; display: flex; flex-direction: column; min-width: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.lp-op { font-weight: 700; color: #333; font-size: 13px; }
+.lp-lbl { font-size: 11px; color: #555; }
+.lp-v { font-size: 15px; font-variant-numeric: tabular-nums; }
+.lp-sub { font-size: 10.5px; color: #777; overflow-wrap: anywhere; }
+.lp-box.is-ok { background: #e3f1e6; border-color: #b9d9c0; } .lp-box.is-ok .lp-v { color: #1d5e2f; }
+.lp-box.is-bad { background: #fdecea; border-color: #f2c1bc; } .lp-box.is-bad .lp-v { color: #a1231b; }
+.lp-notes { margin: 0 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.5; }
+.pr-hit td.lp-x, .pr-hit th.lp-x { background: #f6f1e4; border-left: 2px dashed #c9b88a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.pr-hit tr.is-pr th, .pr-hit tr.is-pr td:not(.pr-neg):not(.lp-x) { background: #f3f7fb; }
+.lp-po small, .lp-nopo small { display: block; font-size: 10.5px; color: #777; font-weight: 400; }
+.lp-po td { vertical-align: middle; }
+@media (max-width: 700px) { .lp-eq { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media print { .lp-card { border-radius: 0; padding: 6px 8px; } .lp-eq { gap: 4px; } .lp-v { font-size: 12px; } .lp-chip { font-size: 10px; } .lp-notes { font-size: 10px; } }
