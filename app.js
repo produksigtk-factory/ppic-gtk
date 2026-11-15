@@ -6404,7 +6404,7 @@
   const prBlank = () => ({ kode: '', nama: '', jenis: '', note: '', stok: '', butuh: '', ospo: '', kurang: '', buka: '', pakai: '', kirim: '', pos: [], status: 'Aktif' });
   // Kekurangan otomatis = Stok Awal − Kebutuhan − OS PO (kosong dianggap 0; hanya bila salah satu terisi)
   function prAutoKurang(r) {
-    if (r.kurangManual) return;
+    if (r.kurangManual || r._modeManual) return;
     const v = ['stok', 'butuh', 'ospo'].map((k) => prNum(r[k]));
     if (v.every((x) => x === '' || x === null || isNaN(x))) return;
     const n = (x) => (x === '' || x === null || x === undefined || isNaN(x) ? 0 : Number(x));
@@ -6455,13 +6455,13 @@
     if (state.noPrScript) { toast('Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).'); return; }
     const g = kodePr ? prGroups().find((x) => x.kodePr === kodePr) : null;
     const hz0 = kodePr ? ((prHitungOf(kodePr)[0] || {}).hz || '8') : '8';
-    const D = { hz: hz0, kodePr: kodePr || '', tanggal: g ? g.tanggal : todayStr(), rows: g ? g.rows.map((r) => Object.assign({}, r, { pos: r.pos.slice() })) : [prBlank(), prBlank(), prBlank()] };
+    const D = { mode: kodePr ? 'manual' : 'auto', hz: hz0, kodePr: kodePr || '', tanggal: g ? g.tanggal : todayStr(), rows: g ? g.rows.map((r) => Object.assign({}, r, { pos: r.pos.slice() })) : [prBlank(), prBlank(), prBlank()] };
     const matOpts = [...(MRP.master || new Map()).values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim())).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
     const rowHtml = (r, i) => `<tr data-i="${i}"><td class="num">${i + 1}</td>
       <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"></td>
       <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
       <td><input data-k="note" value="${esc(r.note)}" class="pr-in-s" aria-label="Note"></td>
-      ${PR_NUM.map((k) => `<td><input${k === 'stok' ? ` readonly title="Stok Awal otomatis: stok upload pertama di bulan berjalan (terkunci)"` : ''} data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${(k === 'kurang' && !r.kurangManual) || (k === 'ospo' && r.ospoAuto) || (k === 'butuh' && r.butuhAuto) ? ' is-auto' : ''}${k === 'stok' ? ' is-lock' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Boleh diubah; kosongkan untuk kembali otomatis."' : k === 'ospo' ? ' title="Otomatis: total sisa PO outstanding (Monitoring PO) saat kode diisi. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r, i)}</div>` : k === 'stok' ? '<div class="pr-calcn"></div>' : ''}</td>`).join('')}
+      ${PR_NUM.map((k) => `<td><input${k === 'stok' ? ` title="Otomatis: stok upload pertama di bulan berjalan. Boleh diubah; kosongkan untuk kembali otomatis."` : k === 'butuh' ? ` title="Otomatis: Kebutuhan Material s/d MPS terakhir. Boleh diubah; kosongkan untuk kembali otomatis."` : ''} data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${(k === 'kurang' && !r.kurangManual) || (k === 'ospo' && r.ospoAuto) || (k === 'butuh' && r.butuhAuto) ? ' is-auto' : ''}${k === 'stok' && r.stokAuto ? ' is-auto' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Boleh diubah; kosongkan untuk kembali otomatis."' : k === 'ospo' ? ' title="Otomatis: total sisa PO outstanding (Monitoring PO) saat kode diisi. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r, i)}</div>` : k === 'stok' ? '<div class="pr-calcn"></div>' : ''}</td>`).join('')}
       <td class="pr-kir">${r.sched ? `<span class="pr-schs">${r.sched.length} jadwal</span>` : `<input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim">`}<button type="button" class="btn-link pr-splitb" data-split="${i}" title="${r.sched ? 'Tambah jadwal kirim' : 'Pecah jadwal kirim: beberapa tanggal dengan qty masing-masing'}">${r.sched ? '+ jadwal' : 'Split'}</button></td>
       <td><input data-k="pos" value="${esc(r.pos.join(', '))}" list="prEdPo${i}" class="pr-in-po" placeholder="PO… , PO…" aria-label="No PO"><datalist id="prEdPo${i}">${prPoSuggest(r.kode, D.tanggal)}</datalist></td>
       <td><select data-k="status" aria-label="Status"><option${r.status !== 'Batal' ? ' selected' : ''}>Aktif</option><option${r.status === 'Batal' ? ' selected' : ''}>Batal</option></select></td>
@@ -6470,6 +6470,7 @@
       r.sched = prSched(r.kirim);
       r.ospoManual = !(prNum(r.ospo) === '' || prNum(r.ospo) === null); r.ospoAuto = false;
       r.butuhManual = !(prNum(r.butuh) === '' || prNum(r.butuh) === null);
+      r.stokManual = !(prNum(r.stok) === '' || prNum(r.stok) === null);
       const k0 = prNum(r.kurang);
       if (k0 !== '' && k0 !== null) { const t = Object.assign({}, r, { kurangManual: false }); prAutoKurang(t); r.kurangManual = Math.abs(Number(t.kurang) - Number(k0)) > 1e-6 || t.kurang === undefined; }
     });
@@ -6487,13 +6488,14 @@
       title: kodePr ? `Ubah ${kodePr}` : 'Tambah PR baru', ok: 'Simpan PR', wide: true,
       body: `<div class="form-grid pr-ed-head"><label class="field"><span>Tanggal PR *</span><input type="date" name="tanggal" value="${esc(D.tanggal)}" required></label>
           <label class="field"><span>Kode PR</span><input value="${esc(kodePr || prDefKode(D.tanggal) + ' (otomatis)')}" readonly></label>
+          <div class="field"><span>Cara hitung</span><div class="pj-seg" id="prMode" role="group" aria-label="Cara hitung"><button type="button" data-v="auto" title="Stok Awal, Kebutuhan, OS PO, dan Kekurangan terisi otomatis (tetap bisa diubah)">Otomatis</button><button type="button" data-v="manual" title="Semua angka diketik sendiri, tidak ada yang terisi otomatis">Manual</button></div></div>
 
           ${kodePr ? `<label class="field pr-ed-batal"><span>Status seluruh PR</span><select name="allst"><option value="">Ikuti per baris</option><option value="Aktif">Aktifkan semua</option><option value="Batal">Batalkan seluruh PR</option></select></label>` : ''}</div>
         <datalist id="prEdMat">${matOpts}</datalist>
         <div class="table-wrap pr-ed-wrap"><table class="po-table pr-ed"><thead><tr><th>No</th><th>Kode</th><th>Nama Item</th><th>Jenis</th><th>Note</th>${PR_COLS.map((c) => `<th class="num">${c.h}</th>`).join('')}<th>Tgl Kirim</th><th>No PO <small>(pisah koma)</small></th><th>Status</th><th></th></tr></thead><tbody id="prEdRows"></tbody></table></div>
         <div id="prHisPanel"></div>
         <p><button type="button" class="btn btn-ghost btn-sm" id="prEdAdd">Tambah baris</button></p>
-        <p class="hint" id="prMrpNote"></p><p class="hint">Begitu kode diisi: Stok Awal (stok upload pertama bulan ini, terkunci), Kebutuhan (Kebutuhan Material s/d MPS terakhir), dan OS PO (sisa PO gantung) terisi otomatis. Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS (Incoming & ADD/FOH/RS dihitung di belakang, rinciannya di Lampiran Perhitungan). Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
+        <p class="hint" id="prMrpNote"></p><p class="hint">Pilih <b>Otomatis</b> atau <b>Manual</b> di Cara hitung. Otomatis: begitu kode diisi, Stok Awal (stok upload pertama bulan ini), Kebutuhan (Kebutuhan Material s/d MPS terakhir), dan OS PO (sisa PO gantung) terisi otomatis. Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS (Incoming & ADD/FOH/RS dihitung di belakang, rinciannya di Lampiran Perhitungan); angka otomatis tetap bisa diubah. Manual: semua angka diketik sendiri. Lampiran Perhitungan tetap dihitung sistem. Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
       onSubmit: async (fd) => {
         const rows = D.rows.filter((r) => String(r.kode || '').trim());
         if (!rows.length) throw new Error('Isi minimal satu kode material.');
@@ -6521,12 +6523,12 @@
     const body = $('dlgBody'), seq = dlgSeq;
     // Stok Awal otomatis dari Plotting Harian (untuk kode baru / kode yang diubah)
     const fillStok = (i) => {
-      const r = D.rows[i], k = String(r.kode || '').trim(); if (!k || !MRP.loaded) return;
+      const r = D.rows[i], k = String(r.kode || '').trim(); if (!k || !MRP.loaded || D.mode === 'manual') return;
       const tr = body.querySelector(`#prEdRows tr[data-i="${i}"]`); if (!tr) return;
       const set = (key, v, auto) => { r[key] = v === '' ? '' : String(v); const x = tr.querySelector(`[data-k=${key}]`); if (x) { x.value = r[key]; if (auto !== undefined) x.classList.toggle('is-auto', auto); } };
-      if (!MRP.master.has(k) && !(P.stock || new Map()).has(k)) { set('stok', ''); r._inc = 0; r._add = 0; return; }
+      if (!MRP.master.has(k) && !(P.stock || new Map()).has(k)) { if (!r.stokManual) set('stok', ''); r._inc = 0; r._add = 0; return; }
       const c = prCalc(k, 'all', []); if (!c) return;
-      set('stok', c.stok); r._inc = c.inc; r._add = c.add;
+      if (!r.stokManual) { set('stok', c.stok, true); r.stokAuto = true; } r._inc = c.inc; r._add = c.add;
       if (!r.butuhManual) { set('butuh', c.butuh, true); r.butuhAuto = true; }
       if (!r.ospoManual) { set('ospo', c.ospo, true); r.ospoAuto = true; }
       prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || '';
@@ -6535,8 +6537,21 @@
     D.fillStok = fillStok;
     $('prMrpNote').textContent = MRP.loaded ? '' : 'Memuat data MRP (Plotting Harian & Proyeksi Stok) untuk Stok Awal dan Lampiran Perhitungan…';
     mrpReady().then((ok) => { if (seq !== dlgSeq) return; $('prMrpNote').textContent = ok ? '' : 'Data MRP tidak bisa dimuat: Stok Awal dan Lampiran Perhitungan tidak terisi otomatis.'; if (ok) D.rows.forEach((r, i) => { if (r.stokPending) { r.stokPending = false; fillStok(i); } }); });
+    const paintMode = () => {
+      body.querySelectorAll('#prMode [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === D.mode)));
+      D.rows.forEach((r) => { r._modeManual = D.mode === 'manual'; });
+      const t = body.querySelector('table.pr-ed'); if (t) t.classList.toggle('is-manual', D.mode === 'manual');
+      body.querySelectorAll('#prEdRows .pr-calcn').forEach((x) => { if (D.mode === 'manual') x.textContent = ''; });
+    };
+    body.querySelector('#prMode').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === D.mode) return;
+      D.mode = b.dataset.v;
+      if (D.mode === 'auto') D.rows.forEach((r, i) => { r.stokManual = r.butuhManual = r.ospoManual = r.kurangManual = false; r._modeManual = false; if (MRP.loaded) fillStok(i); else r.stokPending = true; });
+      paintMode();
+    });
+    paintMode();
     body.querySelector('[name=tanggal]').addEventListener('change', (e) => { D.tanggal = e.target.value; if (!kodePr) body.querySelector('.pr-ed-head input[readonly]').value = prDefKode(D.tanggal) + ' (otomatis)'; });
-    body.querySelector('#prEdAdd').addEventListener('click', () => { D.rows.push(prBlank()); paint(); });
+    body.querySelector('#prEdAdd').addEventListener('click', () => { const nr = prBlank(); nr._modeManual = D.mode === 'manual'; D.rows.push(nr); paint(); });
     body.addEventListener('input', (e) => {
       if (seq !== dlgSeq) return;
       const si = e.target.closest('.pr-schr');
@@ -6550,6 +6565,7 @@
       if (k === 'ospo') { r.ospoManual = inp.value.trim() !== ''; r.ospoAuto = !r.ospoManual; }
       if (k === 'kode') { if (MRP.loaded) D.fillStok(i); else r.stokPending = true; }
       if (k === 'butuh') { r.butuhManual = inp.value.trim() !== ''; inp.classList.toggle('is-auto', !r.butuhManual); }
+      if (k === 'stok') { r.stokManual = inp.value.trim() !== ''; inp.classList.toggle('is-auto', !r.stokManual); if (!r.stokManual && MRP.loaded) D.fillStok(i); }
       if (false && k === 'kode' && !r.ospoManual) { const os = prOsSum(r.kode); r.ospo = r.kode && String(r.kode).trim() ? String(Math.round(os * 10000) / 10000) : ''; r.ospoAuto = true; const oi = tr.querySelector('[data-k=ospo]'); if (oi) { oi.value = r.ospo; oi.classList.add('is-auto'); } prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || ''; }
       if (k === 'ospo' || k === 'butuh') { inp.classList.toggle('is-auto', !(k === 'ospo' ? r.ospoManual : r.butuhManual)); if (!(k === 'ospo' ? r.ospoManual : r.butuhManual) && MRP.loaded) D.fillStok(i); }
       if (k === 'stok' || k === 'butuh' || k === 'ospo') { prAutoKurang(r); if (!r.kurangManual) tr.querySelector('[data-k=kurang]').value = r.kurang || ''; }

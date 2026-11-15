@@ -1974,3 +1974,5 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pr-lamps { display: block; font-size: 11px; color: var(--muted); }
 .pr-lampdlg { max-height: 70vh; overflow: auto; }
 @media print { .pr-hit-page .pr-st-t { font-size: 9px; } .pr-hit-page { page: landscape; } }
+.pr-ed.is-manual .pr-in-n.is-auto { background: #fff; }
+.pr-ed.is-manual .pr-calcn { display: none; }
