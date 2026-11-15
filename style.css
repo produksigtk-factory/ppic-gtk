@@ -1921,3 +1921,19 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pr-in-n.is-auto { background: #f3f8f5; }
 .pr-moq { font-size: 10.5px; color: var(--muted); line-height: 1.25; margin-top: 2px; white-space: nowrap; }
 .pr-moq b { display: block; font-weight: 600; }
+
+.pr-moq span { display: block; }
+.pr-moq .pr-moqr { font-weight: 600; color: var(--ink); }
+.pr-hisb { font-size: 10.5px; }
+.pr-hisr td { background: #fbfcf8; }
+.pr-his { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: flex-start; padding: 4px 0; font-size: 12px; }
+.pr-hisk { display: flex; flex-direction: column; gap: 2px; min-width: 230px; }
+.pr-hist { border-collapse: collapse; font-size: 12px; }
+.pr-hist th, .pr-hist td { padding: 2px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.pr-hist th { color: var(--muted); font-weight: 600; }
+.pr-hist .num { text-align: right; }
+.pr-main { font-size: 10.5px; padding: 0 5px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); }
+
+.pr-hisp { position: relative; margin: 8px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcf8; }
+.pr-hisx { position: absolute; right: 10px; top: 6px; font-size: 12px; }
+.pr-moq { min-width: 120px; white-space: normal; }
