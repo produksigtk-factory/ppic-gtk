@@ -5187,8 +5187,24 @@
     });
     return { days, J, j, rows, before: j < J.s };
   }
+  // Batch ekstrak → MO SKU yang memakainya (kolom MO Ekstrak dipakai); dihitung ulang tiap 300 ms supaya ringan
+  let phEkMap = null, phEkAt = 0;
+  function phEkUsers() {
+    if (!phEkMap || Date.now() - phEkAt > 300) { phEkMap = new Map(); kfRows().forEach((x) => { if (x.moEk) { const L = phEkMap.get(x.moEk) || []; L.push(x); phEkMap.set(x.moEk, L); } }); phEkAt = Date.now(); }
+    return phEkMap;
+  }
   function phChip(r, edit, extra) { const dirty = P.kfDraft.has(r.no) ? ' is-dirty' : '', ek = kfIsEk(r.code);
-      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}${extra || ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.no + ' · ' + r.code + ' ' + r.name)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b>${isMan(r.no) ? '<i class="kf-mant">M</i>' : ''} <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small><span class="ph-cc">${esc(r.code)} ${esc(r.name)}</span></button>`;
+      let ekTxt = '', ekTip = '';
+      if (ek) {
+        const us = (phEkUsers().get(r.no) || []).slice().sort((a, b) => String(a.tgl || '9').localeCompare(String(b.tgl || '9')) || a.no.localeCompare(b.no, 'id', { numeric: true }));
+        const cap = Number(r.kg !== '' ? r.kg : r.qty) || 0, used = us.reduce((t, x) => t + (Number(x.ekKg) || 0), 0);
+        ekTxt = us.length ? `<span class="ph-ekf">untuk ${us.slice(0, 2).map((x) => esc(x.no)).join(', ')}${us.length > 2 ? ` +${us.length - 2}` : ''}${cap ? ` · ${nf.format(Math.round(used / cap * 100))}%` : ''}</span>` : '<span class="ph-ekf is-none">belum dipakai MO SKU</span>';
+        ekTip = us.length ? ` · dipakai: ${us.map((x) => `${x.no} ${x.code} ${fmtKg(x.ekKg) || 0} kg${x.tgl ? ' (' + dayLbl(x.tgl) + ')' : ''}`).join('; ')}` : ' · belum dipakai MO SKU';
+      } else if (r.ek) {
+        ekTxt = r.moEk ? `<span class="ph-ekf">ekstrak ${esc(r.moEk)}</span>` : '<span class="ph-ekf is-none">ekstrak belum dipilih</span>';
+        ekTip = r.moEk ? ` · pakai batch ekstrak ${r.moEk} (${fmtKg(r.ekKg) || 0} kg)` : ' · batch ekstrak belum dipilih';
+      }
+      return `<button type="button" class="ph-chip${dirty}${ek ? ' is-ek' : ''}${extra || ''}" data-no="${esc(r.no)}"${edit ? ' draggable="true"' : ''} title="${esc(r.no + ' · ' + r.code + ' ' + r.name + ekTip)}${edit ? ' · seret ke hari lain atau klik untuk ubah tanggal' : ''}"><b>${esc(r.no)}</b>${isMan(r.no) ? '<i class="kf-mant">M</i>' : ''} <small>${planUnit(r.code) === 'pcs' ? fmtQ(r.qty) + ' pcs' : (r.kg !== '' ? fmtKg(r.kg) : fmtQ(r.qty)) + ' kg'}</small><span class="ph-cc">${esc(r.code)} ${esc(r.name)}</span>${ekTxt}</button>`;
   }
   // Kolom Belum diplot: semua MO tanpa tanggal (semua week, tanpa week, termasuk ekstrak), dikelompokkan per week; punya kotak cari sendiri
   function phPaintUn() {

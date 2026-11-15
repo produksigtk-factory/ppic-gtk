@@ -1895,3 +1895,8 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .inv-sumg { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .inv-sumg > div { overflow-x: auto; }
 @media (max-width: 800px) { .inv-sumg { grid-template-columns: minmax(0, 1fr); } }
+
+.ph-chip .ph-ekf { display: block; font-size: 10.5px; font-weight: 600; color: #6a4a00; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.ph-chip.is-ek .ph-ekf { color: #24508a; }
+.ph-chip .ph-ekf.is-none { color: var(--late); font-weight: 500; }
+.ph-chip .ph-ekf { flex-basis: 100%; }
