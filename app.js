@@ -6658,7 +6658,10 @@
 
   /* ---------- Formulir PR (tarik data dari Rekap per Kode PR, cetak PDF) ---------- */
   const PRF = { kode: '' };
-  function prSheet(g) {
+  // Catatan di formulir PR: diketik langsung di formulir, ikut tercetak; disimpan di browser ini per Kode PR (tidak ke Google Sheet)
+  const prNoteGet = (k) => { try { return (JSON.parse(localStorage.getItem('ppic.prnote') || '{}'))[k] || ''; } catch (e) { return ''; } };
+  const prNoteSet = (k, v) => { try { const o = JSON.parse(localStorage.getItem('ppic.prnote') || '{}'); if (v) o[k] = v; else delete o[k]; localStorage.setItem('ppic.prnote', JSON.stringify(o)); } catch (e) { /* abaikan */ } };
+  function prSheet(g, print) {
     const rows = g ? g.rows.filter((r) => r.status !== 'Batal') : [];
     while (rows.length < 5) rows.push(null);
     const head = `<div class="pr-top"><img src="assets/logo-gondowangi.png" alt="Gondowangi" class="pr-logo"><span class="pr-lamp">Lampiran 8.1</span></div>
@@ -6671,7 +6674,10 @@
       ? `<tr><td class="pr-no">${i + 1}</td><td class="pr-kode">${esc(r.kode)}</td><td class="pr-nama">${esc(r.nama)}</td><td class="pr-jenis">${esc(r.jenis)}</td><td class="pr-note">${esc(r.note)}</td>
         ${PR_NUM.map((k) => `<td class="pr-n">${prNumTxt(r[k])}</td>`).join('')}<td class="pr-kirim">${prKirimLines(r.kirim).map(esc).join('<br>')}</td></tr>`
       : `<tr><td class="pr-no">${i + 1}</td><td></td><td></td><td></td><td></td>${PR_NUM.map(() => '<td class="pr-n">-</td>').join('')}<td></td></tr>`)).join('');
-    const foot = `<div class="pr-bottom"><div class="pr-dok">No. Dok : LF1004-01<br>No. Rev : 04</div>
+    const note = g ? prNoteGet(g.kodePr) : '';
+    const cat = print ? `<div class="pr-cat"><span>Catatan :</span><div class="pr-catx">${esc(note).replace(/\n/g, '<br>')}</div></div>`
+      : `<div class="pr-cat"><span>Catatan :</span><div class="pr-catx" ${g ? 'contenteditable="plaintext-only" data-prnote="1" title="Ketik catatan; ikut tercetak"' : ''} data-ph="Ketik catatan di sini (opsional)">${esc(note)}</div></div>`;
+    const foot = `<div class="pr-bottom"><div class="pr-left">${cat}<div class="pr-dok">No. Dok : LF1004-01<br>No. Rev : 04</div></div>
       <table class="pr-sign"><tr><th>Dibuat Oleh :</th><th>Diperiksa Oleh :</th><th colspan="2">Disetujui Oleh :</th></tr>
         <tr><td>(.........................)</td><td>(.........................)</td><td>(.........................)</td><td>(.........................)</td></tr></table></div>`;
     return head + `<table class="pr-table"><thead>${th}</thead><tbody>${body}</tbody></table>` + foot;
@@ -6698,6 +6704,7 @@
     $('prFormPo').innerHTML = g && !g.batal ? `No PO terbit dari PR ini: ${pos.length ? g.rows.filter((r) => r.status !== 'Batal' && r.pos.length).map((r) => `<span class="pr-pochip"><span class="mono">${esc(r.kode)}</span> ${prPoLinks(r)}</span>`).join(' ') : '<span class="muted">belum ada</span>'}` : '';
   }
   $('prKode').addEventListener('input', () => { PRF.kode = $('prKode').value.trim(); prRenderForm(); });
+  $('prPaper').addEventListener('input', (e) => { const n = e.target.closest('[data-prnote]'); if (n && PRF.kode) prNoteSet(PRF.kode, n.innerText.replace(/\n+$/, '')); });
   $('prPrint').addEventListener('click', async () => {
     const g = prGroups().find((x) => x.kodePr === PRF.kode); if (!g || g.batal) return;
     let root = document.getElementById('prPrintRoot');
@@ -6705,7 +6712,7 @@
     $('prPrint').disabled = true; const lbl = $('prPrint').textContent; $('prPrint').textContent = 'Menyiapkan lampiran…';
     let lampHtml = '';
     try { lampHtml = await prLampPrintHtml(g.kodePr); } finally { $('prPrint').disabled = false; $('prPrint').textContent = lbl; }
-    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g)}</div>${lampHtml}`;
+    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g, true)}</div>${lampHtml}`;
     document.body.classList.add('printing-pr');
     const t0 = document.title; document.title = g.kodePr.replace(/\//g, '-');   // nama file PDF bawaan
     const done = () => { document.body.classList.remove('printing-pr'); document.title = t0; window.removeEventListener('afterprint', done); };

@@ -1910,3 +1910,10 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pr-schi input[data-sq] { width: 90px; }
 .pr-schsum { font-size: 12px; font-weight: 600; }
 .pr-schsum.is-ok { color: var(--done); } .pr-schsum.is-bad { color: var(--late); }
+
+.pr-left { display: flex; flex-direction: column; gap: 10px; width: 32%; }
+.pr-cat { border: 1px solid #222; min-height: 58px; padding: 6px 8px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; display: flex; gap: 6px; }
+.pr-cat > span { white-space: nowrap; }
+.pr-catx { flex: 1; outline: none; white-space: pre-wrap; min-height: 40px; }
+.pr-catx[contenteditable]:empty::before { content: attr(data-ph); color: #9aa5b1; }
+.pr-catx[contenteditable]:focus { background: #fffbea; }
