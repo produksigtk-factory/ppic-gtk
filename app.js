@@ -6367,18 +6367,35 @@
     rows = rows.slice().sort((a, b) => (a.kodePr < b.kodePr ? 1 : a.kodePr > b.kodePr ? -1 : a.no - b.no));
     const ed = state.edit.on;
     let prev = '';
-    $('prRows').innerHTML = rows.map((r) => {
-      const first = r.kodePr !== prev; prev = r.kodePr;
-      const s = prStatus(r), pq = prPoQty(r), unk = pq ? r.pos.filter((po) => !pq.found.has(po)) : [];
-      return `<tr class="row${r.status === 'Batal' ? ' is-takeout' : ''}${first ? ' pr-first' : ''}">
-        <td class="pr-kc"><button type="button" class="btn-link" data-openpr="${esc(r.kodePr)}" title="Buka formulir PR ini">${esc(r.kodePr)}</button>${ed && first ? ` <button type="button" class="btn-link" data-editpr="${esc(r.kodePr)}">Ubah</button>` : ''}${first ? (() => { const st = prStatusOf(r.kodePr), ht = prHitungOf(r.kodePr), gm = new Set(st.filter((x) => x.po).map((x) => x.kode)), nm = new Set(st.map((x) => x.kode)), mn = ht.filter((x) => x.data && x.data.minus).length; return `${nm.size || ht.length ? `<small class="pr-lamps">${ht.length ? `${mn ? `<span class="pl-bad">${mn} minus</span>` : 'tidak minus'} · ` : ''}${nm.size ? `${gm.size} PO gantung / ${nm.size}` : ''}</small>` : ''}`; })() : ''}${first ? (() => { const n = prLampOf(r.kodePr).length; return `<button type="button" class="pr-lampbtn${n ? ' has' : ''}" data-lamppr="${esc(r.kodePr)}" title="Lampiran PR (perhitungan & gambar)">${n ? `📎 ${n} lampiran` : 'Sertakan lampiran'}</button>`; })() : ''}</td>
-        <td class="date">${esc(prDateTxt(r.tanggal))}</td><td class="num">${r.no}</td>
+    // Per Kode PR: satu baris ringkasan (klik untuk buka rinciannya). Pencarian membuka otomatis PR yang cocok.
+    state.prOpen = state.prOpen || new Set();
+    const byPr = new Map(); rows.forEach((r) => { if (!byPr.has(r.kodePr)) byPr.set(r.kodePr, []); byPr.get(r.kodePr).push(r); });
+    const autoOpen = !!(q || st);
+    $('prRows').innerHTML = [...byPr].map(([kodePr, L]) => {
+      const open = autoOpen || state.prOpen.has(kodePr), all = (state.pr || []).filter((x) => x.kodePr === kodePr);
+      const act = all.filter((x) => x.status !== 'Batal'), stc = new Map(); act.forEach((x) => { const t = prStatus(x); const o = stc.get(t.t) || { n: 0, cls: t.cls }; o.n++; stc.set(t.t, o); });
+      const stx = prStatusOf(kodePr), ht = prHitungOf(kodePr), gm = new Set(stx.filter((x) => x.po).map((x) => x.kode)), nm = new Set(stx.map((x) => x.kode)), mn = ht.filter((x) => x.data && x.data.minus).length, nl = prLampOf(kodePr).length;
+      const names = act.slice(0, 3).map((x) => x.nama || x.kode).join(', ') + (act.length > 3 ? ` +${act.length - 3}` : '');
+      const head = `<tr class="pr-grp${open ? ' is-open' : ''}${act.length ? '' : ' is-takeout'}" data-prg="${esc(kodePr)}">
+        <td class="pr-kc"><span class="pr-chev" aria-hidden="true">${open ? '▾' : '▸'}</span><button type="button" class="btn-link" data-openpr="${esc(kodePr)}" title="Buka formulir PR ini">${esc(kodePr)}</button>${ed ? ` <button type="button" class="btn-link" data-editpr="${esc(kodePr)}">Ubah</button>` : ''}
+          ${nm.size || ht.length ? `<small class="pr-lamps">${ht.length ? `${mn ? `<span class="pl-bad">${mn} minus</span>` : 'tidak minus'} · ` : ''}${nm.size ? `${gm.size} PO gantung / ${nm.size}` : ''}</small>` : ''}<button type="button" class="pr-lampbtn${nl ? ' has' : ''}" data-lamppr="${esc(kodePr)}" title="Lampiran PR (perhitungan, status PO & gambar)">${nl ? `📎 ${nl} lampiran` : 'Sertakan lampiran'}</button></td>
+        <td class="date">${esc(prDateTxt(all[0] ? all[0].tanggal : ''))}</td>
+        <td colspan="13" class="pr-gsum"><b>${act.length}</b> material${all.length - act.length ? ` <span class="muted">(+${all.length - act.length} batal)</span>` : ''} · ${esc(names)}${open ? '' : ' <span class="muted">· klik untuk lihat rincian</span>'}</td>
+        <td>${[...stc].map(([t, o]) => `<span class="badge ${o.cls}">${o.n > 1 ? o.n + ' ' : ''}${t}</span>`).join(' ') || '<span class="badge b-muted">Batal</span>'}</td></tr>`;
+      if (!open) return head;
+      return head + L.map((r) => {
+        const s = prStatus(r), pq = prPoQty(r), unk = pq ? r.pos.filter((po) => !pq.found.has(po)) : [];
+        return `<tr class="row pr-det${r.status === 'Batal' ? ' is-takeout' : ''}">
+        <td class="pr-kc">${ed ? `<button type="button" class="btn-link danger pr-del" data-prdel="${esc(r.kodePr)}" data-prdel-no="${r.no}" data-prdel-kode="${esc(r.kode)}" title="Hapus baris ini secara permanen">Hapus</button>` : ''}</td>
+        <td></td><td class="num">${r.no}</td>
         <td class="mono">${esc(r.kode)}</td><td>${esc(r.nama)}</td><td>${esc(r.jenis)}</td><td>${esc(r.note)}</td>
         ${PR_NUM.map((k) => `<td class="num">${prNumTxt(r[k], '')}</td>`).join('')}
         <td class="date">${prKirimLines(r.kirim).map(esc).join('<br>')}</td>
         <td>${prPoLinks(r) || '<span class="muted">–</span>'}${pq ? `<small class="pr-poq">qty PO ${prNumTxt(pq.qty, '0')} ${esc(pq.uom)}${r.buka !== '' ? ` / buka ${prNumTxt(r.buka)}` : ''}</small>` : ''}${unk.length ? `<small class="pl-bad">tidak ada di data PO untuk kode ini: ${esc(unk.join(', '))}</small>` : ''}</td>
         <td><span class="badge ${s.cls}">${s.t}</span></td></tr>`;
+      }).join('');
     }).join('') || `<tr class="empty"><td colspan="16">${(state.pr || []).length ? 'Tidak ada PR yang cocok.' : (state.noPrScript ? 'Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).' : 'Belum ada PR. Klik "Tambah PR baru" (mode edit) atau upload Excel.')}</td></tr>`;
+    if ($('prExpand')) $('prExpand').textContent = state.prOpen.size >= byPr.size && byPr.size ? 'Tutup semua' : 'Buka semua';
     const nG = groups.length, nAct = groups.filter((g) => !g.batal).length;
     const lines = (state.pr || []).filter((r) => r.status !== 'Batal');
     $('prKpi').innerHTML = kpis([{ num: nf.format(nAct), lbl: 'PR aktif' }, { num: nf.format(lines.length), lbl: 'baris material' },
@@ -6388,6 +6405,32 @@
     $('prNew').disabled = !ed; $('prUpBtn').classList.toggle('is-disabled', !ed);
   }
   ['prQ', 'prMon', 'prSt'].forEach((id) => $(id).addEventListener(id === 'prQ' ? 'input' : 'change', renderPrRekap));
+  $('prRows').addEventListener('click', (e) => {
+    if (e.target.closest('button, a, input, select')) {
+      const d = e.target.closest('[data-prdel]'); if (d) prDelRow(d.dataset.prdel, Number(d.dataset.prdelNo), d.dataset.prdelKode);
+      return;
+    }
+    const g = e.target.closest('tr.pr-grp'); if (!g) return;
+    const k = g.dataset.prg; if (state.prOpen.has(k)) state.prOpen.delete(k); else state.prOpen.add(k); renderPrRekap();
+  });
+  if ($('prExpand')) $('prExpand').addEventListener('click', () => { const ks = [...new Set((state.pr || []).map((r) => r.kodePr))]; if (state.prOpen.size >= ks.length) state.prOpen.clear(); else ks.forEach((k) => state.prOpen.add(k)); renderPrRekap(); });
+  function prDelRow(kodePr, no, kode) {
+    if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
+    const r = (state.pr || []).find((x) => x.kodePr === kodePr && x.no === no && x.kode === kode); if (!r) return;
+    const n = (state.pr || []).filter((x) => x.kodePr === kodePr).length;
+    openDialog({ title: `Hapus baris ${kodePr} no ${no}`, ok: 'Hapus permanen', danger: true,
+      body: `<p class="dlg-lead">Baris <b>${esc(kode)} ${esc(r.nama)}</b>${r.buka !== '' ? ` (buka PO ${prNumTxt(r.buka)})` : ''}${r.pos.length ? `, No PO ${esc(r.pos.join(', '))}` : ''} akan <b>dihapus permanen</b> dari REKAP_PR beserta Lampiran Perhitungan & Status PO material ini. Tidak bisa dibatalkan dari website.</p>
+        ${n === 1 ? '<p class="warn">Ini baris terakhir: PR ini akan hilang dari Rekap (lampiran gambar tetap tersimpan di Drive).</p>' : `<p class="hint">No baris lain di PR ini diurutkan ulang. Kalau hanya ingin menandai tidak jadi, pakai status Batal (Ubah PR).</p>`}
+        <label class="tb-check"><input type="checkbox" name="ack" id="prDelAck"> Ya, hapus permanen</label>`,
+      onSubmit: async (fd) => {
+        if (!fd.ack) throw new Error('Centang dulu "Ya, hapus permanen".');
+        const res = await api('deletePrRow', { data: { kodePr, no, kode } });
+        setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
+        renderPrRekap(); renderLog();
+        return `Baris ${kode} dihapus dari ${kodePr}.`;
+      } });
+    $('dlgOk').disabled = true; $('prDelAck').addEventListener('change', (e) => { $('dlgOk').disabled = !e.target.checked; });
+  }
   function prGoPo(po, code) {
     const row = state.rows.find((x) => x.po === po && x.code === code && !x.cancel) || state.rows.find((x) => x.po === po && x.code === code) || state.rows.find((x) => x.po === po);
     if ($('dlg').open) $('dlg').close();
@@ -6450,12 +6493,12 @@
         ${H.L.slice(0, 6).map((x) => `<tr><td>${esc(fmtDate(x.date))}</td><td>${esc(x.po)}</td><td>${esc(x.supplier)}</td><td class="num">${prNumTxt(x.qty)} ${esc(x.uom)}</td><td class="num">${x.price === '' ? '–' : prNumTxt(x.price) + ' ' + esc(x.kurs || '')}</td></tr>`).join('')}</tbody></table>${H.L.length > 6 ? `<p class="muted">6 PO terbaru dari ${nf.format(H.L.length)}.</p>` : ''}` : ''}
     </div></td></tr>`;
   }
-  function prEdit(kodePr) {
+  function prEdit(kodePr, pre) {
     if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
     if (state.noPrScript) { toast('Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).'); return; }
     const g = kodePr ? prGroups().find((x) => x.kodePr === kodePr) : null;
     const hz0 = kodePr ? ((prHitungOf(kodePr)[0] || {}).hz || '8') : '8';
-    const D = { mode: kodePr ? 'manual' : 'auto', hz: hz0, kodePr: kodePr || '', tanggal: g ? g.tanggal : todayStr(), rows: g ? g.rows.map((r) => Object.assign({}, r, { pos: r.pos.slice() })) : [prBlank(), prBlank(), prBlank()] };
+    const D = { mode: kodePr ? 'manual' : 'auto', hz: hz0, kodePr: kodePr || '', tanggal: g ? g.tanggal : todayStr(), rows: g ? g.rows.map((r) => Object.assign({}, r, { pos: r.pos.slice() })) : pre && pre.length ? pre : [prBlank(), prBlank(), prBlank()] };
     const matOpts = [...(MRP.master || new Map()).values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim())).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
     const rowHtml = (r, i) => `<tr data-i="${i}"><td class="num">${i + 1}</td>
       <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"></td>
@@ -6537,6 +6580,7 @@
     D.fillStok = fillStok;
     $('prMrpNote').textContent = MRP.loaded ? '' : 'Memuat data MRP (Plotting Harian & Proyeksi Stok) untuk Stok Awal dan Lampiran Perhitungan…';
     mrpReady().then((ok) => { if (seq !== dlgSeq) return; $('prMrpNote').textContent = ok ? '' : 'Data MRP tidak bisa dimuat: Stok Awal dan Lampiran Perhitungan tidak terisi otomatis.'; if (ok) D.rows.forEach((r, i) => { if (r.stokPending) { r.stokPending = false; fillStok(i); } }); });
+    if (MRP.loaded) D.rows.forEach((r, i) => { if (r.stokPending) { r.stokPending = false; fillStok(i); } });
     const paintMode = () => {
       body.querySelectorAll('#prMode [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === D.mode)));
       D.rows.forEach((r) => { r._modeManual = D.mode === 'manual'; });
@@ -6594,7 +6638,50 @@
       .sort((a, b) => (a.date < b.date ? 1 : -1)).filter((x) => !seen.has(x.po) && seen.add(x.po)).slice(0, 15)
       .map((x) => `<option value="${esc(x.po)}">${esc(x.supplier)} · ${fmtDate(x.date)} · ${fmtNum(x.qty)} ${esc(x.uom)}</option>`).join('');
   }
-  $('prNew').addEventListener('click', () => prEdit(''));
+  $('prNew').addEventListener('click', () => {
+    if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
+    openDialog({ title: 'Tambah PR baru', ok: 'Lanjut', wide: false,
+      body: `<p class="dlg-lead">Mulai dari mana?</p>
+        <label class="pr-src"><input type="radio" name="src" value="short" checked><span><b>Dari stok yang kurang</b><small>Pilih material dari kolom "Kurang" di Proyeksi Stok (dipisah RM dan PM), lalu daftar materialnya otomatis masuk ke formulir.</small></span></label>
+        <label class="pr-src"><input type="radio" name="src" value="manual"><span><b>Manual</b><small>Formulir kosong, ketik kode material sendiri.</small></span></label>`,
+      onSubmit: async (fd) => { setTimeout(() => (fd.src === 'manual' ? prEdit('') : prPickShort()), 0); return ''; } });
+  });
+  // Daftar material yang kurang (kolom "Kurang" Proyeksi Stok, rentang & cara hitung sesuai menu Proyeksi Stok) → isi formulir PR
+  async function prPickShort() {
+    openDialog({ title: 'Pilih material yang kurang', ok: 'Buat PR', wide: true, body: '<p class="dlg-lead" id="psLoad">Memuat Proyeksi Stok… (data MRP, biasanya 5–15 detik)</p><div id="psBox"></div>',
+      onSubmit: async () => {
+        const sel = [...(prPickShort.sel || [])]; if (!sel.length) throw new Error('Centang minimal satu material.');
+        const rows = sel.map((k) => { const m = MRP.master.get(k) || {}, x = (prPickShort.rows || []).find((r) => r.code === k) || {}; return Object.assign(prBlank(), { kode: k, nama: m.name || x.name || '', jenis: m.kat || x.kat || '', stokPending: true }); });
+        setTimeout(() => prEdit('', rows), 0); return '';
+      } });
+    const seq = dlgSeq;
+    if (!(await mrpReady())) { if (seq === dlgSeq) $('psLoad').textContent = 'Data MRP tidak bisa dimuat.'; return; }
+    if (seq !== dlgSeq) return;
+    const J = computeProj(), act = new Map();
+    (state.pr || []).filter((r) => r.status !== 'Batal' && !r.pos.length).forEach((r) => { if (!act.has(r.kode)) act.set(r.kode, r.kodePr); });
+    const grp = (k) => { const t = String(k || '').toUpperCase(); return t.startsWith('RM') ? 'RM' : t.startsWith('PM') ? 'PM' : 'Lainnya'; };
+    const L = J.rows.filter((r) => r.short > 1e-9).map((r) => Object.assign(r, { g: grp(r.kat || (MRP.master.get(r.code) || {}).kat) })).sort((a, b) => a.firstShort - b.firstShort || b.short - a.short);
+    prPickShort.rows = L; prPickShort.sel = new Set(); prPickShort.tab = L.some((r) => r.g === 'RM') ? 'RM' : 'PM'; prPickShort.q = '';
+    const W = J.weeks;
+    $('psLoad').innerHTML = `${L.length} material kurang di Proyeksi Stok (${esc(wLabel(W[0]))} – ${esc(wLabel(W[W.length - 1]))}, cara hitung ${P.pjCalc === 'mo' ? 'PC + CP' : 'MPS'}). Daftar ini hanya untuk mengisi kode material; angka di formulir dihitung seperti biasa.`;
+    const paint = () => {
+      const tabs = ['RM', 'PM', 'Lainnya'].filter((g) => L.some((r) => r.g === g) || g !== 'Lainnya');
+      const q = prPickShort.q.toLowerCase(), list = L.filter((r) => r.g === prPickShort.tab && (!q || (r.code + ' ' + r.name).toLowerCase().includes(q)));
+      $('psBox').innerHTML = `<div class="ps-bar"><div class="pj-seg" role="group">${tabs.map((g) => `<button type="button" data-pstab="${g}" aria-pressed="${g === prPickShort.tab}">${g} <b>${L.filter((r) => r.g === g).length}</b></button>`).join('')}</div>
+        <input type="search" id="psQ" value="${esc(prPickShort.q)}" placeholder="Cari kode / nama"><label class="tb-check"><input type="checkbox" id="psAll"${list.length && list.every((r) => prPickShort.sel.has(r.code)) ? ' checked' : ''}> Pilih semua ${prPickShort.tab}</label><span class="muted" id="psN">${prPickShort.sel.size} dipilih</span></div>
+        <div class="table-wrap ps-wrap"><table class="po-table pl-mini"><thead><tr><th></th><th>Kode</th><th>Nama</th><th>Mulai kurang</th><th class="num">Kurang</th><th>Catatan</th></tr></thead><tbody>
+        ${list.map((r) => `<tr><td><input type="checkbox" data-psk="${esc(r.code)}"${prPickShort.sel.has(r.code) ? ' checked' : ''}></td><td class="mono">${esc(r.code)}</td><td>${esc(r.name)}</td><td>${r.firstShort >= 0 ? esc(wLabel(W[r.firstShort])) : ''}</td><td class="num"><b class="pl-bad">${fmtQ(r.short)}</b> <small class="muted">${esc(r.uom || '')}</small></td><td>${act.has(r.code) ? `<span class="badge b-wait" title="Sudah ada di PR aktif yang belum jadi PO">di ${esc(act.get(r.code))}</span>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada material kurang di kelompok ini.</td></tr>'}</tbody></table></div>`;
+      $('dlgOk').textContent = `Buat PR (${prPickShort.sel.size} material)`; $('dlgOk').disabled = !prPickShort.sel.size;
+    };
+    paint();
+    const box = $('psBox');
+    box.addEventListener('click', (e) => { const t = e.target.closest('[data-pstab]'); if (t) { prPickShort.tab = t.dataset.pstab; paint(); } });
+    box.addEventListener('input', (e) => { if (e.target.id === 'psQ') { prPickShort.q = e.target.value; const pos = e.target.selectionStart; paint(); const qi = $('psQ'); qi.focus(); qi.setSelectionRange(pos, pos); } });
+    box.addEventListener('change', (e) => {
+      const c = e.target.closest('[data-psk]'); if (c) { if (c.checked) prPickShort.sel.add(c.dataset.psk); else prPickShort.sel.delete(c.dataset.psk); $('psN').textContent = `${prPickShort.sel.size} dipilih`; $('dlgOk').textContent = `Buat PR (${prPickShort.sel.size} material)`; $('dlgOk').disabled = !prPickShort.sel.size; return; }
+      if (e.target.id === 'psAll') { const q = prPickShort.q.toLowerCase(); L.filter((r) => r.g === prPickShort.tab && (!q || (r.code + ' ' + r.name).toLowerCase().includes(q))).forEach((r) => { if (e.target.checked) prPickShort.sel.add(r.code); else prPickShort.sel.delete(r.code); }); paint(); }
+    });
+  }
 
   // Excel: format, upload, unduh rekap
   const PR_XL = ['KODE PR', 'TANGGAL PR', 'KODE', 'NAMA ITEM', 'JENIS', 'NOTE', 'STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO', 'PEMAKAIAN (BULAN)', 'TANGGAL KIRIM', 'NO PO', 'STATUS'];

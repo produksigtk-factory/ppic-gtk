@@ -168,6 +168,11 @@ function doPost(e) {
       else (body.data.groups || []).forEach((g, i) => { freezePrStatus_(ss, codes[i], g.statusPo || {}, stamp, tz, false); freezePrHitung_(ss, codes[i], g.hitung || {}, stamp, tz, false); });
       return json_({ ok: true, time: stamp, codes, pr: readPr_(ss, tz), prStatus: readPrStatus_(ss), prHitung: readPrHitung_(ss), editLog: readEditLog_(ss, tz, 300) });
     }
+    if (action === 'deletePrRow') {
+      const d = body.data || {};
+      deletePrRow_(ss, str_(d.kodePr), Number(d.no), str_(d.kode), user, stamp, tz);
+      return json_({ ok: true, time: stamp, pr: readPr_(ss, tz), prStatus: readPrStatus_(ss), prHitung: readPrHitung_(ss), editLog: readEditLog_(ss, tz, 300) });
+    }
     if (action === 'refreshPrStatus') {
       const d = body.data || {};
       freezePrStatus_(ss, str_(d.kodePr), d.statusPo || {}, stamp, tz, true);
@@ -734,6 +739,28 @@ function savePr_(ss, d, user, stamp, tz) {
   writePr_(ss, all);
   logEdit_(ss, log);
   return kode;
+}
+// Hapus permanen satu baris PR (dicek ulang: Kode PR + NO + kode material harus cocok). NO baris lain di PR itu diurutkan ulang.
+function deletePrRow_(ss, kodePr, no, kode, user, stamp, tz) {
+  const all = readPr_(ss, tz).map(r => { r[16] = r[16] || ''; return r; });
+  const idx = all.findIndex(r => r[0] === kodePr && Number(r[2]) === no && str_(r[3]) === kode);
+  if (idx < 0) throw new Error('Baris ' + kodePr + ' no ' + no + ' (' + kode + ') tidak ditemukan / sudah berubah. Muat ulang data lalu coba lagi.');
+  const del = all.splice(idx, 1)[0];
+  let k = 0;
+  all.filter(r => r[0] === kodePr).sort((a, b) => a[2] - b[2]).forEach(r => { r[2] = ++k; });
+  writePr_(ss, all);
+  if (!all.some(r => r[0] === kodePr && str_(r[3]) === kode)) {
+    [[CONFIG.PR_STATUS_SHEET, PRST_HEAD.length], [CONFIG.PR_HITUNG_SHEET, PRH_HEAD.length]].forEach(([name, n]) => {
+      const sh = ss.getSheetByName(name); if (!sh) return;
+      const rows = readRows_(sh, n).map(r => r.map(x => String(x === null || x === undefined ? '' : x)));
+      const keep = rows.filter(r => !(r[0] === kodePr && r[1] === kode));
+      if (keep.length === rows.length) return;
+      const last = sh.getLastRow();
+      if (last > 1) sh.getRange(2, 1, last - 1, n).clearContent();
+      if (keep.length) sh.getRange(2, 1, keep.length, n).setNumberFormat('@').setValues(keep);
+    });
+  }
+  logEdit_(ss, [[stamp, user, 'Hapus baris PR', kodePr, kode, 'Baris ' + no, [del[4], 'buka ' + del[11], del[14] ? 'PO ' + del[14] : ''].filter(Boolean).join(' · '), 'dihapus']]);
 }
 // Upload Excel: groups [{ kodePr, tanggal, rows }] — Kode PR kosong = PR baru, Kode PR ada = isinya diganti dengan isi file
 function uploadPr_(ss, d, user, stamp, tz) {
