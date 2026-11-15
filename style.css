@@ -1791,3 +1791,51 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-pon { margin-bottom: 10px; }
 .kfr-dup td { background: #fffbea; }
 .mx-wrap { overflow-x: auto; max-width: 100%; }
+/* ---------- Kebutuhan Report: Value and Qty Inventory ---------- */
+.inv-acts { gap: 8px; }
+.inv-kpis .inv-k { border-top: 3px solid var(--gc, var(--ink)); min-width: 150px; }
+.inv-kpis .pk-lbl small { color: var(--muted); font-weight: 400; }
+.inv-ksub { font-size: 12px; color: var(--muted); }
+.inv-kw { cursor: pointer; font: inherit; text-align: left; }
+.inv-up { color: var(--done); }
+.inv-dn { color: var(--late); }
+.inv-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 12px 14px; margin: 0 0 12px; }
+.inv-ch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.inv-ch h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.inv-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; margin-bottom: 4px; }
+.inv-lg i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.inv-cbox { position: relative; overflow-x: auto; }
+.inv-cbox svg { display: block; max-width: none; }
+.inv-vbar { margin: 0 0 8px; }
+.inv-t td, .inv-t th { vertical-align: top; }
+.inv-t td.num, .inv-t th.num { white-space: nowrap; }
+.inv-gr th { background: #f6f8fa; text-align: left; }
+.inv-gr th:first-child { box-shadow: inset 4px 0 0 var(--gc); padding-left: 14px; }
+.inv-gr th.num { text-align: right; }
+.inv-kr { cursor: pointer; }
+.inv-kr:hover td { background: #f8fbf9; }
+.inv-kr.is-open td { background: var(--brand-soft); font-weight: 600; }
+.inv-chev { width: 22px; color: var(--muted); }
+.inv-mr td { font-size: 13px; background: #fcfdfc; }
+.inv-mat { text-align: left; text-decoration: none; }
+.inv-mat .pl-name { display: block; color: var(--muted); font-size: 12.5px; }
+.inv-tag { display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--late-soft); color: var(--late); font-size: 11.5px; font-weight: 600; }
+.inv-g { display: inline-block; padding: 0 7px; border-radius: 999px; border: 1px solid var(--gc); color: var(--gc); font-size: 12px; font-weight: 600; }
+.inv-sm { font-size: 11.5px; }
+.inv-tw { max-height: 70vh; }
+.inv-warn { background: #fff8de; border: 1px solid #ecd58f; border-radius: var(--radius-sm); padding: 8px 12px; margin: 0 0 10px; }
+.inv-warn summary { cursor: pointer; font-size: 13.5px; }
+.inv-wg { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 8px; }
+.inv-wg h4 { margin: 0 0 4px; font-size: 13px; }
+.inv-wg ul { margin: 0; padding-left: 16px; max-height: 220px; overflow: auto; font-size: 12.5px; }
+.inv-empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius-lg); padding: 20px; }
+.inv-empty h3 { margin: 0 0 6px; }
+.inv-fld { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 13px; }
+.inv-fld input { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.inv-dt { display: flex; flex-wrap: wrap; gap: 0 12px; }
+.inv-dt .inv-note { flex: 1 1 220px; }
+.inv-eh, .inv-er { display: grid; grid-template-columns: 1.2fr 1.2fr .8fr 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }
+.inv-eh { font-size: 12px; color: var(--muted); }
+.inv-er input { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; min-width: 0; }
+.inv-eo { font-size: 12px; }
+@media (max-width: 640px) { .inv-eh, .inv-er { grid-template-columns: 1fr 1fr; } }
