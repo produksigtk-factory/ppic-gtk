@@ -690,7 +690,15 @@ function applyPr_(all, d, stamp, user, log) {
   const oldPo = {}; old.forEach(r => { oldPo[r[3]] = r[14]; });
   const keep = all.filter(r => r[0] !== kode);
   const nb = (v) => (v === '' || v === null || v === undefined || isNaN(Number(v)) ? '' : Number(v));
-  const dt = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(str_(v)) ? str_(v) : '');
+  // TANGGAL KIRIM: satu tanggal, atau split jadwal "yyyy-mm-dd=qty; yyyy-mm-dd=qty"
+  const dt = (v) => {
+    const t = str_(v);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    if (t.indexOf('=') < 0) return '';
+    const L = t.split(';').map(x => x.trim()).filter(Boolean).map(x => x.split('=').map(y => y.trim()))
+      .filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x[0]) && x[1] !== '' && !isNaN(Number(x[1])));
+    return L.map(x => x[0] + '=' + Number(x[1])).join('; ');
+  };
   const add = rows.map((r, i) => [kode, tanggal, i + 1, str_(r[0]), String(r[1] || ''), String(r[2] || ''), String(r[3] || ''),
     nb(r[4]), nb(r[5]), nb(r[6]), nb(r[7]), nb(r[8]), nb(r[9]), dt(r[10]),
     String(r[11] || '').split(/[,;\s]+/).map(str_).filter(Boolean).join(', '), str_(r[12]) === 'Batal' ? 'Batal' : 'Aktif', stamp, user]);

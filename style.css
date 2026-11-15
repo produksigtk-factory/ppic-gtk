@@ -1900,3 +1900,13 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ph-chip.is-ek .ph-ekf { color: #24508a; }
 .ph-chip .ph-ekf.is-none { color: var(--late); font-weight: 500; }
 .ph-chip .ph-ekf { flex-basis: 100%; }
+
+.pr-kir { min-width: 150px; }
+.pr-splitb { display: block; margin-top: 2px; font-size: 11.5px; }
+.pr-schs { display: inline-block; padding: 1px 6px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); font-size: 11.5px; font-weight: 600; }
+.pr-schr td { background: #f7faf8; }
+.pr-sch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 2px 0; }
+.pr-schi { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px; background: var(--surface); }
+.pr-schi input[data-sq] { width: 90px; }
+.pr-schsum { font-size: 12px; font-weight: 600; }
+.pr-schsum.is-ok { color: var(--done); } .pr-schsum.is-bad { color: var(--late); }

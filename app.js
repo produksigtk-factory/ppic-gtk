@@ -6330,6 +6330,11 @@
   }
   const prDefKode = (date) => `PR/GTK/${(date || todayStr()).slice(2, 4)}${(date || todayStr()).slice(5, 7)}/…`;
   const prDateTxt = (d) => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${Number(dd)}-${BULAN_ID[Number(m) - 1]}-${y.slice(2)}`; };
+  // Split jadwal kirim: kolom TANGGAL KIRIM berisi "2026-12-01=500; 2026-12-15=500" (satu baris material, beberapa jadwal)
+  const prSched = (v) => { const t = String(v || '').trim(); if (!t.includes('=')) return null; const L = t.split(';').map((x) => x.trim()).filter(Boolean).map((x) => { const [d, q] = x.split('='); return { d: String(d || '').trim(), q: prNum(String(q || '').trim()) }; }); return L.length ? L : null; };
+  const prSchedStr = (L) => L.map((x) => `${x.d}=${x.q === '' ? '' : x.q}`).join('; ');
+  const prKirimLines = (v) => { const L = prSched(v); return L ? L.map((x) => `${prDateTxt(x.d)}: ${prNumTxt(x.q)}`) : (v ? [prDateTxt(v)] : []); };
+  const prKirimFirst = (v) => { const L = prSched(v); return L ? L.map((x) => x.d).filter(Boolean).sort()[0] || '' : v || ''; };
   const prNum = (v) => (v === '' || v === null || v === undefined ? '' : Number(String(v).replace(',', '.')));
   const prNumTxt = (v, dash = '-') => { if (v === '' || v === null || v === undefined) return dash; const n = Number(v); return isNaN(n) ? esc(v) : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(n); };
   // qty PO (dari Monitoring PO) untuk No PO yang tercatat + kode material yang sama
@@ -6364,7 +6369,7 @@
         <td class="date">${esc(prDateTxt(r.tanggal))}</td><td class="num">${r.no}</td>
         <td class="mono">${esc(r.kode)}</td><td>${esc(r.nama)}</td><td>${esc(r.jenis)}</td><td>${esc(r.note)}</td>
         ${PR_NUM.map((k) => `<td class="num">${prNumTxt(r[k], '')}</td>`).join('')}
-        <td class="date">${esc(prDateTxt(r.kirim))}</td>
+        <td class="date">${prKirimLines(r.kirim).map(esc).join('<br>')}</td>
         <td>${prPoLinks(r) || '<span class="muted">–</span>'}${pq ? `<small class="pr-poq">qty PO ${prNumTxt(pq.qty, '0')} ${esc(pq.uom)}${r.buka !== '' ? ` / buka ${prNumTxt(r.buka)}` : ''}</small>` : ''}${unk.length ? `<small class="pl-bad">tidak ada di data PO untuk kode ini: ${esc(unk.join(', '))}</small>` : ''}</td>
         <td><span class="badge ${s.cls}">${s.t}</span></td></tr>`;
     }).join('') || `<tr class="empty"><td colspan="16">${(state.pr || []).length ? 'Tidak ada PR yang cocok.' : (state.noPrScript ? 'Apps Script MONITORING PO perlu diperbarui (versi dengan Purchase Request).' : 'Belum ada PR. Klik "Tambah PR baru" (mode edit) atau upload Excel.')}</td></tr>`;
@@ -6402,11 +6407,21 @@
       <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
       <td><input data-k="note" value="${esc(r.note)}" class="pr-in-s" aria-label="Note"></td>
       ${PR_NUM.map((k) => `<td><input data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n" aria-label="${k}"></td>`).join('')}
-      <td><input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim"></td>
+      <td class="pr-kir">${r.sched ? `<span class="pr-schs">${r.sched.length} jadwal</span>` : `<input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim">`}<button type="button" class="btn-link pr-splitb" data-split="${i}" title="${r.sched ? 'Tambah jadwal kirim' : 'Pecah jadwal kirim: beberapa tanggal dengan qty masing-masing'}">${r.sched ? '+ jadwal' : 'Split'}</button></td>
       <td><input data-k="pos" value="${esc(r.pos.join(', '))}" list="prEdPo${i}" class="pr-in-po" placeholder="PO… , PO…" aria-label="No PO"><datalist id="prEdPo${i}">${prPoSuggest(r.kode, D.tanggal)}</datalist></td>
       <td><select data-k="status" aria-label="Status"><option${r.status !== 'Batal' ? ' selected' : ''}>Aktif</option><option${r.status === 'Batal' ? ' selected' : ''}>Batal</option></select></td>
       <td><button type="button" class="btn-link danger" data-rm="${i}" title="Hapus baris (belum tersimpan)">×</button></td></tr>`;
-    const paint = () => { $('dlgBody').querySelector('#prEdRows').innerHTML = D.rows.map(rowHtml).join(''); };
+    D.rows.forEach((r) => { r.sched = prSched(r.kirim); });
+    const schedSum = (r) => r.sched.reduce((t, x) => t + (Number(x.q) || 0), 0);
+    const schedRow = (r, i) => {
+      if (!r.sched) return '';
+      const tot = schedSum(r), bk = Number(prNum(r.buka)) || 0, ok = Math.abs(tot - bk) < 1e-6;
+      return `<tr class="pr-schr" data-si="${i}"><td></td><td colspan="${PR_NUM.length + 8}"><div class="pr-sch"><b>Jadwal kirim ${esc(r.kode || '')}</b>
+        ${r.sched.map((x, j) => `<span class="pr-schi"><input type="date" data-sd="${j}" value="${esc(x.d)}" aria-label="Tanggal kirim ${j + 1}"><input data-sq="${j}" value="${esc(x.q === '' ? '' : String(x.q))}" inputmode="decimal" placeholder="Qty" aria-label="Qty kirim ${j + 1}"><button type="button" class="btn-link danger" data-sx="${j}" title="Hapus jadwal ini">×</button></span>`).join('')}
+        <span class="pr-schsum ${ok ? 'is-ok' : 'is-bad'}">Total ${prNumTxt(tot) || 0}${bk ? ` / Jumlah Buka PO ${prNumTxt(bk)}` : ''}${ok ? ' ✓' : bk ? ` · selisih ${prNumTxt(tot - bk)}` : ' · Jumlah Buka PO kosong (diisi otomatis = total)'}</span></div></td></tr>`;
+    };
+    const paint = () => { $('dlgBody').querySelector('#prEdRows').innerHTML = D.rows.map((r, i) => rowHtml(r, i) + schedRow(r, i)).join(''); };
+    const paintSum = (i) => { const tr = $('dlgBody').querySelector(`.pr-schr[data-si="${i}"]`); if (!tr) return; const tmp = document.createElement('tbody'); tmp.innerHTML = schedRow(D.rows[i], i); tr.querySelector('.pr-schsum').replaceWith(tmp.querySelector('.pr-schsum')); };
     openDialog({
       title: kodePr ? `Ubah ${kodePr}` : 'Tambah PR baru', ok: 'Simpan PR', wide: true,
       body: `<div class="form-grid pr-ed-head"><label class="field"><span>Tanggal PR *</span><input type="date" name="tanggal" value="${esc(D.tanggal)}" required></label>
@@ -6421,6 +6436,15 @@
         if (!rows.length) throw new Error('Isi minimal satu kode material.');
         const bad = rows.filter((r) => MRP.master && MRP.master.size && !MRP.master.get(String(r.kode).trim()));
         if (bad.length && !D.warned) { D.warned = true; throw new Error(`Kode tidak ada di Daftar Material: ${bad.map((r) => r.kode).join(', ')}. Klik Simpan PR sekali lagi bila memang benar.`); }
+        for (const r of rows) {
+          if (!r.sched) continue;
+          if (r.sched.some((x) => !/^\d{4}-\d{2}-\d{2}$/.test(x.d) || !(Number(x.q) > 0))) throw new Error(`Jadwal kirim ${r.kode}: setiap jadwal wajib punya tanggal dan qty > 0.`);
+          const tot = schedSum(r), bk = prNum(r.buka);
+          if (bk === '' || bk === null) r.buka = String(tot);
+          else if (Math.abs(tot - Number(bk)) > 1e-6) throw new Error(`Jadwal kirim ${r.kode}: total ${prNumTxt(tot)} belum sama dengan Jumlah Buka PO ${prNumTxt(bk)}. Sesuaikan qty jadwalnya.`);
+          r.sched.sort((a, b) => a.d.localeCompare(b.d));
+          r.kirim = r.sched.length > 1 ? prSchedStr(r.sched) : r.sched[0].d;
+        }
         const all = fd.allst || '';
         const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
           ...PR_NUM.map((k) => prNum(r[k])), r.kirim || '', r.pos.join(', '), all || r.status]) } });
@@ -6435,15 +6459,25 @@
     body.querySelector('#prEdAdd').addEventListener('click', () => { D.rows.push(prBlank()); paint(); });
     body.addEventListener('input', (e) => {
       if (seq !== dlgSeq) return;
+      const si = e.target.closest('.pr-schr');
+      if (si) { const i = Number(si.dataset.si), r = D.rows[i], d = e.target.dataset; if (d.sd !== undefined) r.sched[Number(d.sd)].d = e.target.value; if (d.sq !== undefined) { r.sched[Number(d.sq)].q = prNum(e.target.value); paintSum(i); } return; }
       const inp = e.target.closest('#prEdRows [data-k]'); if (!inp) return;
       const i = Number(inp.closest('tr').dataset.i), k = inp.dataset.k, r = D.rows[i];
       if (k === 'pos') r.pos = splitPo(inp.value); else r[k] = inp.value;
+      if (k === 'buka' && r.sched) paintSum(i);
       if (k === 'kode') {
         const m = MRP.master && MRP.master.get(inp.value.trim());
         if (m) { r.nama = m.name || ''; r.jenis = m.kat || ''; const tr = inp.closest('tr'); tr.querySelector('[data-k=nama]').value = r.nama; tr.querySelector('[data-k=jenis]').value = r.jenis; tr.querySelector('datalist').innerHTML = prPoSuggest(m.code, D.tanggal); }
       }
     });
     body.addEventListener('change', (e) => { if (seq !== dlgSeq) return; const sl = e.target.closest('#prEdRows select[data-k]'); if (sl) D.rows[Number(sl.closest('tr').dataset.i)].status = sl.value; });
+    body.addEventListener('click', (e) => {
+      if (seq !== dlgSeq) return;
+      const sp = e.target.closest('[data-split]');
+      if (sp) { const r = D.rows[Number(sp.dataset.split)]; if (!r.sched) { const bk = prNum(r.buka); r.sched = [{ d: r.kirim || '', q: bk === '' ? '' : Number(bk) }, { d: '', q: '' }]; } else r.sched.push({ d: '', q: '' }); paint(); return; }
+      const sx = e.target.closest('[data-sx]');
+      if (sx) { const r = D.rows[Number(sx.closest('.pr-schr').dataset.si)]; r.sched.splice(Number(sx.dataset.sx), 1); if (r.sched.length <= 1) { r.kirim = r.sched.length ? r.sched[0].d : ''; r.sched = null; } paint(); return; }
+    });
     body.addEventListener('click', (e) => { if (seq !== dlgSeq) return; const b = e.target.closest('[data-rm]'); if (!b) return; D.rows.splice(Number(b.dataset.rm), 1); if (!D.rows.length) D.rows.push(prBlank()); paint(); });
   }
   // Saran No PO: PO di Monitoring PO dengan kode material sama, tgl order ≥ tgl PR (terbaru di atas)
@@ -6491,7 +6525,7 @@
         const m = MRP.master && MRP.master.get(kode), g2 = (n) => (ix(n) >= 0 ? r[ix(n)] : '');
         g.rows.push([kode, txt(g2('NAMA ITEM')) || (m ? m.name : ''), txt(g2('JENIS')) || (m ? m.kat : ''), txt(g2('NOTE')),
           ...['STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO', 'PEMAKAIAN (BULAN)'].map((n) => prNum(g2(n) === '' ? '' : g2(n))),
-          xlDate(g2('TANGGAL KIRIM')), splitPo(g2('NO PO')).join(', '), /batal/i.test(txt(g2('STATUS'))) ? 'Batal' : 'Aktif']);
+          (prSched(txt(g2('TANGGAL KIRIM'))) ? prSchedStr(prSched(txt(g2('TANGGAL KIRIM')))) : xlDate(g2('TANGGAL KIRIM'))), splitPo(g2('NO PO')).join(', '), /batal/i.test(txt(g2('STATUS'))) ? 'Batal' : 'Aktif']);
         groups.set(key, g);
       });
       if (errs.length) throw new Error(errs.slice(0, 5).join('; '));
@@ -6635,7 +6669,7 @@
       ${PR_COLS.map((c) => `<th class="pr-n">${c.h}<small>${c.u}</small></th>`).join('')}<th class="pr-kirim">Tanggal Kirim</th></tr>`;
     const body = rows.map((r, i) => (r
       ? `<tr><td class="pr-no">${i + 1}</td><td class="pr-kode">${esc(r.kode)}</td><td class="pr-nama">${esc(r.nama)}</td><td class="pr-jenis">${esc(r.jenis)}</td><td class="pr-note">${esc(r.note)}</td>
-        ${PR_NUM.map((k) => `<td class="pr-n">${prNumTxt(r[k])}</td>`).join('')}<td class="pr-kirim">${esc(prDateTxt(r.kirim))}</td></tr>`
+        ${PR_NUM.map((k) => `<td class="pr-n">${prNumTxt(r[k])}</td>`).join('')}<td class="pr-kirim">${prKirimLines(r.kirim).map(esc).join('<br>')}</td></tr>`
       : `<tr><td class="pr-no">${i + 1}</td><td></td><td></td><td></td><td></td>${PR_NUM.map(() => '<td class="pr-n">-</td>').join('')}<td></td></tr>`)).join('');
     const foot = `<div class="pr-bottom"><div class="pr-dok">No. Dok : LF1004-01<br>No. Rev : 04</div>
       <table class="pr-sign"><tr><th>Dibuat Oleh :</th><th>Diperiksa Oleh :</th><th colspan="2">Disetujui Oleh :</th></tr>
