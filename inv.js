@@ -45,7 +45,7 @@
   const I = {
     loaded: false, loading: false, err: '', raw: null,
     gol: new Map(), harga: new Map(), snaps: [], stok: new Map(), log: [],
-    snap: '', g: '', kat: '', lok: '', q: '', view: 'kat', ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
+    snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
   };
   try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms'].forEach((k) => { if (v[k]) I[k] = v[k]; }); } catch (e) { /* abaikan */ }
   const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms })); } catch (e) { /* abaikan */ } };
@@ -77,7 +77,7 @@
   function ingest(d) {
     I.raw = d; I.sheetUrl = d.sheetUrl || ''; I.readAt = d.readAt || ''; I.log = d.log || [];
     I.gol = new Map();
-    (d.golongan || []).forEach((r) => { const k = normCode(r[0]); if (k) I.gol.set(k, { kode: k, nama: S(r[1]), gol: S(r[2]).toUpperCase(), kat: S(r[3]), uom: S(r[4]) }); });
+    (d.golongan || []).forEach((r) => { const k = normCode(r[0]); if (k) I.gol.set(k, Object.assign({ kode: k, nama: S(r[1]), gol: S(r[2]).toUpperCase(), uom: S(r[4]) }, splitKat(r[3]))); });
     I.harga = new Map();
     (d.harga || []).forEach((r) => { const k = normCode(r[0]), h = Number(r[1]); if (!k || !isFinite(h)) return; const L = I.harga.get(k) || []; L.push({ h, from: S(r[2]).slice(0, 10), up: S(r[3]), file: S(r[4]) }); I.harga.set(k, L); });
     I.harga.forEach((L) => L.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.up < b.up ? -1 : 1)));
@@ -90,6 +90,12 @@
     I.loaded = true;
   }
   const priceAt = (kode, snap) => { const L = I.harga.get(kode); if (!L) return null; const day = snap.slice(0, 10); let p = null; L.forEach((x) => { if (x.from <= day) p = x; }); return p; };
+  // KATEGORI berpola "BRAND - JENIS" (FG). Tanpa " - " → tanpa brand, jenis = kategori.
+  function splitKat(v) {
+    const kat = S(v).replace(/\s+/g, ' ').replace(/\s+-\s+/, ' - ');
+    const i = kat.indexOf(' - ');
+    return i > 0 ? { kat, brand: kat.slice(0, i).trim(), jenis: kat.slice(i + 3).trim() } : { kat, brand: '', jenis: kat };
+  }
   const golOf = (kode) => { const g = I.gol.get(kode); return g && GOLS.includes(g.gol) ? g.gol : '?'; };
 
   /* ---------- Hitung per snapshot ---------- */
@@ -98,15 +104,16 @@
     const L = I.stok.get(snap) || [], q = I.q.toLowerCase();
     const out = [];
     L.forEach((r) => {
-      const g = I.gol.get(r.kode), gol = golOf(r.kode), kat = (g && g.kat) || 'Tanpa kategori';
+      const g = I.gol.get(r.kode), gol = golOf(r.kode), kat = (g && g.kat) || 'Tanpa kategori', brand = (g && g.brand) || '', jenis = (g && g.jenis) || 'Tanpa kategori';
       if (!ignoreFilter) {
         if (I.g && gol !== I.g) return;
-        if (I.kat && kat !== I.kat) return;
+        if (I.brand && brand !== I.brand) return;
+        if (I.jenis && jenis !== I.jenis) return;
         if (I.lok && r.lok !== I.lok) return;
         if (q && !(r.kode + ' ' + ((g && g.nama) || '')).toLowerCase().includes(q)) return;
       }
       const p = priceAt(r.kode, snap);
-      out.push({ kode: r.kode, nama: (g && g.nama) || '', uom: (g && g.uom) || '', gol, kat, lok: r.lok, qty: r.qty, src: r.src, note: r.note, price: p ? p.h : null, from: p ? p.from : '', val: p ? r.qty * p.h : 0, noPrice: !p, noGol: !g || gol === '?' });
+      out.push({ kode: r.kode, nama: (g && g.nama) || '', uom: (g && g.uom) || '', gol, kat, brand, jenis, lok: r.lok, qty: r.qty, src: r.src, note: r.note, price: p ? p.h : null, from: p ? p.from : '', val: p ? r.qty * p.h : 0, noPrice: !p, noGol: !g || gol === '?' });
     });
     return out;
   }
@@ -131,9 +138,14 @@
     document.querySelectorAll('#invGol [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.g)));
     document.querySelectorAll('#invView [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.view)));
     const all = I.snap ? calc(I.snap, true) : [];
-    const kats = [...new Set([...all.filter((r) => !I.g || r.gol === I.g).map((r) => r.kat)])].sort((a, b) => a.localeCompare(b, 'id'));
-    if (I.kat && !kats.includes(I.kat)) I.kat = '';
-    $('invKat').innerHTML = '<option value="">Semua kategori</option>' + kats.map((k) => `<option${k === I.kat ? ' selected' : ''}>${esc(k)}</option>`).join('');
+    const pool = all.filter((r) => !I.g || r.gol === I.g);
+    const brands = [...new Set(pool.map((r) => r.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    if (I.brand && !brands.includes(I.brand)) I.brand = '';
+    $('invBrand').innerHTML = '<option value="">Semua brand</option>' + brands.map((k) => `<option${k === I.brand ? ' selected' : ''}>${esc(k)}</option>`).join('');
+    $('invBrand').disabled = !brands.length;
+    const jen = [...new Set(pool.filter((r) => !I.brand || r.brand === I.brand).map((r) => r.jenis))].sort((a, b) => a.localeCompare(b, 'id'));
+    if (I.jenis && !jen.includes(I.jenis)) I.jenis = '';
+    $('invJenis').innerHTML = `<option value="">${I.brand ? 'Semua jenis ' + esc(I.brand) : 'Semua jenis / kategori'}</option>` + jen.map((k) => `<option${k === I.jenis ? ' selected' : ''}>${esc(k)}</option>`).join('');
     const loks = [...new Set(all.map((r) => r.lok))].sort((a, b) => a.localeCompare(b, 'id'));
     if (I.lok && !loks.includes(I.lok)) I.lok = '';
     $('invLok').innerHTML = '<option value="">Semua lokasi</option>' + loks.map((k) => `<option value="${esc(k)}"${k === I.lok ? ' selected' : ''}>${esc(k || '(tanpa lokasi)')}</option>`).join('');
@@ -177,27 +189,39 @@
   const head = (cols) => `<thead><tr>${cols.map((c) => `<th${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead>`;
   function viewKat(rows, prows) {
     const tot = rows.reduce((t, r) => t + r.val, 0);
-    const by = sumBy(rows, (r) => r.gol + '|' + r.kat), pby = prows ? sumBy(prows, (r) => r.gol + '|' + r.kat) : null;
+    const dq = (a, b) => (b ? `<span class="${dCls(a.qty - b.qty)}">${dTxt(a.qty - b.qty, fQ)}</span>` : '–');
+    const dv = (a, b) => (b ? `<span class="${dCls(a.val - b.val)}">${dTxt(a.val - b.val, fRp)}</span>` : '–');
+    const nums = (v, p, tag) => `<${tag} class="num">${v.n.size}</${tag}><${tag} class="num">${fQ(v.qty)}</${tag}><${tag} class="num">${dq(v, p)}</${tag}><${tag} class="num">${fRp(v.val)}</${tag}><${tag} class="num">${dv(v, p)}</${tag}><${tag} class="num">${fPct(tot ? v.val / tot : NaN)}</${tag}>`;
+    const Z = { val: 0, qty: 0 };
+    const pick = (m, k) => (prows ? (m.get(k) || Z) : null);
+    const leafKey = (r) => (r.brand ? `${r.gol}|${r.brand}|${r.jenis}` : `${r.gol}||${r.kat}`);
     const byG = sumBy(rows, (r) => r.gol), pG = prows ? sumBy(prows, (r) => r.gol) : null;
+    const byB = sumBy(rows.filter((r) => r.brand), (r) => `${r.gol}|${r.brand}`), pB = prows ? sumBy(prows.filter((r) => r.brand), (r) => `${r.gol}|${r.brand}`) : null;
+    const byL = sumBy(rows, leafKey), pL = prows ? sumBy(prows, leafKey) : null;
+    const mats = (k, v, pad) => {
+      const pm = prows ? sumBy(prows.filter((r) => leafKey(r) === k), (r) => r.kode) : null;
+      return [...sumBy(v.rows, (r) => r.kode)].sort((a, b) => b[1].val - a[1].val).map(([kode, m]) => {
+        const r0 = m.rows[0], pmv = pick(pm || new Map(), kode);
+        return `<tr class="inv-mr"><td></td><td style="padding-left:${pad}px"><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(kode)}" title="Tampilkan pergerakan material ini di grafik"><span class="pl-code">${esc(kode)}</span> ${esc(r0.nama)}</button>${r0.noPrice ? ' <span class="inv-tag">tanpa harga</span>' : ` <small class="muted">@ ${fRp(r0.price)} · ${esc(fDate(r0.from))}</small>`}<div class="muted inv-sm">${m.rows.length > 1 ? m.rows.length + ' lokasi' : esc(r0.lok)}</div></td><td class="num muted">1</td><td class="num">${fQ(m.qty)} <small class="muted">${esc(r0.uom)}</small></td><td class="num">${dq(m, pmv)}</td><td class="num">${fRp(m.val)}</td><td class="num">${dv(m, pmv)}</td><td class="num">${fPct(tot ? m.val / tot : NaN)}</td></tr>`;
+      }).join('');
+    };
+    const leaf = (k, v, label, pad) => {
+      const open = I.open.has(k);
+      return `<tr class="inv-kr${open ? ' is-open' : ''}" data-inv-open="${esc(k)}"><td class="inv-chev" aria-hidden="true">${open ? '▾' : '▸'}</td><td style="padding-left:${pad}px">${esc(label)}</td>${nums(v, pick(pL || new Map(), k), 'td')}</tr>` + (open ? mats(k, v, pad + 14) : '');
+    };
     let html = '';
     [...GOLS, '?'].filter((g) => byG.has(g)).forEach((g) => {
-      const o = byG.get(g), p = pG ? (pG.get(g) || { val: 0, qty: 0 }) : null;
-      html += `<tr class="inv-gr" style="--gc:${GOL_CLR[g]}"><th colspan="2">${esc(GOL_LBL[g])}</th><th class="num">${o.n.size}</th><th class="num">${fQ(o.qty)}</th><th class="num">${p ? `<span class="${dCls(o.qty - p.qty)}">${dTxt(o.qty - p.qty, fQ)}</span>` : '–'}</th><th class="num">${fRp(o.val)}</th><th class="num">${p ? `<span class="${dCls(o.val - p.val)}">${dTxt(o.val - p.val, fRp)}</span>` : '–'}</th><th class="num">${fPct(tot ? o.val / tot : NaN)}</th></tr>`;
-      [...by].filter(([k]) => k.startsWith(g + '|')).sort((a, b) => b[1].val - a[1].val).forEach(([k, v]) => {
-        const kat = k.slice(g.length + 1), pk = pby ? (pby.get(k) || { val: 0, qty: 0 }) : null, open = I.open.has(k);
-        html += `<tr class="inv-kr${open ? ' is-open' : ''}" data-inv-open="${esc(k)}"><td class="inv-chev" aria-hidden="true">${open ? '▾' : '▸'}</td><td>${esc(kat)}</td><td class="num">${v.n.size}</td><td class="num">${fQ(v.qty)}</td><td class="num">${pk ? `<span class="${dCls(v.qty - pk.qty)}">${dTxt(v.qty - pk.qty, fQ)}</span>` : '–'}</td><td class="num">${fRp(v.val)}</td><td class="num">${pk ? `<span class="${dCls(v.val - pk.val)}">${dTxt(v.val - pk.val, fRp)}</span>` : '–'}</td><td class="num">${fPct(tot ? v.val / tot : NaN)}</td></tr>`;
-        if (open) {
-          const pm = prows ? sumBy(prows.filter((r) => r.gol + '|' + r.kat === k), (r) => r.kode) : null;
-          [...sumBy(v.rows, (r) => r.kode)].sort((a, b) => b[1].val - a[1].val).forEach(([kode, m]) => {
-            const r0 = m.rows[0], pmv = pm ? (pm.get(kode) || { val: 0, qty: 0 }) : null;
-            html += `<tr class="inv-mr"><td></td><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(kode)}" title="Tampilkan pergerakan material ini di grafik"><span class="pl-code">${esc(kode)}</span> ${esc(r0.nama)}</button>${r0.noPrice ? ' <span class="inv-tag">tanpa harga</span>' : ` <small class="muted">@ ${fRp(r0.price)} · ${esc(fDate(r0.from))}</small>`}</td><td class="num muted">${m.rows.length > 1 ? m.rows.length + ' lok' : esc(r0.lok)}</td><td class="num">${fQ(m.qty)} <small class="muted">${esc(r0.uom)}</small></td><td class="num">${pmv ? `<span class="${dCls(m.qty - pmv.qty)}">${dTxt(m.qty - pmv.qty, fQ)}</span>` : '–'}</td><td class="num">${fRp(m.val)}</td><td class="num">${pmv ? `<span class="${dCls(m.val - pmv.val)}">${dTxt(m.val - pmv.val, fRp)}</span>` : '–'}</td><td class="num">${fPct(tot ? m.val / tot : NaN)}</td></tr>`;
-          });
-        }
+      html += `<tr class="inv-gr" style="--gc:${GOL_CLR[g]}"><th colspan="2">${esc(GOL_LBL[g])}</th>${nums(byG.get(g), pick(pG || new Map(), g), 'th')}</tr>`;
+      [...byB].filter(([k]) => k.startsWith(g + '|')).sort((a, b) => b[1].val - a[1].val).forEach(([kb, vb]) => {
+        const brand = kb.slice(g.length + 1), open = I.open.has('B:' + kb);
+        html += `<tr class="inv-br${open ? ' is-open' : ''}" data-inv-open="B:${esc(kb)}"><td class="inv-chev" aria-hidden="true">${open ? '▾' : '▸'}</td><td>${esc(brand)}</td>${nums(vb, pick(pB || new Map(), kb), 'td')}</tr>`;
+        if (open) [...byL].filter(([k]) => k.startsWith(kb + '|')).sort((a, b) => b[1].val - a[1].val).forEach(([k, v]) => { html += leaf(k, v, k.slice(kb.length + 1), 24); });
       });
+      [...byL].filter(([k]) => k.startsWith(g + '||')).sort((a, b) => b[1].val - a[1].val).forEach(([k, v]) => { html += leaf(k, v, k.slice(g.length + 2), 10); });
     });
-    return `<div class="table-wrap"><table class="po-table inv-t">${head([['', 'inv-chev'], ['Golongan / kategori'], ['Kode', 'num'], ['Qty', 'num'], ['Δ qty', 'num'], ['Value', 'num'], ['Δ value', 'num'], ['Porsi', 'num']])}<tbody>${html || '<tr class="empty"><td colspan="8">Tidak ada data pada saringan ini.</td></tr>'}</tbody>
+    return `<div class="table-wrap"><table class="po-table inv-t">${head([['', 'inv-chev'], ['Golongan / brand / jenis'], ['Kode', 'num'], ['Qty', 'num'], ['Δ qty', 'num'], ['Value', 'num'], ['Δ value', 'num'], ['Porsi', 'num']])}<tbody>${html || '<tr class="empty"><td colspan="8">Tidak ada data pada saringan ini.</td></tr>'}</tbody>
       <tfoot><tr><th colspan="3">Total</th><th class="num">${fQ(rows.reduce((t, r) => t + r.qty, 0))}</th><th></th><th class="num">${fRp(tot)}</th><th class="num">${prows ? dTxt(tot - prows.reduce((t, r) => t + r.val, 0), fRp) : '–'}</th><th class="num">100%</th></tr></tfoot></table></div>
-      <p class="hint">Klik kategori untuk melihat materialnya; klik material untuk menampilkan pergerakannya di grafik. Qty dijumlah apa adanya, jadi total qty lintas UoM (Kg, Pcs) hanya untuk gambaran.</p>`;
+      <p class="hint">Kategori berpola "BRAND - JENIS" dikelompokkan per brand lalu per jenis. Klik baris untuk membuka isinya; klik material untuk menampilkan pergerakannya di grafik. Qty dijumlah apa adanya, jadi total qty lintas UoM (Kg, Pcs) hanya untuk gambaran.</p>`;
   }
   function viewMat(rows, prows) {
     const by = sumBy(rows, (r) => r.kode), pm = prows ? sumBy(prows, (r) => r.kode) : null;
@@ -232,7 +256,7 @@
     document.querySelectorAll('#invMs [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.ms)));
     const data = series(), key = I.ms === 'v' ? 'v' : 'q';
     const mat = I.chart ? I.gol.get(I.chart) : null;
-    $('invChartTitle').innerHTML = I.chart ? `Pergerakan <span class="pl-code">${esc(I.chart)}</span> ${esc(mat ? mat.nama : '')} <button type="button" class="btn-link" data-inv-chart="">kembali ke per golongan</button>` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} per golongan${I.kat || I.lok || I.q ? ' (mengikuti saringan)' : ''}`;
+    $('invChartTitle').innerHTML = I.chart ? `Pergerakan <span class="pl-code">${esc(I.chart)}</span> ${esc(mat ? mat.nama : '')} <button type="button" class="btn-link" data-inv-chart="">kembali ke per golongan</button>` : `Pergerakan ${I.ms === 'v' ? 'value' : 'qty'} per golongan${I.brand ? ' · ' + esc(I.brand) : ''}${I.jenis ? ' · ' + esc(I.jenis) : ''}${I.lok ? ' · ' + esc(I.lok) : ''}${I.q ? ' · cari "' + esc(I.q) + '"' : ''}`;
     if (!data.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
     const gl = I.chart ? ['tot'] : [...GOLS, '?'].filter((g) => data.some((d) => d[g]) && (!I.g || g === I.g));
     const showTot = !I.chart && !I.g && gl.length > 1;
@@ -316,7 +340,7 @@
       const gol = S(r[iG]).toUpperCase().replace(/\s.*$/, '');
       if (!GOLS.includes(gol)) { bad.push(`Baris ${t.hi + k + 2} · ${kode}: golongan "${S(r[iG])}" bukan RM/PM/FG/WIP`); return; }
       if (seen.has(kode)) bad.push(`Baris ${t.hi + k + 2} · ${kode}: kode dobel, dipakai baris terakhir`);
-      seen.set(kode, [kode, iN >= 0 ? S(r[iN]) : '', gol, iC >= 0 ? S(r[iC]) : '', iU >= 0 ? S(r[iU]) : '']);
+      seen.set(kode, [kode, iN >= 0 ? S(r[iN]) : '', gol, iC >= 0 ? splitKat(r[iC]).kat : '', iU >= 0 ? S(r[iU]) : '']);
     });
     const rows = [...seen.values()];
     const add = rows.filter((r) => !I.gol.has(r[0])), chg = rows.filter((r) => { const g = I.gol.get(r[0]); return g && (g.gol !== r[2] || g.kat !== r[3] || g.nama !== r[1] || g.uom !== r[4]); });
@@ -438,7 +462,8 @@
     $('invGol').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.g = b.dataset.v; render(); });
     $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
-    $('invKat').addEventListener('change', () => { I.kat = $('invKat').value; render(); });
+    $('invBrand').addEventListener('change', () => { I.brand = $('invBrand').value; I.jenis = ''; render(); });
+    $('invJenis').addEventListener('change', () => { I.jenis = $('invJenis').value; render(); });
     $('invLok').addEventListener('change', () => { I.lok = $('invLok').value; render(); });
     let tq; $('invQ').addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(() => { I.q = $('invQ').value.trim(); render(); }, 200); });
     $('invEdit').addEventListener('click', editDialog);

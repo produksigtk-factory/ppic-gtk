@@ -1839,3 +1839,8 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .inv-er input { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; min-width: 0; }
 .inv-eo { font-size: 12px; }
 @media (max-width: 640px) { .inv-eh, .inv-er { grid-template-columns: 1fr 1fr; } }
+
+.inv-br { cursor: pointer; }
+.inv-br td { font-weight: 600; background: #fbfcfb; }
+.inv-br:hover td { background: #f3f8f4; }
+.inv-br.is-open td { background: var(--brand-soft); }
