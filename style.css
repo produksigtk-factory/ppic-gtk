@@ -1937,3 +1937,14 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .pr-hisp { position: relative; margin: 8px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcf8; }
 .pr-hisx { position: absolute; right: 10px; top: 6px; font-size: 12px; }
 .pr-moq { min-width: 120px; white-space: normal; }
+
+.pr-fst { margin: 12px 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 10px 14px; }
+.pr-fst:empty { display: none; }
+.pr-st-tools { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 6px; }
+.pr-st-m { margin: 10px 0 4px; font-size: 13px; }
+.pr-st-m span { margin-left: 10px; color: #333; }
+.pr-st-t { border-collapse: collapse; width: 100%; font-size: 12px; margin-bottom: 4px; }
+.pr-st-t th, .pr-st-t td { border: 1px solid #bbb; padding: 3px 6px; text-align: left; vertical-align: top; }
+.pr-st-t th { background: #f1f4f2; font-weight: 600; }
+.pr-st-t .num { text-align: right; white-space: nowrap; }
+.pr-st-late { color: #b3261e; font-weight: 600; }

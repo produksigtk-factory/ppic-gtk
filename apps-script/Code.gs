@@ -27,7 +27,8 @@ const CONFIG = {
   SUPPLIER_CATS: ['RM (Raw)', 'PM (Pack)'],
   MONITOR_SHEET: 'MONITORING_PO',  // tampilan di Google Sheet: diisi Apps Script sebagai tabel biasa (tanpa rumus berat)
   PR_SHEET: 'REKAP_PR',            // Purchase Request: satu baris = satu material di satu PR (tidak tersentuh upload Odoo)
-  PR_LAMP_SHEET: 'LAMPIRAN_PR',    // daftar lampiran per Kode PR; file gambar disimpan di Google Drive (folder PR_LAMP_FOLDER)
+  PR_LAMP_SHEET: 'LAMPIRAN_PR',
+  PR_STATUS_SHEET: 'PR_STATUS_PO',  // status PO outstanding per material, dibekukan saat PR disimpan (untuk Lampiran Status PO)    // daftar lampiran per Kode PR; file gambar disimpan di Google Drive (folder PR_LAMP_FOLDER)
   PR_LAMP_FOLDER: 'Lampiran PR - PPIC GTK',   // dibuat otomatis di folder yang sama dengan Sheet MONITORING PO (tidak dibagikan publik)
 };
 const MONITOR_VERSION = '2';      // naikkan bila susunan tab MONITORING_PO berubah
@@ -74,6 +75,7 @@ function doGet(e) {
     lastUpload: lastUpload_(ss, tz),
     pr: readPr_(ss, tz),
     prLamp: readPrLamp_(ss, tz),
+    prStatus: readPrStatus_(ss),
     readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
   };
   putBig_(cache, 'po_main', out, 300);
@@ -160,7 +162,15 @@ function doPost(e) {
     }
     if (action === 'savePr' || action === 'uploadPr') {
       const codes = action === 'savePr' ? [savePr_(ss, body.data || {}, user, stamp, tz)] : uploadPr_(ss, body.data || {}, user, stamp, tz);
-      return json_({ ok: true, time: stamp, codes, pr: readPr_(ss, tz), editLog: readEditLog_(ss, tz, 300) });
+      if (action === 'savePr') freezePrStatus_(ss, codes[0], (body.data || {}).statusPo || {}, stamp, tz, false);
+      else (body.data.groups || []).forEach((g, i) => freezePrStatus_(ss, codes[i], g.statusPo || {}, stamp, tz, false));
+      return json_({ ok: true, time: stamp, codes, pr: readPr_(ss, tz), prStatus: readPrStatus_(ss), editLog: readEditLog_(ss, tz, 300) });
+    }
+    if (action === 'refreshPrStatus') {
+      const d = body.data || {};
+      freezePrStatus_(ss, str_(d.kodePr), d.statusPo || {}, stamp, tz, true);
+      logEdit_(ss, [[stamp, user, 'Perbarui status PO', str_(d.kodePr), '', 'Lampiran Status PO', '', 'dibekukan ulang']]);
+      return json_({ ok: true, time: stamp, prStatus: readPrStatus_(ss), editLog: readEditLog_(ss, tz, 300) });
     }
 
     const handlers = { saveLine: saveLine_, deleteLine: deleteLine_, saveSched: saveSched_, deleteSched: deleteSched_ };
@@ -733,6 +743,53 @@ function uploadPr_(ss, d, user, stamp, tz) {
   log.push([stamp, user, 'Upload PR', '', '', 'File', '', String(d.file || '') + ' · ' + codes.length + ' PR']);
   logEdit_(ss, log);
   return codes;
+}
+
+/* ---------- Lampiran Status PO (tab PR_STATUS_PO) ----------
+ * Satu baris = satu jadwal PO outstanding untuk satu material di satu PR. Material tanpa PO gantung = satu baris dengan NO PO kosong.
+ * Dibekukan saat PR disimpan: material yang sudah punya status tidak berubah saat PR diedit (kecuali "Perbarui status PO");
+ * material baru di PR dibekukan saat itu; material yang dihapus dari PR ikut dihapus statusnya. */
+const PRST_HEAD = ['KODE PR', 'KODE MATERIAL', 'NO PO', 'SUPPLIER', 'TGL ORDER', 'QTY PO', 'DITERIMA', 'SISA', 'UOM', 'JADWAL KIRIM', 'STATUS', 'DIBEKUKAN'];
+function prStatusSheet_(ss) {
+  let sh = ss.getSheetByName(CONFIG.PR_STATUS_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.PR_STATUS_SHEET);
+    sh.getRange('A:L').setNumberFormat('@');
+    sh.getRange(1, 1, 1, PRST_HEAD.length).setValues([PRST_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function readPrStatus_(ss) {
+  const sh = ss.getSheetByName(CONFIG.PR_STATUS_SHEET);
+  if (!sh) return [];
+  return readRows_(sh, PRST_HEAD.length).map(r => r.map(x => String(x === null || x === undefined ? '' : x)));
+}
+// statusPo: { kodeMaterial: [[noPo, supplier, tglOrder, qtyPo, diterima, sisa, uom, jadwal, status], ...] } (array kosong = tidak ada PO gantung)
+function freezePrStatus_(ss, kodePr, statusPo, stamp, tz, refreshAll) {
+  kodePr = str_(kodePr);
+  if (!kodePr) return;
+  const mats = new Set(readPr_(ss, tz).filter(r => r[0] === kodePr && r[15] !== 'Batal').map(r => str_(r[3])));
+  const sh = prStatusSheet_(ss);
+  const all = readPrStatus_(ss);
+  const keep = all.filter(r => r[0] !== kodePr);
+  const mine = all.filter(r => r[0] === kodePr && mats.has(r[1]) && !refreshAll);
+  const have = new Set(mine.map(r => r[1]));
+  const add = [];
+  Object.keys(statusPo).forEach(k => {
+    k = str_(k);
+    if (!mats.has(k) || have.has(k)) return;
+    const L = statusPo[k] || [];
+    if (!L.length) add.push([kodePr, k, '', '', '', '', '', '', '', '', 'Tidak ada PO outstanding', stamp]);
+    else L.forEach(x => add.push([kodePr, k].concat([0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => String(x[i] === null || x[i] === undefined ? '' : x[i]))).concat([stamp])));
+  });
+  const rows = keep.concat(mine, add);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, PRST_HEAD.length).clearContent();
+  if (rows.length) {
+    if (sh.getMaxRows() < rows.length + 1) sh.insertRowsAfter(sh.getMaxRows(), rows.length + 1 - sh.getMaxRows());
+    sh.getRange(2, 1, rows.length, PRST_HEAD.length).setNumberFormat('@').setValues(rows);
+  }
 }
 
 /* ---------- Lampiran PR (gambar di Google Drive, daftar di tab LAMPIRAN_PR) ---------- */

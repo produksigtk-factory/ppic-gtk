@@ -338,6 +338,8 @@
     setPrData(data.pr || []);
     state.noLampScript = !Array.isArray(data.prLamp);
     setPrLamp(data.prLamp || []);
+    state.noPrStatusScript = !Array.isArray(data.prStatus);
+    setPrStatus(data.prStatus || []);
   }
   async function loadData(fresh) {
     if (!CFG.APPS_SCRIPT_URL) { showSetup(); return; }
@@ -6454,13 +6456,14 @@
       <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"></td>
       <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
       <td><input data-k="note" value="${esc(r.note)}" class="pr-in-s" aria-label="Note"></td>
-      ${PR_NUM.map((k) => `<td><input data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${k === 'kurang' && !r.kurangManual ? ' is-auto' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal − Kebutuhan − OS PO. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r, i)}</div>` : ''}</td>`).join('')}
+      ${PR_NUM.map((k) => `<td><input data-k="${k}" value="${esc(r[k] === '' || r[k] === undefined ? '' : String(r[k]))}" inputmode="decimal" class="pr-in-n${(k === 'kurang' && !r.kurangManual) || (k === 'ospo' && r.ospoAuto) ? ' is-auto' : ''}" aria-label="${k}"${k === 'kurang' ? ' title="Otomatis: Stok Awal − Kebutuhan − OS PO. Boleh diubah; kosongkan untuk kembali otomatis."' : k === 'ospo' ? ' title="Otomatis: total sisa PO outstanding (Monitoring PO) saat kode diisi. Boleh diubah; kosongkan untuk kembali otomatis."' : ''}>${k === 'buka' ? `<div class="pr-moq" data-moq="${i}">${prMoqHtml(r, i)}</div>` : ''}</td>`).join('')}
       <td class="pr-kir">${r.sched ? `<span class="pr-schs">${r.sched.length} jadwal</span>` : `<input type="date" data-k="kirim" value="${esc(r.kirim || '')}" aria-label="Tanggal kirim">`}<button type="button" class="btn-link pr-splitb" data-split="${i}" title="${r.sched ? 'Tambah jadwal kirim' : 'Pecah jadwal kirim: beberapa tanggal dengan qty masing-masing'}">${r.sched ? '+ jadwal' : 'Split'}</button></td>
       <td><input data-k="pos" value="${esc(r.pos.join(', '))}" list="prEdPo${i}" class="pr-in-po" placeholder="PO… , PO…" aria-label="No PO"><datalist id="prEdPo${i}">${prPoSuggest(r.kode, D.tanggal)}</datalist></td>
       <td><select data-k="status" aria-label="Status"><option${r.status !== 'Batal' ? ' selected' : ''}>Aktif</option><option${r.status === 'Batal' ? ' selected' : ''}>Batal</option></select></td>
       <td><button type="button" class="btn-link danger" data-rm="${i}" title="Hapus baris (belum tersimpan)">×</button></td></tr>`;
     D.rows.forEach((r) => {
       r.sched = prSched(r.kirim);
+      r.ospoManual = !(prNum(r.ospo) === '' || prNum(r.ospo) === null); r.ospoAuto = false;
       const k0 = prNum(r.kurang);
       if (k0 !== '' && k0 !== null) { const t = Object.assign({}, r, { kurangManual: false }); prAutoKurang(t); r.kurangManual = Math.abs(Number(t.kurang) - Number(k0)) > 1e-6 || t.kurang === undefined; }
     });
@@ -6499,9 +6502,9 @@
           r.kirim = r.sched.length > 1 ? prSchedStr(r.sched) : r.sched[0].d;
         }
         const all = fd.allst || '';
-        const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
+        const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, statusPo: prStatusPayload(rows.map((r) => r.kode)), rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
           ...PR_NUM.map((k) => prNum(r[k])), r.kirim || '', r.pos.join(', '), all || r.status]) } });
-        setPrData(res.pr); if (res.editLog) state.editLog = res.editLog;
+        setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.editLog) state.editLog = res.editLog;
         renderPrRekap(); renderLog();
         return `${res.codes[0]} tersimpan.`;
       },
@@ -6520,6 +6523,9 @@
       if (k === 'buka' && r.sched) paintSum(i);
       const tr = inp.closest('tr');
       if (k === 'kurang') { r.kurangManual = inp.value.trim() !== ''; inp.classList.toggle('is-auto', !r.kurangManual); if (!r.kurangManual) { prAutoKurang(r); inp.value = r.kurang || ''; } }
+      if (k === 'ospo') { r.ospoManual = inp.value.trim() !== ''; r.ospoAuto = !r.ospoManual; }
+      if (k === 'kode' && !r.ospoManual) { const os = prOsSum(r.kode); r.ospo = r.kode && String(r.kode).trim() ? String(Math.round(os * 10000) / 10000) : ''; r.ospoAuto = true; const oi = tr.querySelector('[data-k=ospo]'); if (oi) { oi.value = r.ospo; oi.classList.add('is-auto'); } prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || ''; }
+      if (k === 'ospo') { inp.classList.toggle('is-auto', !r.ospoManual); if (!r.ospoManual) { r.ospo = String(Math.round(prOsSum(r.kode) * 10000) / 10000); inp.value = r.ospo; } }
       if (k === 'stok' || k === 'butuh' || k === 'ospo') { prAutoKurang(r); if (!r.kurangManual) tr.querySelector('[data-k=kurang]').value = r.kurang || ''; }
       if (k === 'buka' || k === 'kode') { const mq = tr.querySelector('.pr-moq'); if (mq) mq.innerHTML = prMoqHtml(r, i); if (k === 'kode' && r.histOpen) { r.histOpen = false; paint(); } }
       if (k === 'kode') {
@@ -6596,8 +6602,9 @@
           <ul class="pj-list"><li>${nf.format(nNew)} PR baru (Kode PR otomatis)</li><li>${nf.format(nRep)} PR yang sudah ada akan <b>diganti seluruh isinya</b>: ${esc(G.filter((g) => g.kodePr && exist.has(g.kodePr)).map((g) => g.kodePr).join(', ')) || '–'}</li>
           ${G.filter((g) => g.kodePr && !exist.has(g.kodePr)).length ? `<li>${nf.format(G.filter((g) => g.kodePr && !exist.has(g.kodePr)).length)} Kode PR di file belum ada di Rekap → dibuat dengan kode tersebut</li>` : ''}</ul>`,
         onSubmit: async () => {
+          G.forEach((g) => { g.statusPo = prStatusPayload(g.rows.map((r) => r[0])); });
           const res = await api('uploadPr', { data: { file: f.name, groups: G } });
-          setPrData(res.pr); if (res.editLog) state.editLog = res.editLog; renderPrRekap(); renderLog();
+          setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.editLog) state.editLog = res.editLog; renderPrRekap(); renderLog();
           return `${res.codes.length} PR tersimpan.`;
         },
       });
@@ -6612,6 +6619,40 @@
   });
 
   /* ---------- Lampiran PR (per Kode PR): gambar ditempel (Ctrl+V), disimpan di Google Drive lewat Apps Script ---------- */
+  /* ---------- Lampiran Status PO: PO outstanding (gantung) per material, dibekukan saat PR disimpan ---------- */
+  function setPrStatus(list) {
+    state.prStatus = (list || []).map((r) => ({ kodePr: r[0], kode: r[1], po: r[2], supplier: r[3], tgl: r[4], qty: r[5], rec: r[6], sisa: r[7], uom: r[8], jadwal: r[9], status: r[10], at: r[11] }));
+  }
+  const PR_ST_TXT = { late: 'Telat', short: 'Kurang kirim', wait: 'Menunggu jadwal', none: 'Belum ada jadwal kirim' };
+  // Baris PO outstanding untuk satu kode material (dari Monitoring PO, saat ini)
+  function prOsList(kode) {
+    kode = String(kode || '').trim(); if (!kode) return [];
+    return (state.rows || []).filter((x) => x.code === kode && !x.cancel && !x.takeout && x.sisa > 1e-9)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .map((x) => {
+        const pend = (x.sched || []).filter((sc) => sc.status !== 'Done' && sc.date).map((sc) => `${fmtDate(sc.date)}: ${prNumTxt(Math.max(0, (Number(sc.qty) || 0) - (Number(sc.rec) || 0)))}`);
+        const st = x.status === 'late' ? `Telat ${nf.format(x.lateDays || 0)} hari` : PR_ST_TXT[x.status] || x.status;
+        return [x.po, x.supplier, x.date, x.qty, x.rec, x.sisa, x.uom, pend.join('; '), st];
+      });
+  }
+  const prOsSum = (kode) => prOsList(kode).reduce((t, x) => t + (Number(x[5]) || 0), 0);
+  const prStatusPayload = (kodes) => { const o = {}; [...new Set(kodes.map((k) => String(k || '').trim()).filter(Boolean))].forEach((k) => { o[k] = prOsList(k); }); return o; };
+  const prStatusOf = (kodePr) => (state.prStatus || []).filter((x) => x.kodePr === kodePr);
+  // Halaman / pratinjau Lampiran Status PO
+  function prStatusHtml(g, print) {
+    const st = prStatusOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
+    const at = st.map((x) => x.at).filter(Boolean).sort().pop() || '';
+    const blk = rows.map((r) => {
+      const L = st.filter((x) => x.kode === String(r.kode).trim());
+      const os = L.filter((x) => x.po), tot = os.reduce((t, x) => t + (Number(x.sisa) || 0), 0);
+      const head = `<div class="pr-st-m"><b>${esc(r.kode)}</b> ${esc(r.nama)}<span>${!L.length ? 'Status belum dibekukan' : os.length ? `OS PO <b>${prNumTxt(tot)} ${esc(os[0].uom)}</b> · ${os.length} jadwal PO terbuka` : '<b>Tidak ada PO outstanding (PO gantung)</b>'}</span></div>`;
+      if (!os.length) return head;
+      return head + `<table class="pr-st-t"><thead><tr><th>No PO</th><th>Supplier</th><th>Tgl order</th><th class="num">Qty PO</th><th class="num">Diterima</th><th class="num">Sisa (OS)</th><th>Jadwal kirim belum datang</th><th>Status</th></tr></thead><tbody>
+        ${os.map((x) => `<tr><td>${esc(x.po)}</td><td>${esc(x.supplier)}</td><td>${esc(x.tgl ? fmtDate(x.tgl) : '')}</td><td class="num">${prNumTxt(x.qty)}</td><td class="num">${prNumTxt(x.rec)}</td><td class="num"><b>${prNumTxt(x.sisa)}</b> ${esc(x.uom)}</td><td>${esc(x.jadwal).replace(/; /g, '<br>') || '–'}</td><td class="${/^Telat/.test(x.status) ? 'pr-st-late' : ''}">${esc(x.status)}</td></tr>`).join('')}</tbody></table>`;
+    }).join('');
+    const title = `<div class="pr-lamp-h"><b>Lampiran Status PO</b> · ${esc(g.kodePr)}${at ? ` · status per ${esc(at)}` : ''}</div>`;
+    return print ? `<section class="pr-lamp-page pr-st-page">${title}${blk}</section>` : `${title}${blk}`;
+  }
   function setPrLamp(list) {
     state.prLamp = (list || []).map((r) => ({ kodePr: r[0], id: r[1], jenis: r[2], fileId: r[3], name: r[4], caption: r[5], time: r[6], by: r[7] }));
   }
@@ -6759,9 +6800,19 @@
     $('prFormLamp').innerHTML = g && !g.batal ? `<div class="pr-flamp-h"><b>Lampiran (${L.length})</b> <span class="muted">ikut tercetak di halaman setelah formulir</span> <button type="button" class="btn-link" data-lamppr="${esc(g.kodePr)}">${L.length ? 'Lihat / ubah lampiran' : 'Sertakan lampiran'}</button></div>`
       + (L.length ? `<div class="pl-grid">${L.map((x, i) => `<figure class="pl-fig"><img data-lampid="${esc(x.id)}" alt="Lampiran ${i + 1}"><figcaption><b>Lampiran ${i + 1}</b>${x.caption ? ' · ' + esc(x.caption) : ''}</figcaption></figure>`).join('')}</div>` : '') : '';
     prLampFill($('prFormLamp'));
+    $('prFormStatus').innerHTML = g && !g.batal ? (state.noPrStatusScript ? '<p class="check err">Lampiran Status PO perlu Apps Script MONITORING PO versi terbaru.</p>' : `<div class="pr-st-tools"><label class="tb-check"><input type="checkbox" id="prStInc"${PRF.noSt ? '' : ' checked'}> Sertakan Lampiran Status PO saat cetak</label><button type="button" class="btn-link" id="prStRefresh" title="Bekukan ulang status PO dengan data Monitoring PO saat ini (Mode edit)">Perbarui status PO</button></div>${prStatusHtml(g, false)}`) : '';
     $('prFormPo').innerHTML = g && !g.batal ? `No PO terbit dari PR ini: ${pos.length ? g.rows.filter((r) => r.status !== 'Batal' && r.pos.length).map((r) => `<span class="pr-pochip"><span class="mono">${esc(r.kode)}</span> ${prPoLinks(r)}</span>`).join(' ') : '<span class="muted">belum ada</span>'}` : '';
   }
   $('prKode').addEventListener('input', () => { PRF.kode = $('prKode').value.trim(); prRenderForm(); });
+  $('prFormStatus').addEventListener('change', (e) => { if (e.target.id === 'prStInc') PRF.noSt = !e.target.checked; });
+  $('prFormStatus').addEventListener('click', (e) => {
+    if (!e.target.closest('#prStRefresh')) return;
+    const g = prGroups().find((x) => x.kodePr === PRF.kode); if (!g) return;
+    if (!state.edit.on) { toast('Masuk Mode edit dulu untuk memperbarui status PO.'); return; }
+    openDialog({ title: `Perbarui status PO · ${g.kodePr}`, ok: 'Perbarui',
+      body: `<p class="dlg-lead">Status PO yang dibekukan untuk ${g.rows.filter((r) => r.status !== 'Batal').length} material di PR ini akan diganti dengan data Monitoring PO saat ini.</p>`,
+      onSubmit: async () => { const res = await api('refreshPrStatus', { data: { kodePr: g.kodePr, statusPo: prStatusPayload(g.rows.filter((r) => r.status !== 'Batal').map((r) => r.kode)) } }); setPrStatus(res.prStatus); if (res.editLog) state.editLog = res.editLog; prRenderForm(); return 'Status PO diperbarui.'; } });
+  });
   $('prPaper').addEventListener('input', (e) => { const n = e.target.closest('[data-prnote]'); if (n && PRF.kode) prNoteSet(PRF.kode, n.innerText.replace(/\n+$/, '')); });
   $('prPrint').addEventListener('click', async () => {
     const g = prGroups().find((x) => x.kodePr === PRF.kode); if (!g || g.batal) return;
@@ -6770,7 +6821,7 @@
     $('prPrint').disabled = true; const lbl = $('prPrint').textContent; $('prPrint').textContent = 'Menyiapkan lampiran…';
     let lampHtml = '';
     try { lampHtml = await prLampPrintHtml(g.kodePr); } finally { $('prPrint').disabled = false; $('prPrint').textContent = lbl; }
-    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g, true)}</div>${lampHtml}`;
+    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g, true)}</div>${!PRF.noSt && !state.noPrStatusScript ? prStatusHtml(g, true) : ''}${lampHtml}`;
     document.body.classList.add('printing-pr');
     const t0 = document.title; document.title = g.kodePr.replace(/\//g, '-');   // nama file PDF bawaan
     const done = () => { document.body.classList.remove('printing-pr'); document.title = t0; window.removeEventListener('afterprint', done); };
