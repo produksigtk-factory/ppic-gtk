@@ -1959,3 +1959,18 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .cu-tag { font-size: 11px; padding: 0 6px; border-radius: 999px; background: #eef1f4; color: var(--muted); }
 .cu-tag.is-chg { background: var(--wait-soft); color: #8a5a00; font-weight: 600; }
 .cu-tag.is-new { background: var(--done-soft); color: var(--done); font-weight: 600; }
+
+.pr-in-n.is-lock { background: #eef1f4; color: #333; cursor: not-allowed; }
+.pr-hit-w { overflow-x: auto; }
+.pr-hit th { white-space: nowrap; }
+.pr-hit thead th.is-w { background: #e8f0e9; }
+.pr-hit thead th.is-u { background: #fff3d6; }
+.pr-hit tbody th { text-align: left; background: #f7f8f9; white-space: nowrap; }
+.pr-hit tr.is-sal td, .pr-hit tr.is-sal th { font-weight: 700; }
+.pr-hit td.pr-neg { color: #b3261e; background: #fdecea; }
+.pr-st-ok { color: var(--done); }
+.pr-hit-sec { margin-bottom: 14px; }
+.pr-lampb { display: block; font-size: 12px; margin-top: 2px; }
+.pr-lamps { display: block; font-size: 11px; color: var(--muted); }
+.pr-lampdlg { max-height: 70vh; overflow: auto; }
+@media print { .pr-hit-page .pr-st-t { font-size: 9px; } .pr-hit-page { page: landscape; } }
