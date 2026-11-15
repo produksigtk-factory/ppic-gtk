@@ -1995,3 +1995,5 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .ps-wrap table { min-width: 0; width: 100%; }
 .ps-wrap td, .ps-wrap th { white-space: normal; }
 .ps-wrap td.num { white-space: nowrap; }
+
+.pr-dellist { margin: 6px 0 10px; padding-left: 18px; max-height: 30vh; overflow: auto; font-size: 13px; }

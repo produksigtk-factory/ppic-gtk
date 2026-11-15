@@ -6377,7 +6377,7 @@
       const stx = prStatusOf(kodePr), ht = prHitungOf(kodePr), gm = new Set(stx.filter((x) => x.po).map((x) => x.kode)), nm = new Set(stx.map((x) => x.kode)), mn = ht.filter((x) => x.data && x.data.minus).length, nl = prLampOf(kodePr).length;
       const names = act.slice(0, 3).map((x) => x.nama || x.kode).join(', ') + (act.length > 3 ? ` +${act.length - 3}` : '');
       const head = `<tr class="pr-grp${open ? ' is-open' : ''}${act.length ? '' : ' is-takeout'}" data-prg="${esc(kodePr)}">
-        <td class="pr-kc"><span class="pr-chev" aria-hidden="true">${open ? '▾' : '▸'}</span><button type="button" class="btn-link" data-openpr="${esc(kodePr)}" title="Buka formulir PR ini">${esc(kodePr)}</button>${ed ? ` <button type="button" class="btn-link" data-editpr="${esc(kodePr)}">Ubah</button>` : ''}
+        <td class="pr-kc"><span class="pr-chev" aria-hidden="true">${open ? '▾' : '▸'}</span><button type="button" class="btn-link" data-openpr="${esc(kodePr)}" title="Buka formulir PR ini">${esc(kodePr)}</button>${ed ? ` <button type="button" class="btn-link" data-editpr="${esc(kodePr)}">Ubah</button> <button type="button" class="btn-link danger pr-del" data-prdelall="${esc(kodePr)}" title="Hapus seluruh PR ini secara permanen">Hapus PR</button>` : ''}
           ${nm.size || ht.length ? `<small class="pr-lamps">${ht.length ? `${mn ? `<span class="pl-bad">${mn} minus</span>` : 'tidak minus'} · ` : ''}${nm.size ? `${gm.size} PO gantung / ${nm.size}` : ''}</small>` : ''}<button type="button" class="pr-lampbtn${nl ? ' has' : ''}" data-lamppr="${esc(kodePr)}" title="Lampiran PR (perhitungan, status PO & gambar)">${nl ? `📎 ${nl} lampiran` : 'Sertakan lampiran'}</button></td>
         <td class="date">${esc(prDateTxt(all[0] ? all[0].tanggal : ''))}</td>
         <td colspan="13" class="pr-gsum"><b>${act.length}</b> material${all.length - act.length ? ` <span class="muted">(+${all.length - act.length} batal)</span>` : ''} · ${esc(names)}${open ? '' : ' <span class="muted">· klik untuk lihat rincian</span>'}</td>
@@ -6408,6 +6408,7 @@
   $('prRows').addEventListener('click', (e) => {
     if (e.target.closest('button, a, input, select')) {
       const d = e.target.closest('[data-prdel]'); if (d) prDelRow(d.dataset.prdel, Number(d.dataset.prdelNo), d.dataset.prdelKode);
+      const da = e.target.closest('[data-prdelall]'); if (da) prDelAll(da.dataset.prdelall);
       return;
     }
     const g = e.target.closest('tr.pr-grp'); if (!g) return;
@@ -6428,6 +6429,25 @@
         setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
         renderPrRekap(); renderLog();
         return `Baris ${kode} dihapus dari ${kodePr}.`;
+      } });
+    $('dlgOk').disabled = true; $('prDelAck').addEventListener('change', (e) => { $('dlgOk').disabled = !e.target.checked; });
+  }
+  function prDelAll(kodePr) {
+    if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
+    const rs = (state.pr || []).filter((x) => x.kodePr === kodePr); if (!rs.length) return;
+    const withPo = rs.filter((x) => x.pos.length);
+    openDialog({ title: `Hapus ${kodePr}`, ok: 'Hapus PR permanen', danger: true,
+      body: `<p class="dlg-lead">Seluruh PR <b>${esc(kodePr)}</b> (${rs.length} baris material) akan <b>dihapus permanen</b> dari REKAP_PR beserta Lampiran Perhitungan & Status PO-nya. Tidak bisa dibatalkan dari website.</p>
+        <ul class="pr-dellist">${rs.map((r) => `<li><span class="mono">${esc(r.kode)}</span> ${esc(r.nama)}${r.buka !== '' ? ` · buka ${prNumTxt(r.buka)}` : ''}${r.pos.length ? ` · PO ${esc(r.pos.join(', '))}` : ''}</li>`).join('')}</ul>
+        ${withPo.length ? `<p class="warn">${withPo.length} baris sudah punya No PO. PO-nya di Monitoring PO tidak ikut terhapus, hanya catatan PR-nya.</p>` : ''}
+        <p class="hint">Kalau hanya ingin menandai tidak jadi, pakai status Batal (Ubah PR). Lampiran gambar di Drive tetap tersimpan.</p>
+        <label class="tb-check"><input type="checkbox" name="ack" id="prDelAck"> Ya, hapus seluruh PR ini</label>`,
+      onSubmit: async (fd) => {
+        if (!fd.ack) throw new Error('Centang dulu "Ya, hapus seluruh PR ini".');
+        const res = await api('deletePr', { data: { kodePr, n: rs.length } });
+        setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
+        state.prOpen.delete(kodePr); renderPrRekap(); renderLog();
+        return `${kodePr} dihapus.`;
       } });
     $('dlgOk').disabled = true; $('prDelAck').addEventListener('change', (e) => { $('dlgOk').disabled = !e.target.checked; });
   }
