@@ -1814,9 +1814,29 @@
     back();
     return out;
   }
+  // Ringkasan per bulan (Rp) untuk menu lain (Incoming RMPM): SO, DO bulan sama, DO+OS terkirim di bulan itu, FCT (nilai Rp & pcs × harga)
+  async function monthly(seg = 'pc') {
+    const back = () => setSeg(routeSeg());
+    setSeg(seg);
+    if (!SEG.url) { back(); return { none: true, months: [] }; }
+    if (!C.loaded) {
+      if (!C.loading) await load();
+      setSeg(seg);
+      while (C.loading) { await new Promise((r) => setTimeout(r, 300)); setSeg(seg); }
+    }
+    if (!C.loaded) { const e = C.err; back(); throw new Error(e || 'Data CSL belum bisa dimuat.'); }
+    const price = new Map();   // harga rata-rata per kode dari SO (untuk FCT pcs → Rp)
+    C.lines.forEach((L) => { const o = price.get(L.kode) || [0, 0]; o[0] += L.amt; o[1] += L.qty; price.set(L.kode, o); });
+    const fctRp = {};
+    (C.fctRows || []).forEach((r) => { const p = price.get(r[1]); if (p && p[1]) fctRp[r[0]] = (fctRp[r[0]] || 0) + (Number(r[3]) || 0) * p[0] / p[1]; });
+    const ms = new Set([...(C.A ? C.A.soList : []), ...Object.keys(fctRp)]);
+    const out = [...ms].sort().map((m) => { const a = C.A && C.A.month[m] ? csl(m, 'ALL') : { so: 0, do: 0, dos: 0 }; return { m, so: a.so || 0, do: a.do || 0, dos: a.dos || 0, fctNilai: nilaiOf(m, 'ALL'), fctRp: fctRp[m] || 0 }; });
+    back();
+    return { months: out };
+  }
   window.CSL = {
     enter, reload: () => { setSeg(routeSeg()); return load({ fresh: true }); }, sheetUrl: () => { setSeg(routeSeg()); return C.sheetUrl || SEG.sheet || ''; }, doOut,
-    get _state() { return C; }, _sug: sugRow, _stats: statsOf, _seg: () => SEG.key,
+    get _state() { return C; }, _sug: sugRow, _stats: statsOf, _seg: () => SEG.key, monthly,
   };
   // Halaman CSL dibuka langsung lewat alamat; selain itu muat di belakang untuk angka Beranda
   const k0 = location.hash.replace(/^#\/?/, '');

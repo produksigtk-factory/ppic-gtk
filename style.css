@@ -2051,3 +2051,27 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 body[data-cslseg="beauty"] #cdGrp,
 body[data-cslseg="beauty"] label:has(> #csGrp),
 body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
+/* Kebutuhan Report → Incoming RMPM */
+.inc-actions { align-items: center; }
+.inc-actions .check { margin: 0; }
+.inc-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+.inc-grid > .inv-card:first-child .table-wrap { max-width: 760px; }
+@media (max-width: 1100px) { .inc-grid { grid-template-columns: minmax(0, 1fr); } }
+.inc-gr th, .inc-gr td { background: #eef4f0; font-weight: 700; }
+.inc-in { padding-left: 22px !important; }
+.inc-reason { width: 100%; min-width: 160px; padding: 4px 6px; border: 1px solid var(--line, #d5dbe1); border-radius: 6px; font: inherit; font-size: 13px; }
+.inc-leg { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: #34465a; margin: 2px 0 6px; }
+.inc-leg i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.inc-svg { width: 100%; height: auto; display: block; }
+.inc-grid-l { stroke: #e3e8e5; stroke-width: 1; }
+.inc-ax { fill: #6b7a8a; font-size: 12px; }
+.inc-lbl { fill: #1d2724; font-size: 11px; font-weight: 600; }
+.inc-src { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+.inc-src-Report { background: #eef1f4; color: #4a545e; }
+.inc-src-Odoo { background: #e3f1e6; color: #1d5e2f; }
+.inc-src-Manual { background: #fff2cf; color: #7a5300; }
+.inc-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; }
+.inc-form .inc-wide { grid-column: span 2; }
+@media (max-width: 700px) { .inc-form { grid-template-columns: 1fr; } .inc-form .inc-wide { grid-column: auto; } }
+.inc-grid .inv-t { min-width: 0; width: 100%; }
+.inc-grid .table-wrap { overflow-x: auto; }

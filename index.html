@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=19c5aacc">
+<link rel="stylesheet" href="style.css?v=1d72dd2f">
 </head>
 <body>
 <div class="shell">
@@ -76,6 +76,7 @@
           <span class="menu-sublabel">Value and Qty Inventory</span>
           <a class="menu-item sub" href="#/rep/inv-mat" data-route="rep/inv-mat">RM, PM, dan WIP</a>
           <a class="menu-item sub" href="#/rep/inv-fg" data-route="rep/inv-fg">FG</a>
+          <a class="menu-item sub" href="#/rep/incoming" data-route="rep/incoming">Incoming RMPM</a>
         </div>
       </div>
 
@@ -1072,6 +1073,28 @@
         <div id="invBody"></div>
       </section>
 
+      <section id="view-rep-inc" class="view" hidden>
+        <div class="mrp-loading" id="incLoading" hidden>Memuat data Incoming RMPM…</div>
+        <div id="incTop" hidden>
+          <div class="toolbar">
+            <label class="tb-field"><span class="sr">Bulan</span><select id="incMonth" title="Bulan incoming"></select></label>
+            <div class="pj-seg" id="incKel" role="group" aria-label="Kelompok"><button type="button" data-v="">Semua</button><button type="button" data-v="PC">Personal Care</button><button type="button" data-v="BEAUTY">Beauty</button></div>
+            <label class="tb-field tb-narrow"><span class="sr">Sumber</span><select id="incSrc"><option value="">Semua sumber</option><option value="Report">Report (Jan–Jun 2026)</option><option value="Odoo">Odoo</option><option value="Manual">Manual</option></select></label>
+            <label class="tb-search"><span class="sr">Cari</span><input type="search" id="incQ" placeholder="Cari kode, nama, PO, supplier"></label>
+          </div>
+          <div class="toolbar inc-actions">
+            <label class="btn btn-sm" for="incUp" title="Export Receipt Odoo (INCOMING RMPM). Hanya bulan Juli 2026 ke atas yang dipakai.">Upload export Odoo<input type="file" id="incUp" accept=".xls,.xlsx,.csv" hidden></label>
+            <button type="button" class="btn btn-sm" id="incAdd" title="Tambah penerimaan yang tidak ada di export Odoo (mis. WIP maklon)">Tambah incoming manual</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="incXls">Unduh Excel</button>
+            <p class="check" id="incMsg"></p>
+          </div>
+          <p class="mrp-count" id="incInfo"></p>
+          <div class="pl-kpis inv-kpis" id="incKpi"></div>
+          <div class="inv-vbar"><div class="pj-seg" id="incTab" role="group" aria-label="Tampilan"><button type="button" data-v="bulan">Ringkasan bulan</button><button type="button" data-v="grafik">Grafik per bulan</button><button type="button" data-v="daftar">Daftar incoming</button><button type="button" data-v="rtr">Masih karantina</button></div></div>
+        </div>
+        <div id="incBody"></div>
+      </section>
+
       <section id="view-csl-dashboard" class="view" hidden>
         <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
         <div class="toolbar">
@@ -1352,10 +1375,11 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=7d8f1aa9"></script>
-<script src="app.js?v=6cb5bf42"></script>
+<script src="config.js?v=8b1b4afa"></script>
+<script src="app.js?v=d09b589d"></script>
 <script src="inv.js?v=7f20efd8"></script>
-<script src="csl.js?v=a12237a1"></script>
+<script src="inc.js?v=82f61191"></script>
+<script src="csl.js?v=1f71e4b7"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>
