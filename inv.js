@@ -123,8 +123,8 @@
   /* ---------- Pergerakan FG dari DO CSL: Fast / Slow / Not Move / Dead Stock ---------- */
   // Periode P bulan dihitung mundur dari tanggal snapshot. Fast = masuk Pareto qty (mvPar %) DAN ada DO di ≥ mvWk % minggu.
   // Slow = ada DO tapi bukan Fast. Not Move = tanpa DO di periode, ada DO di periode sebelumnya (s/d 2× P). Dead Stock = tanpa DO 2× P.
-  const MV = { F: 'Fast Moving', S: 'Slow Moving', N: 'Not Move', D: 'Dead Stock' };
-  const MV_CLR = { F: '#1e7a46', S: '#c9962b', N: '#d0612a', D: '#8e2b22' };
+  const MV = { F: 'Fast Moving', S: 'Slow Moving', N: 'Not Move', D: 'Dead Stock', X: 'Tanpa data DO' };
+  const MV_CLR = { F: '#1e7a46', S: '#c9962b', N: '#d0612a', D: '#8e2b22', X: '#7b8794' };
   const dayN = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 864e5;
   const isoOf = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
   const addMon = (d, k) => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + k, dd = +d.slice(8, 10); const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return new Date(Date.UTC(y, m, Math.min(dd, last))).toISOString().slice(0, 10); };
@@ -161,7 +161,8 @@
     I.mvCache.set(key, res);
     return res;
   }
-  const mvOf = (M, kode) => (M ? (M.map.get(kode) || { qty: 0, nw: 0, fr: 0, avg: 0, last: '', cls: 'D' }) : null);
+  // Kode yang tidak pernah muncul di DO CSL sama sekali → X (bisa jadi bukan produk CSL Personal Care, atau memang tidak pernah keluar)
+  const mvOf = (M, kode) => (M ? (M.map.get(kode) || { qty: 0, nw: 0, fr: 0, avg: 0, last: '', cls: 'X' }) : null);
   const mvChip = (c) => `<span class="inv-mv inv-mv-${c}">${MV[c]}</span>`;
 
   /* ---------- Hitung per snapshot ---------- */
@@ -258,7 +259,7 @@
     const M = I.kel === 'FG' ? mvCalc(I.snap) : null;
     let mvCard = '';
     if (M) {
-      const bad = rows.filter((r) => mvOf(M, r.kode).cls !== 'F'), bv = bad.reduce((t, r) => t + r.val, 0);
+      const bad = rows.filter((r) => r.qty > 0 && ['S', 'N', 'D'].includes(mvOf(M, r.kode).cls)), bv = bad.reduce((t, r) => t + r.val, 0);
       mvCard = `<button type="button" class="pk inv-k inv-kmv" data-inv-mv="1" style="--gc:${MV_CLR.N}" title="Lihat per pergerakan"><span class="pk-lbl">Slow, Not Move, Dead <small>${fPct(tot ? bv / tot : NaN)}</small></span><span class="pk-num">${fBig(bv)}</span><span class="inv-ksub">${new Set(bad.map((r) => r.kode)).size} kode · periode ${M.P} bln</span></button>`;
     }
     $('invKpi').innerHTML = card('Total value', tot, ptot, `${nf0.format(new Set(rows.map((r) => r.kode)).size)} kode`) + mvCard
@@ -338,11 +339,14 @@
   function viewMov(rows) {
     const M = mvCalc(I.snap);
     if (!M) return '<p class="muted">Menunggu data DO CSL…</p>';
+    const z = new Set(rows.map((r) => r.kode)).size;
+    rows = rows.filter((r) => r.qty > 0);
+    const zero = z - new Set(rows.map((r) => r.kode)).size;
     const tot = rows.reduce((t, r) => t + r.val, 0);
     const by = sumBy(rows, (r) => mvOf(M, r.kode).cls);
     const fm = (v) => (v ? nf1.format(v) : '–');
     let html = '';
-    ['F', 'S', 'N', 'D'].forEach((c) => {
+    ['F', 'S', 'N', 'D', 'X'].forEach((c) => {
       const o = by.get(c); if (!o) return;
       const open = I.open.has('MV:' + c);
       html += `<tr class="inv-kr inv-mvg${open ? ' is-open' : ''}" data-inv-open="MV:${c}" style="--gc:${MV_CLR[c]}"><td class="inv-chev" aria-hidden="true">${open ? '▾' : '▸'}</td><td colspan="6"><b class="inv-mvt" style="color:${MV_CLR[c]}">${MV[c]}</b> <span class="muted">· ${o.n.size} kode</span></td><td class="num"><b>${fQ(o.qty)}</b></td><td class="num"><b>${fRp(o.val)}</b></td><td class="num">${fPct(tot ? o.val / tot : NaN)}</td><td></td></tr>`;
@@ -354,7 +358,7 @@
     });
     return `<div class="table-wrap"><table class="po-table inv-t inv-mvtab">${head([['', 'inv-chev'], ['Pergerakan / FG'], ['Brand - jenis'], ['Minggu ada DO', 'num'], [`Qty DO ${M.P} bln`, 'num'], ['Rata-rata DO / bln', 'num'], ['DO terakhir'], ['Stok', 'num'], ['Value', 'num'], ['Porsi', 'num'], ['Stok cukup (bln)', 'num']])}<tbody>${html || '<tr class="empty"><td colspan="11">Tidak ada data pada saringan ini.</td></tr>'}</tbody>
       <tfoot><tr><th colspan="7">Total</th><th class="num">${fQ(rows.reduce((t, r) => t + r.qty, 0))}</th><th class="num">${fRp(tot)}</th><th class="num">100%</th><th></th></tr></tfoot></table></div>
-      <p class="hint">Klik baris pergerakan untuk membuka daftar FG. Stok cukup (bln) = stok ÷ rata-rata DO per bulan. Kode FG dicocokkan langsung dengan kode di DO CSL. Grafik "Pergerakan" memakai golongan pergerakan pada tanggal masing-masing snapshot.</p>`;
+      <p class="hint">Klik baris pergerakan untuk membuka daftar FG. Stok cukup (bln) = stok ÷ rata-rata DO per bulan. Kode FG dicocokkan langsung dengan kode di DO CSL. Grafik "Pergerakan" memakai golongan pergerakan pada tanggal masing-masing snapshot.${zero ? ` ${zero} kode FG dengan stok 0 tidak ditampilkan.` : ''} <b>Tanpa data DO</b> = kode tidak pernah muncul di DO CSL sejak data tersedia (bisa jadi produk di luar CSL Personal Care), jadi tidak dimasukkan ke Dead Stock.</p>`;
   }
   function viewLok(rows) {
     const by = sumBy(rows, (r) => r.lok), tot = rows.reduce((t, r) => t + r.val, 0);
