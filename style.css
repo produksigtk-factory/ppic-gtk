@@ -2027,3 +2027,4 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .lp-po td { vertical-align: middle; }
 @media (max-width: 700px) { .lp-eq { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media print { .lp-card { border-radius: 0; padding: 6px 8px; } .lp-eq { gap: 4px; } .lp-v { font-size: 12px; } .lp-chip { font-size: 10px; } .lp-notes { font-size: 10px; } }
+.ph-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0 4px; }

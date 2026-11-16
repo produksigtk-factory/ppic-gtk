@@ -5297,8 +5297,43 @@
           <tr class="csl-tot"><th colspan="3">Total PO berjalan</th><th class="num">${fmtQ(tot('sisa'))}</th><th></th><th class="num">${fmtQ(L.reduce((t, x) => t + (Number(x.eff !== undefined ? x.eff : x.konf) || 0), 0))} dikonfirmasi</th></tr></tbody></table>`
           : '<p class="check">Tidak ada PO berjalan untuk material ini.</p>'}
         ${RV.length ? `<h3 class="kp-h">Sudah datang (dikonfirmasi)</h3><ul class="kfr-ul">${RV.map((x) => `<li><b>${esc(x.po)}</b> ke-${esc(x.ke)} · ${esc(x.supplier || '')} · datang ${esc(fmtDate(x.datang))} · +${fmtQ(x.konf)}${x.inStock ? ' <span class="muted">(sudah termasuk stok)</span>' : ''}</li>`).join('')}</ul>` : ''}
+        ${L.length ? `<div class="ph-copy"><button type="button" class="btn btn-sm btn-ghost" id="phPoCopy">Salin tabel untuk email</button><label class="tb-check"><input type="checkbox" id="phPoCopyKf"> sertakan konfirmasi incoming</label><span class="muted" id="phPoCopyMsg"></span></div>` : ''}
         <p class="hint">Hanya jadwal PO yang <b>dikonfirmasi incoming</b> yang menambah saldo (Plotting Harian & Proyeksi Stok). Konfirmasi incoming dilakukan di Proyeksi Stok.</p>`,
       onSubmit: async () => { location.hash = '#/mrp/proyeksi'; setTimeout(() => { try { openProjDetail(code); } catch (e) { /* abaikan */ } }, 400); return ''; },
+    });
+    phPoCopyBind(code, r, L, wk);
+  }
+  // Salin tabel PO ke clipboard: HTML bergaya inline (rapi saat ditempel di Gmail / Outlook) + teks bertab (Excel / teks biasa)
+  function phPoCopyBind(code, r, L, wk) {
+    const btn = $('phPoCopy'); if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const withKf = $('phPoCopyKf').checked;
+      const fmtQ = (v) => (v === '' || v === null || v === undefined ? '–' : (Number(v) || 0).toLocaleString('id-ID', { maximumFractionDigits: 3 }));
+      const stTxt = (x) => (x.kind === 'late' ? 'Terlambat' : x.kind === 'none' ? 'Belum dijadwalkan' : x.kind === 'out' || (wk && x.date > wk.end) ? 'Mendatang' : 'Terjadwal week ini');
+      const dTxt = (x) => (x.kind === 'none' || !x.date ? 'Belum dijadwalkan' : fmtDate(x.date));
+      const kTxt = (x) => (x.konf ? `${fmtQ(x.konf)}${x.kWeek ? ' (datang ' + x.kWeek + ')' : ''}` : 'Belum dikonfirmasi');
+      const head = ['No', 'No PO', 'Supplier', 'Jadwal datang', `Sisa (${r.uom || ''})`, 'Status'].concat(withKf ? ['Konfirmasi incoming'] : []);
+      const rows = L.map((x, i) => [String(i + 1), x.po + (x.ke ? ` (ke-${x.ke})` : ''), x.supplier || '', dTxt(x), fmtQ(x.sisa), stTxt(x)].concat(withKf ? [kTxt(x)] : []));
+      const tot = fmtQ(L.reduce((t, x) => t + (Number(x.sisa) || 0), 0));
+      const title = `${code} - ${r.name}`;
+      const td = 'border:1px solid #9aa5a0;padding:4px 8px;font-family:Arial,sans-serif;font-size:13px;vertical-align:top;';
+      const numCol = 4;
+      const html = `<p style="font-family:Arial,sans-serif;font-size:13px;margin:0 0 6px"><b>${esc(title)}</b></p>`
+        + `<table style="border-collapse:collapse;border:1px solid #9aa5a0"><thead><tr>${head.map((h) => `<th style="${td}background:#e6efe9;text-align:left">${esc(h)}</th>`).join('')}</tr></thead><tbody>`
+        + rows.map((c, i) => `<tr>${c.map((v, j) => `<td style="${td}${j === numCol ? 'text-align:right;white-space:nowrap;' : ''}${j === 5 && L[i].kind === 'late' ? 'color:#b3261e;font-weight:bold;' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')
+        + `<tr><td colspan="4" style="${td}font-weight:bold">Total sisa PO</td><td style="${td}text-align:right;font-weight:bold;white-space:nowrap">${esc(tot)}</td><td colspan="${head.length - 5}" style="${td}"></td></tr></tbody></table>`;
+      const text = [title, head.join('\t'), ...rows.map((c) => c.join('\t')), ['', '', '', 'Total sisa PO', tot].join('\t')].join('\n');
+      const msg = $('phPoCopyMsg');
+      try {
+        if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+          await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+        } else {
+          const box = document.createElement('div'); box.contentEditable = 'true'; box.style.cssText = 'position:fixed;left:-9999px;top:0'; box.innerHTML = html; document.body.appendChild(box);
+          const rg = document.createRange(); rg.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+          const ok = document.execCommand('copy'); sel.removeAllRanges(); box.remove(); if (!ok) throw new Error('copy');
+        }
+        msg.textContent = 'Tabel disalin. Tempel (Ctrl+V) di email.'; toast('Tabel PO disalin. Tempel (Ctrl+V) di email.');
+      } catch (e) { msg.textContent = 'Gagal menyalin otomatis. Blok tabel di atas lalu tekan Ctrl+C.'; }
     });
   }
   $('phRows').addEventListener('click', (e) => { const td = e.target.closest('td.pl-c1'); if (td) { const c = td.querySelector('.pl-code'); if (c) phPoDialog(c.textContent.trim()); } });
