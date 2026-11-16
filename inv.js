@@ -47,10 +47,10 @@
     gol: new Map(), harga: new Map(), snaps: [], stok: new Map(), log: [],
     ct: 'line', bdim: { MAT: 'gol', FG: 'brand' }, bsnaps: null, bcats: null,
     kel: 'MAT', all: { MAT: { stok: new Map(), snaps: [] }, FG: { stok: new Map(), snaps: [] } }, selSnap: { MAT: '', FG: '' },
-    snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', mvP: 3, mvF: '', mvPar: 80, mvWk: 50, mv: null, mvCache: new Map(), ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
+    snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'sum', mvP: 3, mvF: '', mvPar: 80, mvWk: 50, mv: null, mvCache: new Map(), ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
   };
-  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm', 'ct', 'mvP', 'mvPar', 'mvWk'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (![3, 6, 12].includes(+I.mvP)) I.mvP = 3; I.mvP = +I.mvP; if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
-  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel, pm: I.pm, ct: I.ct, mvP: I.mvP, mvPar: I.mvPar, mvWk: I.mvWk })); } catch (e) { /* abaikan */ } };
+  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm', 'ct', 'mvP', 'mvPar', 'mvWk'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (!v.v2 || !['sum', 'chart', 'kat', 'mat', 'lok', 'mov'].includes(I.view)) I.view = 'sum'; if (![3, 6, 12].includes(+I.mvP)) I.mvP = 3; I.mvP = +I.mvP; if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
+  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ v2: 1, view: I.view, ms: I.ms, kel: I.kel, pm: I.pm, ct: I.ct, mvP: I.mvP, mvPar: I.mvPar, mvWk: I.mvWk })); } catch (e) { /* abaikan */ } };
 
   /* ---------- Apps Script ---------- */
   async function load(force) {
@@ -211,15 +211,19 @@
     document.querySelectorAll('#invKel [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.kel)));
     $('invGol').hidden = I.kel === 'FG';
     $('invGol').innerHTML = [['', 'Semua'], ['RM', 'RM'], ['PM', 'PM'], ['WIP', 'WIP']].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === I.g}">${t}</button>`).join('');
-    if (I.kel !== 'FG' && I.view === 'mov') I.view = 'kat';
+    if (I.kel !== 'FG' && I.view === 'mov') I.view = 'sum';
     $('invViewMov').hidden = I.kel !== 'FG';
-    $('invMvBar').hidden = I.kel !== 'FG';
+    $('invMvBar').hidden = I.kel !== 'FG' || I.view !== 'mov';
+    $('invMvFw').hidden = I.kel !== 'FG';
+    { const i = I.snaps.findIndex((m) => m.snap === I.snap); $('invPrev').disabled = i <= 0; $('invNext').disabled = i < 0 || i >= I.snaps.length - 1; }
+    $('invClr').hidden = !(I.g || I.brand || I.jenis || I.lok || I.q || (I.kel === 'FG' && I.mvF));
+    if ($('invQ').value.trim() !== I.q) $('invQ').value = I.q;
     if (I.kel === 'FG') {
       document.querySelectorAll('#invMvP [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === I.mvP)));
       $('invMvF').value = I.mvF; $('invMvPar').value = I.mvPar; $('invMvWk').value = I.mvWk;
       if (!I.mv) loadMv();
     }
-    document.querySelectorAll('#invView [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.view)));
+    document.querySelectorAll('#invTab [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.view)));
     const all = I.snap ? calc(I.snap, true) : [];
     const pool = all.filter((r) => !I.g || r.gol === I.g);
     const brands = [...new Set(pool.map((r) => r.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
@@ -234,7 +238,7 @@
     $('invLok').innerHTML = '<option value="">Semua lokasi</option>' + loks.map((k) => `<option value="${esc(k)}"${k === I.lok ? ' selected' : ''}>${esc(k || '(tanpa lokasi)')}</option>`).join('');
     $('invEdit').disabled = !I.snap;
     if (!I.snap) {
-      $('invKpi').innerHTML = ''; $('invChart').innerHTML = '';
+      $('invHero').innerHTML = ''; $('invChart').innerHTML = ''; $('invInfo').textContent = ''; $('invChartCard').hidden = true;
       $('invBody').innerHTML = `<div class="inv-empty"><h3>Belum ada data stok ${esc(KEL_LBL[I.kel])}</h3><p>Langkahnya: (1) upload <b>golongan</b> (kode, nama, golongan, kategori, UoM), (2) upload <b>harga</b> dengan tanggal berlaku, (3) upload <b>stok ${I.kel === 'FG' ? 'FG' : 'Material'}</b> dengan tanggal & jam snapshot. Format Excel masing-masing ada di tombol <b>Format</b>.</p><p class="muted">${I.gol.size} kode golongan · ${I.harga.size} kode berharga tersimpan.</p></div>`;
       return;
     }
@@ -242,15 +246,17 @@
     // Warna brand FG mengikuti urutan value snapshot terpilih (6 terbesar berwarna, sisanya abu)
     I.brRank = I.kel === 'FG' ? [...sumBy(all, (r) => r.brand || 'Tanpa brand')].sort((a, b) => b[1].val - a[1].val).map(([k]) => k).filter((k) => k !== 'Tanpa brand') : [];
     const meta = I.snaps.find((m) => m.snap === I.snap);
-    $('invInfo').innerHTML = `Stok <b>${esc(KEL_LBL[I.kel])}</b> · snapshot <b>${esc(fSnap(I.snap))}</b>${meta && meta.file ? ` · ${esc(meta.file)}` : ''}${pv ? ` · dibandingkan dengan ${esc(fSnap(pv))}` : ' · snapshot pertama'} · harga: ${I.pm === 'latest' ? 'terkini (harga paling baru, apa pun tanggal snapshotnya)' : `terakhir yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`}`;
-    renderKpi(rows, prows);
-    renderChart();
-    $('invBody').innerHTML = (I.kel === 'FG' ? mvNote() : '') + renderWarn(rows) + (I.view === 'kat' ? viewKat(rows, prows) : I.view === 'mat' ? viewMat(rows, prows) : I.view === 'mov' ? viewMov(rows) : viewLok(rows));
+    $('invInfo').innerHTML = `${meta && meta.file ? `Sumber <b>${esc(meta.file)}</b> · ` : ''}${pv ? `dibandingkan dengan snapshot sebelumnya <b>${esc(fSnap(pv))}</b>` : 'snapshot pertama, belum ada pembanding'} · harga ${I.pm === 'latest' ? 'terkini (paling baru)' : `yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`}`;
+    const M2 = pv ? movement([pv, I.snap], 'v') : null;
+    renderHero(rows, prows, M2);
+    $('invChartCard').hidden = I.view !== 'chart';
+    if (I.view === 'chart') renderChart();
+    const v = I.view;
+    $('invBody').innerHTML = v === 'chart' ? '' : (I.kel === 'FG' && v === 'mov' ? mvNote() : '') + renderWarn(rows) + (v === 'sum' ? viewSum(rows, prows, M2) : v === 'kat' ? viewKat(rows, prows) : v === 'mat' ? viewMat(rows, prows) : v === 'mov' ? viewMov(rows) : viewLok(rows));
   }
-  function renderKpi(rows, prows) {
-    const tot = rows.reduce((t, r) => t + r.val, 0), ptot = prows ? prows.reduce((t, r) => t + r.val, 0) : NaN;
+  function renderHero(rows, prows, M2) {
+    const tot = rows.reduce((t, r) => t + r.val, 0), ptot = prows ? prows.reduce((t, r) => t + r.val, 0) : NaN, d = delta(tot, ptot);
     const by = sumBy(rows, grpOf), pby = prows ? sumBy(prows, grpOf) : new Map();
-    const card = (lbl, v, pvv, sub, g) => `<div class="pk inv-k"${g ? ` style="--gc:${grpClr(g)}"` : ''}><span class="pk-lbl">${lbl}</span><span class="pk-num">${fBig(v)}</span><span class="inv-ksub"><span class="${dCls(delta(v, pvv))}">${isNum(pvv) ? dTxt(delta(v, pvv), fBig) : 'pembanding –'}</span>${sub ? ' · ' + sub : ''}</span></div>`;
     let gl = [...GOLS, '?'].filter((g) => by.has(g));
     if (I.kel === 'FG') {
       gl = [...by.keys()].sort((a, b) => by.get(b).val - by.get(a).val);
@@ -259,16 +265,39 @@
         by.set('Lainnya', agg(by)); if (prows) pby.set('Lainnya', agg(pby)); gl = gl.slice(0, 5).concat('Lainnya');
       }
     }
-    const noP = new Set(rows.filter((r) => r.noPrice).map((r) => r.kode)).size, noG = new Set(rows.filter((r) => r.noGol).map((r) => r.kode)).size;
+    const nK = new Set(rows.map((r) => r.kode)).size, nL = new Set(rows.map((r) => r.lok)).size, f = filtTxt();
+    const arrow = !isNum(d) || Math.abs(d) < 0.5 ? '' : d > 0 ? '▲ ' : '▼ ';
+    const left = `<div><span class="inc-hl">Total value ${esc(I.kel === 'FG' ? 'FG' : 'Material')}${f ? ` <span class="inv-hf">· ${esc(f)}</span>` : ''}</span><div class="inc-hv">${fBig(tot)}</div><div class="inv-hfull">${fRp(tot)}</div>
+      <div class="inc-hd">${isNum(d) ? `<span class="${d >= 0.5 ? 'inc-up' : d <= -0.5 ? 'inc-dn' : 'muted'}">${arrow}${dTxt(d, fBig)}${pctTxt(d, ptot)}</span> dari snapshot sebelumnya` : '<span class="muted">Belum ada snapshot pembanding</span>'}</div>
+      <div class="inc-hs">${nf0.format(nK)} kode · ${nf0.format(nL)} lokasi</div></div>`;
+    const clickAttr = (g) => (g === 'Lainnya' || g === '?' ? '' : I.kel === 'FG' ? ` data-inv-brand="${esc(g)}"` : ` data-inv-g="${esc(g)}"`);
+    const mid = `<div><span class="inc-hl">Komposisi per ${I.kel === 'FG' ? 'brand' : 'golongan'}</span>
+      <div class="inc-stack">${gl.map((g) => { const o = by.get(g); return o.val > 0 ? `<i style="width:${(tot ? o.val / tot * 100 : 0).toFixed(2)}%;background:${grpClr(g)}" title="${esc(grpLbl(g))} ${fPct(tot ? o.val / tot : NaN)}"></i>` : ''; }).join('')}</div>
+      <ul class="inv-mix">${gl.map((g) => { const o = by.get(g), p = pby.get(g), dd = prows ? o.val - (p ? p.val : 0) : NaN; return `<li><button type="button" class="inv-mixb"${clickAttr(g)}${(I.kel === 'FG' ? I.brand === g : I.g === g) ? ' aria-pressed="true"' : ''}><i style="background:${grpClr(g)}"></i><span class="inv-mixn">${esc(grpLbl(g))}${g === 'Lainnya' ? ' brand' : ''}</span><span class="inv-mixv">${fBig(o.val)}</span><span class="inv-mixp">${fPct(tot ? o.val / tot : NaN)}</span><span class="inv-mixd ${dCls(dd)}">${isNum(dd) ? dTxt(dd, fBig) : ''}</span></button></li>`; }).join('')}</ul></div>`;
+    const tiles = [];
     const M = I.kel === 'FG' ? mvCalc(I.snap) : null;
-    let mvCard = '';
     if (M) {
       const bad = rows.filter((r) => r.qty > 0 && ['S', 'N', 'D'].includes(mvOf(M, r.kode).cls)), bv = bad.reduce((t, r) => t + r.val, 0);
-      mvCard = `<button type="button" class="pk inv-k inv-kmv" data-inv-mv="1" style="--gc:${MV_CLR.N}" title="Lihat per pergerakan"><span class="pk-lbl">Slow, Not Move, Dead <small>${fPct(tot ? bv / tot : NaN)}</small></span><span class="pk-num">${fBig(bv)}</span><span class="inv-ksub">${new Set(bad.map((r) => r.kode)).size} kode · periode ${M.P} bln</span></button>`;
+      tiles.push(`<button type="button" class="inc-ratio inv-tile" data-inv-mv="1"><span class="inc-rl">Slow, Not Move, Dead Stock</span><b>${fBig(bv)}</b><small>${fPct(tot ? bv / tot : NaN)} dari value · ${new Set(bad.map((r) => r.kode)).size} kode · periode ${M.P} bln ›</small></button>`);
+    } else if (I.kel === 'FG') tiles.push(`<div class="inc-ratio"><span class="inc-rl">Pergerakan FG</span><small>${I.mv && I.mv.err ? esc(I.mv.err) : 'Menghitung dari DO CSL…'}</small></div>`);
+    if (M2) {
+      tiles.push(`<div class="inc-ratio"><span class="inc-rl">Tidak bergerak sejak snapshot sebelumnya</span><b>${fBig(M2.stillV)}</b><small>${nf0.format(M2.still.length)} kode · ${fPct(M2.vB ? M2.stillV / M2.vB : NaN)} dari value</small></div>`);
+      if (M2.gone.length || M2.nw.length) tiles.push(`<div class="inc-ratio"><span class="inc-rl">Kode habis · kode baru</span><b>${nf0.format(M2.gone.length)} · ${nf0.format(M2.nw.length)}</b><small>habis ${fBig(M2.gone.reduce((t, m) => t + m.va, 0))} · baru ${fBig(M2.nw.reduce((t, m) => t + m.vb, 0))}</small></div>`);
     }
-    $('invKpi').innerHTML = card('Total value', tot, ptot, `${nf0.format(new Set(rows.map((r) => r.kode)).size)} kode`) + mvCard
-      + gl.map((g) => { const o = by.get(g), p = pby.get(g); return card(`${esc(grpLbl(g))}${g === 'Lainnya' ? ' brand' : ''} <small>${fPct(tot ? o.val / tot : NaN)}</small>`, o.val, prows ? (p ? p.val : 0) : NaN, `qty ${fQ(o.qty)} · ${o.n.size} kode`, g); }).join('')
-      + (noP || noG ? `<button type="button" class="pk is-warn inv-kw" data-inv-warn="1"><span class="pk-lbl">Perlu dilengkapi</span><span class="pk-num">${noP + noG}</span><span class="inv-ksub">${noP ? `${noP} tanpa harga` : ''}${noP && noG ? ' · ' : ''}${noG ? `${noG} tanpa golongan` : ''}</span></button>` : '');
+    const noP = new Set(rows.filter((r) => r.noPrice).map((r) => r.kode)).size, noG = new Set(rows.filter((r) => r.noGol).map((r) => r.kode)).size;
+    const warn = noP || noG ? `<button type="button" class="inc-quar" data-inv-warn="1"><b>Perlu dilengkapi:</b> ${noP ? `${noP} kode tanpa harga (value 0)` : ''}${noP && noG ? ' · ' : ''}${noG ? `${noG} kode tanpa golongan` : ''} — lihat daftar ›</button>` : '';
+    $('invHero').innerHTML = `<div class="inc-hero">${left}${mid}<div class="inc-hr">${tiles.join('') || '<div class="inc-ratio"><span class="inc-rl">Pergerakan</span><small>Upload snapshot berikutnya untuk melihat perubahan.</small></div>'}</div></div>${warn}`;
+  }
+  /* Tab Ringkasan: kalimat pergerakan + naik/turun terbesar (kiri), value per kategori (kanan) */
+  function viewSum(rows, prows, M2) {
+    const kk = (r) => (I.kel === 'FG' ? r.kat : r.brand || r.kat);
+    const by = sumBy(rows, kk), pby = prows ? sumBy(prows, kk) : new Map();
+    const L = [...by].sort((a, b) => b[1].val - a[1].val), max = Math.max(1, ...L.map(([, o]) => o.val)), tot = rows.reduce((t, r) => t + r.val, 0);
+    const isBrand = (k) => rows.some((r) => r.brand === k && I.kel !== 'FG');
+    const bars = L.map(([k, o]) => { const p = pby.get(k), dd = prows ? o.val - (p ? p.val : 0) : NaN, g = o.rows[0].gol; const attr = isBrand(k) ? `data-inv-brand="${esc(k)}"` : `data-inv-jenis="${esc(o.rows[0].jenis)}"${o.rows[0].brand ? ` data-inv-brand2="${esc(o.rows[0].brand)}"` : ''}`; return `<li><button type="button" class="inv-kb" ${attr} title="Saring ke ${esc(k)}"><span class="inv-kbt"><span class="inv-kbn">${I.kel === 'FG' ? '' : `<span class="inv-g" style="--gc:${GOL_CLR[g]}">${esc(g === '?' ? '–' : g)}</span> `}${esc(k)}</span><span class="inc-kv">${fBig(o.val)}<small>${fPct(tot ? o.val / tot : NaN)}</small></span></span><span class="inv-kbb"><i style="width:${(o.val / max * 100).toFixed(1)}%;background:${I.kel === 'FG' ? grpClr(o.rows[0].brand || 'Tanpa brand') : GOL_CLR[g]}"></i></span><span class="inv-kbs muted">${o.n.size} kode${isNum(dd) && Math.abs(dd) >= 0.5 ? ` · <span class="${dCls(dd)}">${dTxt(dd, fBig)}</span>` : ''}</span></button></li>`; }).join('');
+    const right = `<section class="inv-card"><div class="inc-ch"><h3>Value per kategori</h3><span class="muted">${L.length} kategori · klik untuk menyaring</span></div><ul class="inv-kbl">${bars || '<li class="muted">Tidak ada data.</li>'}</ul></section>`;
+    const left = `<section class="inv-card">${M2 ? sumHtml(M2) : '<h3>Ringkasan pergerakan</h3><p class="muted">Ini snapshot pertama. Ringkasan perubahan muncul setelah ada snapshot berikutnya.</p>'}</section>`;
+    return `<div class="inc-two">${left}${right}</div>`;
   }
   function renderWarn(rows) {
     const noP = [...new Map(rows.filter((r) => r.noPrice).map((r) => [r.kode, r])).values()];
@@ -391,7 +420,8 @@
   const pctTxt = (d, a) => (a ? ` (${d >= 0 ? '+' : '−'}${nf1.format(Math.abs(d / a) * 100)}%)` : '');
 
   /* Ringkasan pergerakan snapshot pertama → terakhir yang dipilih, mengikuti saringan */
-  function movement(snaps) {
+  function movement(snaps, ms) {
+    ms = ms || I.ms;
     if (snaps.length < 2) return null;
     const A = snaps[0], B = snaps[snaps.length - 1], dim = dimOf();
     const per = snaps.map((sn) => sumBy(calc(sn), (r) => r.kode));
@@ -414,12 +444,12 @@
       const ck = bKey(r0, dim), c = cat.get(ck) || { va: 0, vb: 0, qa: 0, qb: 0 };
       c.va += va; c.vb += vb; c.qa += qa; c.qb += qb; cat.set(ck, c);
     });
-    const key = I.ms === 'v' ? 'v' : 'q';
+    const key = ms === 'v' ? 'v' : 'q';
     const cats = [...cat].map(([k, c]) => ({ k, a: key === 'v' ? c.va : c.qa, b: key === 'v' ? c.vb : c.qb })).map((c) => Object.assign(c, { d: c.b - c.a }));
     const byD = (L, f) => L.slice().sort((x, y) => f(y) - f(x));
     const dk = key === 'v' ? 'dv' : 'dq';
     return {
-      A, B, dim, vA, vB, qA, qB, effQ, effP, cats,
+      A, B, dim, ms, vA, vB, qA, qB, effQ, effP, cats,
       up: byD(mats.filter((m) => m[dk] > 1e-9), (m) => m[dk]).slice(0, 5),
       dn: byD(mats.filter((m) => m[dk] < -1e-9), (m) => -m[dk]).slice(0, 5),
       nw: byD(nw, (m) => m.vb), gone: byD(gone, (m) => m.va), still: byD(still, (m) => m.vb), stillV: still.reduce((t, m) => t + m.vb, 0),
@@ -428,7 +458,7 @@
   // Kalimat ringkasan (dipakai di layar & di JPG)
   function sumLines(M) {
     if (!M) return [];
-    const L = [], dV = M.vB - M.vA, dQ = M.qB - M.qA, nm = I.kel === 'FG' ? 'FG' : 'Material';
+    const L = [], dV = M.vB - M.vA, dQ = M.qB - M.qA, nm = I.kel === 'FG' ? 'FG' : 'Material', fmtM = (v) => (M.ms === 'v' ? fBig(v) : fQ(v));
     const per = `${fDate(M.A.slice(0, 10))} → ${fDate(M.B.slice(0, 10))}`;
     L.push({ tone: dV >= 0 ? 'up' : 'dn', t: `Value ${nm} ${dV >= 0 ? 'naik' : 'turun'} ${fRp(Math.abs(dV))}${pctTxt(dV, M.vA)} dari ${fRp(M.vA)} menjadi ${fRp(M.vB)} (${per}); qty ${dQ >= 0 ? 'naik' : 'turun'} ${fQ(Math.abs(dQ))}${pctTxt(dQ, M.qA)}.` });
     if (I.pm === 'date' && Math.abs(M.effP) >= 1) L.push({ tone: '', t: `Penyebab: perubahan qty ${dTxt(M.effQ, fRp)}, perubahan harga ${dTxt(M.effP, fRp)}.` });
@@ -437,7 +467,7 @@
     const lbl = dimLbl(M.dim).toLowerCase();
     if (cd && cd.d < 0) L.push({ tone: 'dn', t: `Penurunan terbesar per ${lbl}: ${cd.k} ${dTxt(cd.d, fmtM)}${pctTxt(cd.d, cd.a)}.` });
     if (cu && cu.d > 0) L.push({ tone: 'up', t: `Kenaikan terbesar per ${lbl}: ${cu.k} ${dTxt(cu.d, fmtM)}${pctTxt(cu.d, cu.a)}.` });
-    const mt = (m) => `${m.kode} ${m.nama.length > 38 ? m.nama.slice(0, 37) + '…' : m.nama} (${dTxt(I.ms === 'v' ? m.dv : m.dq, fmtM)})`;
+    const mt = (m) => `${m.kode} ${m.nama.length > 38 ? m.nama.slice(0, 37) + '…' : m.nama} (${dTxt(M.ms === 'v' ? m.dv : m.dq, fmtM)})`;
     if (M.dn.length) L.push({ tone: 'dn', t: `Material paling turun: ${M.dn.slice(0, 3).map(mt).join('; ')}.` });
     if (M.up.length) L.push({ tone: 'up', t: `Material paling naik: ${M.up.slice(0, 3).map(mt).join('; ')}.` });
     const ex = [];
@@ -450,10 +480,10 @@
   function sumHtml(M) {
     if (!M) return '<p class="muted inv-sumn">Pilih minimal 2 snapshot untuk melihat ringkasan pergerakan.</p>';
     const li = (L, f) => L.length ? `<ul>${L.map(f).join('')}</ul>` : '<p class="muted">–</p>';
-    const mrow = (m, k) => `<tr><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(m.kode)}"><span class="pl-code">${esc(m.kode)}</span><span class="pl-name">${esc(m.nama)}</span></button></td><td class="num ${dCls(k === 'v' ? m.dv : m.dq)}">${dTxt(k === 'v' ? m.dv : m.dq, k === 'v' ? fRp : fQ)}</td><td class="num muted">${fQ(m.qa)} → ${fQ(m.qb)} <small>${esc(m.uom)}</small></td></tr>`;
+    const mrow = (m, k) => `<tr><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(m.kode)}" title="Lihat pergerakan di grafik"><span class="pl-code">${esc(m.kode)}</span><span class="pl-name">${esc(m.nama)}</span></button><div class="muted inv-sm">${fQ(m.qa)} → ${fQ(m.qb)} ${esc(m.uom)}</div></td><td class="num ${dCls(k === 'v' ? m.dv : m.dq)}" title="${k === 'v' ? fRp(m.dv) : ''}"><b>${dTxt(k === 'v' ? m.dv : m.dq, k === 'v' ? fBig : fQ)}</b></td></tr>`;
     const tbl = (L) => (L.length ? `<table class="po-table pl-mini inv-mv"><tbody>${L.map((m) => mrow(m, k)).join('')}</tbody></table>` : '<p class="muted">–</p>');
-    const k = I.ms === 'v' ? 'v' : 'q';
-    return `<div class="inv-sum"><h4>Ringkasan pergerakan</h4><ul class="inv-suml">${sumLines(M).map((l) => `<li class="${l.tone ? 'is-' + l.tone : ''}">${esc(l.t)}</li>`).join('')}</ul>
+    const k = M.ms === 'v' ? 'v' : 'q';
+    return `<div class="inv-sum"><h3>Ringkasan pergerakan <small class="muted">${esc(fSnap(M.A))} → ${esc(fSnap(M.B))}</small></h3><ul class="inv-suml">${sumLines(M).map((l) => `<li class="${l.tone ? 'is-' + l.tone : ''}">${esc(l.t)}</li>`).join('')}</ul>
       <div class="inv-sumg">
         <div><h5>Paling turun</h5>${tbl(M.dn)}</div>
         <div><h5>Paling naik</h5>${tbl(M.up)}</div>
@@ -599,7 +629,7 @@
     const note = I.ct === 'bar' && snaps.length > 1 ? `<span class="muted">Angka kanan = selisih ${esc(fDate(snaps[0].slice(0, 10)))} → ${esc(fDate(snaps[snaps.length - 1].slice(0, 10)))}</span>` : I.ct === 'wf' && M ? `<span class="muted">${esc(fDate(M.A.slice(0, 10)))} → ${esc(fDate(M.B.slice(0, 10)))}; maks. 10 ${esc(dimLbl(dim).toLowerCase())} dengan perubahan terbesar</span>` : '<span class="muted">Arahkan kursor ke grafik untuk rincian.</span>';
     box.innerHTML = `<div class="inv-bctl">${dimSeg}${snapPick}${catPick}</div><div class="inv-legend">${lg}${note}</div>
       ${C.empty && I.ct === 'bar' ? '<p class="muted">Pilih minimal satu kategori.</p>' : `<div class="inv-cbox"><svg viewBox="0 0 ${C.W} ${C.H}" width="${C.W}" height="${C.H}" role="img" aria-label="${esc(I._title)}">${C.body}</svg><div class="cslc-tip" id="invTip" hidden></div></div>`}
-      ${sumHtml(M)}`;
+      ${M ? `<ul class="inv-suml inv-sumc">${I._sum.map((l) => `<li class="${l.tone ? 'is-' + l.tone : ''}">${esc(l.t)}</li>`).join('')}</ul>` : '<p class="muted inv-sumn">Pilih minimal 2 snapshot untuk melihat ringkasan pergerakan.</p>'}`;
     const svg = box.querySelector('svg'), tip = $('invTip');
     if (svg) {
       const place = (e, w) => { const r = box.querySelector('.inv-cbox').getBoundingClientRect(); tip.style.left = Math.min(e.clientX - r.left + 12, r.width - w) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false; };
@@ -838,11 +868,16 @@
     if (!$('view-rep-inv') || bind.done) return; bind.done = true;
     $('invSnap').addEventListener('change', () => { setSnap($('invSnap').value); render(); });
     $('invGol').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.g = b.dataset.v; render(); });
-    $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
+    $('invTab').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.view) return; I.view = b.dataset.v; savePref(); render(); });
+    const stepSnap = (k) => { const i = I.snaps.findIndex((m) => m.snap === I.snap), j = i + k; if (j >= 0 && j < I.snaps.length) { setSnap(I.snaps[j].snap); render(); } };
+    $('invPrev').addEventListener('click', () => stepSnap(-1));
+    $('invNext').addEventListener('click', () => stepSnap(1));
+    $('invClr').addEventListener('click', () => { I.g = ''; I.brand = ''; I.jenis = ''; I.lok = ''; I.q = ''; I.mvF = ''; $('invQ').value = ''; render(); });
+    $('invMenu').addEventListener('click', (e) => { const t = e.target.closest('[data-inv-tpl]'); if (t) downloadTpl(t.dataset.invTpl); if (e.target.closest('.inv-mi')) setTimeout(() => { $('invMenu').open = false; }, 0); });
+    document.addEventListener('click', (e) => { const m = $('invMenu'); if (m && m.open && !m.contains(e.target)) m.open = false; });
     $('invMvP').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.mvP = +b.dataset.v; savePref(); render(); });
     $('invMvF').addEventListener('change', () => { I.mvF = $('invMvF').value; render(); });
     ['invMvPar', 'invMvWk'].forEach((id) => $(id).addEventListener('change', () => { const v = Math.max(0, Math.min(100, Number($(id).value) || 0)); if (id === 'invMvPar') I.mvPar = v || 80; else I.mvWk = v; savePref(); render(); }));
-    $('invKpi').addEventListener('click', (e) => { if (e.target.closest('[data-inv-mv]')) { I.view = 'mov'; savePref(); render(); } });
     $('invPm').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.pm) return; I.pm = b.dataset.v; savePref(); render(); });
     $('invChart').addEventListener('change', (e) => {
       const s1 = e.target.closest('[data-bsnap]'); if (s1) { const set = new Set(I.bsnaps); if (s1.checked) set.add(s1.dataset.bsnap); else set.delete(s1.dataset.bsnap); if (!set.size) { s1.checked = true; return; } I.bsnaps = [...set]; I.snapOpen = true; renderChart(); return; }
@@ -860,7 +895,6 @@
     $('invLok').addEventListener('change', () => { I.lok = $('invLok').value; render(); });
     let tq; $('invQ').addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(() => { I.q = $('invQ').value.trim(); render(); }, 200); });
     $('invEdit').addEventListener('click', editDialog);
-    $('invTpl').addEventListener('change', () => { const v = $('invTpl').value; $('invTpl').value = ''; if (v) downloadTpl(v); });
     $('invKel').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.kel) return; I.kel = b.dataset.v; I.bsnaps = null; I.bcats = null; I.g = ''; I.brand = ''; I.jenis = ''; I.lok = ''; I.chart = ''; I.open.clear(); savePref(); useKel(); render(); });
     ['gol', 'harga', 'stokmat', 'stokfg'].forEach((k) => {
       const inp = $('invUp-' + k);
@@ -872,9 +906,13 @@
     });
     $('view-rep-inv').addEventListener('click', (e) => {
       const o = e.target.closest('[data-inv-open]'); if (o) { const k = o.dataset.invOpen; if (I.open.has(k)) I.open.delete(k); else I.open.add(k); render(); return; }
-      const c = e.target.closest('[data-inv-chart]'); if (c) { I.chart = c.dataset.invChart; renderChart(); if (I.chart) $('invChartCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+      const c = e.target.closest('[data-inv-chart]'); if (c) { I.chart = c.dataset.invChart; if (I.view !== 'chart') { I.view = 'chart'; render(); } else renderChart(); if (I.chart) $('invChartCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+      if (e.target.closest('[data-inv-mv]')) { I.view = 'mov'; savePref(); render(); return; }
+      const hg = e.target.closest('[data-inv-g]'); if (hg) { I.g = I.g === hg.dataset.invG ? '' : hg.dataset.invG; I.brand = ''; I.jenis = ''; render(); return; }
+      const hb = e.target.closest('[data-inv-brand]'); if (hb) { const v = hb.dataset.invBrand; I.brand = I.brand === v ? '' : v; I.jenis = ''; render(); return; }
+      const hj = e.target.closest('[data-inv-jenis]'); if (hj) { I.brand = hj.dataset.invBrand2 || ''; I.jenis = hj.dataset.invJenis; render(); return; }
       const l = e.target.closest('[data-inv-lok]'); if (l) { I.lok = l.dataset.invLok; render(); return; }
-      if (e.target.closest('[data-inv-warn]')) { I.openWarn = true; render(); const w = $('invWarn'); if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      if (e.target.closest('[data-inv-warn]')) { I.openWarn = true; if (I.view === 'chart') I.view = 'sum'; render(); const w = $('invWarn'); if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     });
     document.addEventListener('toggle', (e) => { if (e.target && e.target.id === 'invWarn') I.openWarn = e.target.open; }, true);
   }

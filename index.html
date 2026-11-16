@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=cca0953c">
+<link rel="stylesheet" href="style.css?v=1d4e5986">
 </head>
 <body>
 <div class="shell">
@@ -1035,40 +1035,51 @@
       <!-- ================= CSL: DASHBOARD ================= -->
       <section id="view-rep-inv" class="view" hidden>
         <div class="mrp-loading" data-inv-loading hidden>Memuat data inventory…</div>
-        <div class="toolbar inv-acts">
-          <label class="tb-field tb-narrow"><span class="sr">Unduh format</span><select id="invTpl" title="Unduh format Excel"><option value="">Format…</option><option value="gol">Format golongan</option><option value="harga">Format harga</option><option value="stokmat">Format stok Material (RM, PM, WIP)</option><option value="stokfg">Format stok FG</option></select></label>
-          <label class="btn btn-sm btn-ghost" for="invUp-gol">Upload golongan<input type="file" id="invUp-gol" accept=".xls,.xlsx,.csv" hidden></label>
-          <label class="btn btn-sm btn-ghost" for="invUp-harga">Upload harga<input type="file" id="invUp-harga" accept=".xls,.xlsx,.csv" hidden></label>
-          <label class="btn btn-sm" for="invUp-stokmat" title="Stok RM, PM, dan WIP dalam satu file">Upload stok Material<input type="file" id="invUp-stokmat" accept=".xls,.xlsx,.csv" hidden></label>
-          <label class="btn btn-sm" for="invUp-stokfg">Upload stok FG<input type="file" id="invUp-stokfg" accept=".xls,.xlsx,.csv" hidden></label>
-          <button type="button" class="btn btn-sm btn-ghost" id="invEdit" title="Koreksi qty manual pada snapshot terpilih">Koreksi stok</button>
+        <div class="inc-bar1 inv-bar1">
+          <div class="inc-mnav" id="invSnapBox"><button type="button" class="btn btn-sm btn-ghost" id="invPrev" aria-label="Snapshot sebelumnya" title="Snapshot sebelumnya">‹</button><label><span class="sr">Snapshot</span><select id="invSnap" title="Snapshot stok"></select></label><button type="button" class="btn btn-sm btn-ghost" id="invNext" aria-label="Snapshot berikutnya" title="Snapshot berikutnya">›</button></div>
+          <div class="inv-pmw"><span class="inv-pml">Harga</span><div class="pj-seg" id="invPm" role="group" aria-label="Dasar harga" title="Dasar harga untuk menghitung value"><button type="button" data-v="date" title="Harga terakhir yang berlaku pada/sebelum tanggal snapshot">Sesuai tanggal</button><button type="button" data-v="latest" title="Harga paling baru, apa pun tanggal snapshotnya">Terkini</button></div></div>
+          <div class="inc-acts inv-acts">
+            <label class="btn btn-sm" for="invUp-stokmat" title="Stok RM, PM, dan WIP dalam satu file">Upload stok Material<input type="file" id="invUp-stokmat" accept=".xls,.xlsx,.csv" hidden></label>
+            <label class="btn btn-sm" for="invUp-stokfg">Upload stok FG<input type="file" id="invUp-stokfg" accept=".xls,.xlsx,.csv" hidden></label>
+            <details class="inv-menu" id="invMenu"><summary class="btn btn-sm btn-ghost">Kelola data</summary>
+              <div class="inv-menu-p" role="menu">
+                <button type="button" class="inv-mi" id="invEdit" title="Koreksi qty manual pada snapshot terpilih">Koreksi stok snapshot ini</button>
+                <label class="inv-mi" for="invUp-harga">Upload harga<input type="file" id="invUp-harga" accept=".xls,.xlsx,.csv" hidden></label>
+                <label class="inv-mi" for="invUp-gol">Upload golongan <small>(mengganti semua)</small><input type="file" id="invUp-gol" accept=".xls,.xlsx,.csv" hidden></label>
+                <span class="inv-mh">Unduh format Excel</span>
+                <button type="button" class="inv-mi" data-inv-tpl="stokmat">Format stok Material</button>
+                <button type="button" class="inv-mi" data-inv-tpl="stokfg">Format stok FG</button>
+                <button type="button" class="inv-mi" data-inv-tpl="harga">Format harga</button>
+                <button type="button" class="inv-mi" data-inv-tpl="gol">Format golongan</button>
+              </div>
+            </details>
+          </div>
         </div>
         <p class="check" id="invMsg"></p>
         <div class="pj-seg inv-kel" id="invKel" role="group" aria-label="Kelompok stok" hidden><button type="button" data-v="MAT">Material (RM, PM, WIP)</button><button type="button" data-v="FG">FG</button></div>
         <div id="invTop" hidden>
-          <div class="toolbar">
-            <label class="tb-field"><span class="sr">Snapshot</span><select id="invSnap" title="Snapshot stok"></select></label>
-            <div class="pj-seg" id="invPm" role="group" aria-label="Dasar harga" title="Dasar harga untuk menghitung value"><button type="button" data-v="date" title="Harga terakhir yang berlaku pada/sebelum tanggal snapshot">Harga sesuai tanggal</button><button type="button" data-v="latest" title="Harga paling baru, apa pun tanggal snapshotnya">Harga terkini</button></div>
+          <p class="inv-info" id="invInfo"></p>
+          <div id="invHero"></div>
+          <div class="inc-tabs" id="invTab" role="tablist" aria-label="Tampilan"><button type="button" data-v="sum">Ringkasan</button><button type="button" data-v="chart">Grafik</button><button type="button" data-v="kat">Per kategori</button><button type="button" data-v="mat">Per material</button><button type="button" data-v="lok">Per lokasi</button><button type="button" data-v="mov" id="invViewMov">Per pergerakan</button></div>
+          <div class="inv-fbar" id="invFbar">
             <div class="pj-seg" id="invGol" role="group" aria-label="Golongan"></div>
-            <label class="tb-field tb-narrow"><span class="sr">Brand</span><select id="invBrand" title="Brand (dari KATEGORI berpola BRAND - JENIS)"></select></label>
+            <label class="tb-field tb-narrow"><span class="sr">Brand</span><select id="invBrand" title="Kelompok / brand (bagian sebelum tanda - di KATEGORI)"></select></label>
             <label class="tb-field tb-narrow"><span class="sr">Jenis</span><select id="invJenis" title="Jenis / kategori"></select></label>
             <label class="tb-field tb-narrow"><span class="sr">Lokasi</span><select id="invLok"></select></label>
+            <label class="tb-field tb-narrow" id="invMvFw"><span class="sr">Saring pergerakan</span><select id="invMvF"><option value="">Semua pergerakan</option><option value="F">Fast Moving</option><option value="S">Slow Moving</option><option value="N">Not Move</option><option value="D">Dead Stock</option><option value="X">Tanpa data DO</option></select></label>
             <label class="tb-search"><span class="sr">Cari</span><input type="search" id="invQ" placeholder="Cari kode atau nama"></label>
+            <button type="button" class="btn-link" id="invClr" hidden>Hapus saringan</button>
           </div>
           <div class="toolbar inv-mvbar" id="invMvBar" hidden>
-            <span class="inv-mvl">Pergerakan (DO CSL)</span>
+            <span class="inv-mvl">Aturan pergerakan (DO CSL)</span>
             <div class="pj-seg" id="invMvP" role="group" aria-label="Periode pengamatan DO"><button type="button" data-v="3">3 bulan</button><button type="button" data-v="6">6 bulan</button><button type="button" data-v="12">12 bulan</button></div>
-            <label class="tb-field tb-narrow"><span class="sr">Saring pergerakan</span><select id="invMvF"><option value="">Semua pergerakan</option><option value="F">Fast Moving</option><option value="S">Slow Moving</option><option value="N">Not Move</option><option value="D">Dead Stock</option><option value="X">Tanpa data DO</option></select></label>
             <label class="inv-mvn" title="Fast = termasuk FG dengan qty DO terbesar yang totalnya mencapai persen ini (Pareto)">Pareto qty <input type="number" id="invMvPar" min="10" max="100" step="5"> %</label>
             <label class="inv-mvn" title="Fast juga harus ada DO di minimal persen minggu ini dalam periode">Minggu ada DO ≥ <input type="number" id="invMvWk" min="0" max="100" step="5"> %</label>
           </div>
-          <p class="mrp-count" id="invInfo"></p>
-          <div class="pl-kpis inv-kpis" id="invKpi"></div>
           <section class="inv-card" id="invChartCard">
-            <div class="inv-ch"><h3 id="invChartTitle"></h3><div class="inv-chr"><div class="pj-seg" id="invCt" role="group" aria-label="Jenis grafik"><button type="button" data-v="line">Garis pergerakan</button><button type="button" data-v="bar">Batang per kategori</button><button type="button" data-v="wf">Waterfall</button></div><button type="button" class="btn btn-sm btn-ghost" id="invJpg" title="Unduh grafik + ringkasan sebagai gambar JPG untuk PowerPoint">Unduh JPG</button><div class="pj-seg" id="invMs" role="group" aria-label="Ukuran"><button type="button" data-v="v">Value</button><button type="button" data-v="q">Qty</button></div></div></div>
+            <div class="inv-ch"><h3 id="invChartTitle"></h3><div class="inv-chr"><div class="pj-seg" id="invCt" role="group" aria-label="Jenis grafik"><button type="button" data-v="line">Garis</button><button type="button" data-v="bar">Batang per kategori</button><button type="button" data-v="wf">Waterfall</button></div><div class="pj-seg" id="invMs" role="group" aria-label="Ukuran"><button type="button" data-v="v">Value</button><button type="button" data-v="q">Qty</button></div><button type="button" class="btn btn-sm btn-ghost" id="invJpg" title="Unduh grafik + ringkasan sebagai gambar JPG untuk PowerPoint">Unduh JPG</button></div></div>
             <div id="invChart"></div>
           </section>
-          <div class="inv-vbar"><div class="pj-seg" id="invView" role="group" aria-label="Tampilan"><button type="button" data-v="kat">Per kategori</button><button type="button" data-v="mat">Per material</button><button type="button" data-v="lok">Per lokasi</button><button type="button" data-v="mov" id="invViewMov">Per pergerakan</button></div></div>
         </div>
         <div id="invBody"></div>
       </section>
@@ -1374,7 +1385,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=da3b6cb3"></script>
 <script src="app.js?v=d09b589d"></script>
-<script src="inv.js?v=7f20efd8"></script>
+<script src="inv.js?v=3d78f2aa"></script>
 <script src="inc.js?v=ee0c44e8"></script>
 <script src="csl.js?v=1f71e4b7"></script>
 <script src="help.js?v=90393986"></script>
