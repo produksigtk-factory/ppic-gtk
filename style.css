@@ -2047,3 +2047,7 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 .inv-kmv { text-align: left; cursor: pointer; }
 .inv-mvt { font-size: 13.5px; }
 .inv-mv-X { background: #eceff2; color: #4a545e; }
+/* CSL Beauty: tanpa pembagian Offline / Online */
+body[data-cslseg="beauty"] #cdGrp,
+body[data-cslseg="beauty"] label:has(> #csGrp),
+body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }

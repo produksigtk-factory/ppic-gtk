@@ -1,5 +1,6 @@
 /**
- * Apps Script CSL PPIC GTK — dipasang di Google Sheet "CSL PPIC GTK"
+ * Apps Script CSL — dipasang di Google Sheet "CSL Personal Care" DAN (file yang sama, deployment terpisah) di "CSL Beauty".
+ * Tiap Google Sheet menyimpan datanya sendiri; tab dibuat otomatis saat pertama dipakai.
  * (Extensions → Apps Script → tempel file ini → Deploy → New deployment → Web app,
  *  Execute as: Me, Who has access: Anyone).
  *
@@ -187,7 +188,7 @@ function blocks_(sh, ncol, want) {
 
 // Ukuran tiap Google Sheet: batas Google = 10.000.000 sel per file (dihitung dari baris × kolom yang tersedia, termasuk yang kosong)
 function usage_(ss) {
-  const list = [['CSL PPIC GTK', ss], ['DATABASE PPIC GTK', CSL_CONFIG.DATABASE_ID]].concat(CSL_CONFIG.OTHER);
+  const list = [[ss.getName(), ss], ['DATABASE PPIC GTK', CSL_CONFIG.DATABASE_ID]].concat(CSL_CONFIG.OTHER);
   const files = list.map(([name, x]) => {
     try {
       const f = typeof x === 'string' ? SpreadsheetApp.openById(x) : x;

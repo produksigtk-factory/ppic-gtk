@@ -153,21 +153,33 @@
     'mrp/update':        { view: 'view-mrp-update',        crumb: 'MRP',                       title: 'Update Data MRP', actions: 'mrp' },
     'po/supplier':       { view: 'view-po-supplier',       crumb: 'Purchase Order',            title: 'Supplier & MoQ',  actions: 'sup' },
     'csl/dashboard':     { view: 'view-csl-dashboard',     crumb: 'CSL Personal Care',         title: 'Dashboard CSL',   actions: 'csl' },
+    'cslb/dashboard':     { view: 'view-csl-dashboard',     crumb: 'CSL Beauty',                title: 'Dashboard CSL',   actions: 'csl' },
     'csl/region':        { view: 'view-csl-region',        crumb: 'CSL Personal Care',         title: 'Review Region',   actions: 'csl' },
+    'cslb/region':        { view: 'view-csl-region',        crumb: 'CSL Beauty',                title: 'Review Region',   actions: 'csl' },
     'csl/sku':           { view: 'view-csl-sku',           crumb: 'CSL Personal Care',         title: 'Rekap per SKU',   actions: 'csl' },
+    'cslb/sku':           { view: 'view-csl-sku',           crumb: 'CSL Beauty',                title: 'Rekap per SKU',   actions: 'csl' },
     'csl/sellin':        { view: 'view-csl-sellin',        crumb: 'CSL Personal Care',         title: 'Sell In',         actions: 'csl' },
+    'cslb/sellin':        { view: 'view-csl-sellin',        crumb: 'CSL Beauty',                title: 'Sell In',         actions: 'csl' },
     'csl/os':            { view: 'view-csl-os',            crumb: 'CSL Personal Care',         title: 'Sisa SO',         actions: 'csl' },
+    'cslb/os':            { view: 'view-csl-os',            crumb: 'CSL Beauty',                title: 'Sisa SO',         actions: 'csl' },
     'csl/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Personal Care',         title: 'Weekly Review',   actions: 'csl' },
+    'cslb/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Beauty',                title: 'Weekly Review',   actions: 'csl' },
     'pr/rekap':          { view: 'view-pr-rekap',          crumb: 'Purchase Request',          title: 'Rekap PR',        actions: 'po' },
     'pr/form':           { view: 'view-pr-form',           crumb: 'Purchase Request',          title: 'Formulir PR',     actions: 'po' },
     'info/glosarium':    { view: 'view-info-glosarium',    crumb: 'Bantuan & Sistem',          title: 'Glosarium',       actions: '' },
     'info/kapasitas':    { view: 'view-info-kapasitas',    crumb: 'Bantuan & Sistem',          title: 'Kapasitas Google Sheet', actions: '' },
     'csl/amount':        { view: 'view-csl-amount',        crumb: 'CSL Personal Care',         title: 'Amount Check',    actions: 'csl' },
+    'cslb/amount':        { view: 'view-csl-amount',        crumb: 'CSL Beauty',                title: 'Amount Check',    actions: 'csl' },
     'csl/analisa':       { view: 'view-csl-analisa',       crumb: 'CSL Personal Care',         title: 'Analisa Forecast', actions: 'csl' },
+    'cslb/analisa':       { view: 'view-csl-analisa',       crumb: 'CSL Beauty',                title: 'Analisa Forecast', actions: 'csl' },
     'csl/suggest':       { view: 'view-csl-suggest',       crumb: 'CSL Personal Care',         title: 'Suggest Forecast', actions: 'csl' },
+    'cslb/suggest':       { view: 'view-csl-suggest',       crumb: 'CSL Beauty',                title: 'Suggest Forecast', actions: 'csl' },
     'csl/musim':         { view: 'view-csl-musim',         crumb: 'CSL Personal Care',         title: 'Seasonal',        actions: 'csl' },
+    'cslb/musim':         { view: 'view-csl-musim',         crumb: 'CSL Beauty',                title: 'Seasonal',        actions: 'csl' },
     'csl/update':        { view: 'view-csl-update',        crumb: 'CSL Personal Care',         title: 'Update Data CSL', actions: 'csl' },
+    'cslb/update':        { view: 'view-csl-update',        crumb: 'CSL Beauty',                title: 'Update Data CSL', actions: 'csl' },
     'csl/cek':           { view: 'view-csl-cek',           crumb: 'CSL Personal Care',         title: 'Pemeriksaan Data CSL', actions: 'csl' },
+    'cslb/cek':           { view: 'view-csl-cek',           crumb: 'CSL Beauty',                title: 'Pemeriksaan Data CSL', actions: 'csl' },
     'rep/inv-mat':       { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'RM, PM, dan WIP', actions: 'inv' },
     'rep/inv-fg':        { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'FG', actions: 'inv' },
     'rep/inventory':     { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'RM, PM, dan WIP', actions: 'inv' },
@@ -196,13 +208,13 @@
     $('poActions').hidden = !r.actions;
     $('btnEditMode').hidden = r.actions === 'sup' || r.actions === 'csl' || r.actions === 'inv' || (r.actions === 'mrp' && !planView);
     paintEditBtn();
-    const sheet = r.actions === 'inv' ? ((window.INV && window.INV.sheetUrl()) || CFG.INV_SHEET_URL) : r.actions === 'csl' ? ((window.CSL && window.CSL.sheetUrl()) || CFG.CSL_SHEET_URL) : r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : planView ? (P.mrpUrl || CFG.MRP_SHEET_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
+    const sheet = r.actions === 'inv' ? ((window.INV && window.INV.sheetUrl()) || CFG.INV_SHEET_URL) : r.actions === 'csl' ? ((window.CSL && window.CSL.sheetUrl()) || (state.routeKey.startsWith('cslb/') ? CFG.CSL_BEAUTY_SHEET_URL : CFG.CSL_SHEET_URL)) : r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : planView ? (P.mrpUrl || CFG.MRP_SHEET_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
     $('lnkSheet').hidden = !sheet;
     if (sheet) $('lnkSheet').href = sheet;
-    $('lnkSheet').title = r.actions === 'inv' ? 'Buka Google Sheet Value and Qty Inventory (RM, PM, dan FG) di tab baru' : r.actions === 'csl' ? 'Buka Google Sheet CSL PPIC GTK (SO, DO, forecast) di tab baru' : r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
+    $('lnkSheet').title = r.actions === 'inv' ? 'Buka Google Sheet Value and Qty Inventory (RM, PM, dan FG) di tab baru' : r.actions === 'csl' ? `Buka Google Sheet ${state.routeKey.startsWith('cslb/') ? 'CSL Beauty' : 'CSL Personal Care'} (SO, DO, forecast) di tab baru` : r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
       : planView ? 'Buka Google Sheet MRP PPIC GTK (rencana, SKU, stok) di tab baru'
       : r.actions === 'mrp' ? 'Buka Google Sheet DATABASE PPIC (MASTER_MATERIAL, BOM_LIST, BOM_DETAIL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
-    $('btnReload').title = r.actions === 'inv' ? 'Ambil ulang golongan, harga, dan stok dari Google Sheet Value and Qty Inventory' : r.actions === 'csl' ? 'Ambil data SO-DO dan forecast yang berubah dari Google Sheet CSL PPIC GTK' : r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
+    $('btnReload').title = r.actions === 'inv' ? 'Ambil ulang golongan, harga, dan stok dari Google Sheet Value and Qty Inventory' : r.actions === 'csl' ? `Ambil data SO-DO dan forecast yang berubah dari Google Sheet ${state.routeKey.startsWith('cslb/') ? 'CSL Beauty' : 'CSL Personal Care'}` : r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
       : r.actions === 'mrp' ? 'Ambil ulang BOM, rencana, dan stok dari Google Sheet' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');

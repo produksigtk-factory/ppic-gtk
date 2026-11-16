@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=1fa53485">
+<link rel="stylesheet" href="style.css?v=19c5aacc">
 </head>
 <body>
 <div class="shell">
@@ -90,6 +90,20 @@
           <a class="menu-item sub" href="#/csl/os" data-route="csl/os">Sisa SO</a>
           <a class="menu-item sub" href="#/csl/cek" data-route="csl/cek">Pemeriksaan Data<span class="menu-badge menu-badge-soft" id="cslBadge" hidden></span></a>
           <a class="menu-item sub" href="#/csl/update" data-route="csl/update">Update Data CSL</a>
+        </div>
+      </div>
+
+      <div class="menu-group" data-group="cslb">
+        <button class="menu-group-head" aria-expanded="false">
+          <span>CSL Beauty</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <div class="submenu">
+          <a class="menu-item sub" href="#/cslb/dashboard" data-route="cslb/dashboard">Dashboard CSL</a>
+          <a class="menu-item sub" href="#/cslb/sku" data-route="cslb/sku">Rekap per SKU</a>
+          <a class="menu-item sub" href="#/cslb/sellin" data-route="cslb/sellin">Sell In</a>
+          <a class="menu-item sub" href="#/cslb/os" data-route="cslb/os">Sisa SO</a>
+          <a class="menu-item sub" href="#/cslb/cek" data-route="cslb/cek">Pemeriksaan Data</a>
+          <a class="menu-item sub" href="#/cslb/update" data-route="cslb/update">Update Data CSL</a>
         </div>
       </div>
 
@@ -1229,9 +1243,9 @@
         <div class="mrp-loading" data-csl-loading>Memuat data CSL…</div>
         <div class="up-grid">
           <div class="update-card">
-            <h2>Upload Excel CSL</h2>
-            <p class="lead">Pilih file Excel CSL utuh (.xlsm / .xlsx). Website membaca sheet <b>INPUT SODO</b> (SO &amp; DO), <b>(GTK)</b> dan <b>(BIMS)</b> (forecast). Simpan (Save) file di Excel dulu supaya hasil rumusnya ikut tersimpan. Data di Google Sheet selalu disamakan dengan file ini; bulan yang isinya tidak berubah dilewati.</p>
-            <label class="file-drop" for="cuXFile"><input type="file" id="cuXFile" accept=".xlsm,.xlsx,.xlsb,.xls"><span class="file-btn">Pilih file Excel CSL</span><span class="file-name" id="cuXName">Belum ada file</span></label>
+            <h2 id="cuXTitle">Upload Excel CSL</h2>
+            <p class="lead" id="cuXLead">Pilih file Excel CSL utuh (.xlsm / .xlsx). Website membaca sheet <b>INPUT SODO</b> (SO &amp; DO), <b>(GTK)</b> dan <b>(BIMS)</b> (forecast). Simpan (Save) file di Excel dulu supaya hasil rumusnya ikut tersimpan. Data di Google Sheet selalu disamakan dengan file ini; bulan yang isinya tidak berubah dilewati.</p>
+            <label class="file-drop" for="cuXFile"><input type="file" id="cuXFile" accept=".xlsm,.xlsx,.xlsb,.xls"><span class="file-btn" id="cuXBtnTxt">Pilih file Excel CSL</span><span class="file-name" id="cuXName">Belum ada file</span></label>
             <div class="check" id="cuXCheck"></div>
             <div class="send-row"><button class="btn" id="cuXSend" disabled>Simpan ke Google Sheet</button><p class="send-result" id="cuXResult" aria-live="polite"></p></div>
           </div>
@@ -1338,10 +1352,10 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=6c66277d"></script>
-<script src="app.js?v=3722dba7"></script>
-<script src="inv.js?v=3e6c3198"></script>
-<script src="csl.js?v=46101673"></script>
+<script src="config.js?v=560dde4e"></script>
+<script src="app.js?v=6cb5bf42"></script>
+<script src="inv.js?v=7f20efd8"></script>
+<script src="csl.js?v=a12237a1"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>

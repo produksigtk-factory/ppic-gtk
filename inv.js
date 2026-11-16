@@ -133,9 +133,13 @@
     I.mv = { loading: true };
     try {
       if (!window.CSL || !window.CSL.doOut) throw new Error('modul CSL tidak tersedia');
-      const d = await window.CSL.doOut();
-      const by = new Map(); d.lines.forEach(([k, dt, q]) => { if (!by.has(k)) by.set(k, []); by.get(k).push([dt, q]); });
-      I.mv = { lines: d.lines, by, from: d.from, to: d.to, noDate: d.noDate };
+      // DO dari CSL Personal Care + CSL Beauty (Mizzu). DO Beauty tanpa tanggal DO: memakai tanggal SO / awal bulan DO.
+      const d = await window.CSL.doOut('pc');
+      let b = { lines: [], from: '' };
+      try { b = await window.CSL.doOut('beauty'); } catch (e) { b = { lines: [], from: '', err: e.message }; }
+      const lines = d.lines.concat(b.lines || []);
+      const by = new Map(); lines.forEach(([k, dt, q]) => { if (!by.has(k)) by.set(k, []); by.get(k).push([dt, q]); });
+      I.mv = { lines, by, from: d.from, to: d.to, noDate: d.noDate, bFrom: b.from || '', bErr: b.err || '' };
     } catch (e) { I.mv = { err: e.message }; }
     I.mvCache.clear();
     if (I.kel === 'FG') render();
@@ -333,7 +337,7 @@
     if (I.mv.err) return `<p class="check err inv-mvmsg">Pergerakan FG belum bisa dihitung: ${esc(I.mv.err)}</p>`;
     const M = mvCalc(I.snap); if (!M) return '';
     const dFrom = I.mv.from ? fDate(I.mv.from + '-01') : '–';
-    return `<p class="mrp-count inv-mvmsg">Pergerakan dihitung dari DO terkirim (Delivered) CSL Personal Care, periode <b>${M.P} bulan</b>: ${esc(fDate(M.from))} – ${esc(fDate(M.end))} (${M.nW} minggu). <b>Fast</b> = masuk ${I.mvPar}% qty DO terbesar dan ada DO di ≥ ${I.mvWk}% minggu · <b>Slow</b> = ada DO selain itu · <b>Not Move</b> = tanpa DO di periode, masih ada DO ${esc(fDate(M.pFrom))} – ${esc(fDate(isoOf(dayN(M.from) - 1)))} · <b>Dead Stock</b> = tanpa DO sejak ${esc(fDate(M.pFrom))}.</p>`
+    return `<p class="mrp-count inv-mvmsg">Pergerakan dihitung dari DO terkirim (Delivered) CSL Personal Care${I.mv.bFrom ? ' dan CSL Beauty' : ''}, periode <b>${M.P} bulan</b>: ${esc(fDate(M.from))} – ${esc(fDate(M.end))} (${M.nW} minggu). <b>Fast</b> = masuk ${I.mvPar}% qty DO terbesar dan ada DO di ≥ ${I.mvWk}% minggu · <b>Slow</b> = ada DO selain itu · <b>Not Move</b> = tanpa DO di periode, masih ada DO ${esc(fDate(M.pFrom))} – ${esc(fDate(isoOf(dayN(M.from) - 1)))} · <b>Dead Stock</b> = tanpa DO sejak ${esc(fDate(M.pFrom))}.</p>`
       + (M.short ? `<p class="check warn inv-mvmsg">Data DO di CSL baru tersedia mulai ${esc(dFrom)}. ${M.short === 'all' ? 'Periode ini lebih panjang dari data yang ada, jadi Fast/Slow dihitung dari data yang tersedia saja dan' : ''} Not Move dan Dead Stock belum bisa dibedakan dengan akurat (FG yang tidak keluar dianggap Dead Stock).</p>` : '');
   }
   function viewMov(rows) {
@@ -358,7 +362,7 @@
     });
     return `<div class="table-wrap"><table class="po-table inv-t inv-mvtab">${head([['', 'inv-chev'], ['Pergerakan / FG'], ['Brand - jenis'], ['Minggu ada DO', 'num'], [`Qty DO ${M.P} bln`, 'num'], ['Rata-rata DO / bln', 'num'], ['DO terakhir'], ['Stok', 'num'], ['Value', 'num'], ['Porsi', 'num'], ['Stok cukup (bln)', 'num']])}<tbody>${html || '<tr class="empty"><td colspan="11">Tidak ada data pada saringan ini.</td></tr>'}</tbody>
       <tfoot><tr><th colspan="7">Total</th><th class="num">${fQ(rows.reduce((t, r) => t + r.qty, 0))}</th><th class="num">${fRp(tot)}</th><th class="num">100%</th><th></th></tr></tfoot></table></div>
-      <p class="hint">Klik baris pergerakan untuk membuka daftar FG. Stok cukup (bln) = stok ÷ rata-rata DO per bulan. Kode FG dicocokkan langsung dengan kode di DO CSL. Grafik "Pergerakan" memakai golongan pergerakan pada tanggal masing-masing snapshot.${zero ? ` ${zero} kode FG dengan stok 0 tidak ditampilkan.` : ''} <b>Tanpa data DO</b> = kode tidak pernah muncul di DO CSL sejak data tersedia (bisa jadi produk di luar CSL Personal Care), jadi tidak dimasukkan ke Dead Stock.</p>`;
+      <p class="hint">Klik baris pergerakan untuk membuka daftar FG. Stok cukup (bln) = stok ÷ rata-rata DO per bulan. Kode FG dicocokkan langsung dengan kode di DO CSL Personal Care dan CSL Beauty (DO Beauty dihitung per bulan karena file Beauty tidak memuat tanggal DO). Grafik "Pergerakan" memakai golongan pergerakan pada tanggal masing-masing snapshot.${zero ? ` ${zero} kode FG dengan stok 0 tidak ditampilkan.` : ''} <b>Tanpa data DO</b> = kode tidak pernah muncul di DO CSL sejak data tersedia (bisa jadi produk di luar CSL Personal Care), jadi tidak dimasukkan ke Dead Stock.</p>`;
   }
   function viewLok(rows) {
     const by = sumBy(rows, (r) => r.lok), tot = rows.reduce((t, r) => t + r.val, 0);

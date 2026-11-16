@@ -17,7 +17,7 @@
   const REGS = ['R1', 'R2', 'R3', 'R4'];
   const MON = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  const GRP_LABEL = { ALL: 'Offline + Online', OFFLINE: 'Offline (GTK)', ONLINE: 'Online (BIMS)' };
+  const GRP_LABEL = new Proxy({ ALL: 'Offline + Online', OFFLINE: 'Offline (GTK)', ONLINE: 'Online (BIMS)' }, { get: (t, k) => (k === 'ALL' && SEG && SEG.key === 'beauty' ? 'Semua customer' : t[k]) });
 
   /* ---------- Format ---------- */
   const nf0 = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
@@ -48,8 +48,13 @@
   const nz = (v) => (isNum(v) ? v : 0);
   const ratio = (a, b) => (b ? a / b : NaN);
 
-  /* ---------- State ---------- */
-  const C = {
+  /* ---------- Segmen: CSL Personal Care & CSL Beauty memakai mesin yang sama, data terpisah ---------- */
+  // Rute csl/… = Personal Care (Google Sheet CSL Personal Care), cslb/… = Beauty (Google Sheet CSL Beauty).
+  const SEGS = {
+    pc: { key: 'pc', pre: 'csl/', name: 'CSL Personal Care', url: CFG.CSL_SCRIPT_URL || '', sheet: CFG.CSL_SHEET_URL || '', idb: 'ppic-csl', cfg: 'CSL_SCRIPT_URL', gs: 'Code_CSL.gs di Google Sheet CSL Personal Care' },
+    beauty: { key: 'beauty', pre: 'cslb/', name: 'CSL Beauty', url: CFG.CSL_BEAUTY_SCRIPT_URL || '', sheet: CFG.CSL_BEAUTY_SHEET_URL || '', idb: 'ppic-csl-beauty', cfg: 'CSL_BEAUTY_SCRIPT_URL', gs: 'Code_CSL.gs (file yang sama) di Google Sheet CSL Beauty' },
+  };
+  const newC = () => ({
     loaded: false, loading: false, err: '', progress: '',
     P: {}, paramRows: [], dist: new Map(), kota: [], master: new Map(), names: {}, weeks: [],
     months: [], cache: new Map(), fct: new Map(), fctRows: [], nilai: new Map(), nilaiRows: [], log: [],
@@ -57,18 +62,29 @@
     lines: [], orphans: [], A: null, cancelSisa: false, excelDiff: [], excelGap: [],
     excl: { OFFLINE: new Set(), ONLINE: new Set() },
     route: '',
-  };
+  });
+  let SEG, C, IDB, D, CK, U, SI;
+  const STATES = {};
+  function setSeg(k) {
+    if (!SEGS[k]) k = 'pc';
+    if (!STATES[k]) STATES[k] = { C: newC(), IDB: mkIDB(SEGS[k].idb), D: { grp: 'ALL' }, CK: { tab: 'dist' }, U: { x: null }, SI: { tab: 'mx', ms: 'q' } };
+    SEG = SEGS[k]; ({ C, IDB, D, CK, U, SI } = STATES[k]);
+  }
+  const routeSeg = () => (/^#\/?cslb\//.test(location.hash) ? 'beauty' : 'pc');
+  // Jalankan fungsi sinkron di segmen tertentu lalu kembali (tugas & status Beranda selalu Personal Care)
+  function withSeg(k, fn) { const prev = SEG ? SEG.key : 'pc'; setSeg(k); try { return fn(); } finally { setSeg(prev); } }
+  const isB = () => SEG.key === 'beauty';
   const P = (k, d) => (C.P[k] === undefined || C.P[k] === '' ? d : C.P[k]);
   const pNum = (k, d) => { const x = Number(String(P(k, d)).replace(',', '.')); return isFinite(x) ? x : d; };
 
   /* ---------- Penyimpanan di browser ---------- */
-  const IDB = {
+  function mkIDB(name) { return {
     db: null,
     open() {
       if (this.db !== null) return Promise.resolve(this.db);
       return new Promise((res) => {
         try {
-          const r = indexedDB.open('ppic-csl', 1);
+          const r = indexedDB.open(name, 1);
           r.onupgradeneeded = () => r.result.createObjectStore('months', { keyPath: 'm' });
           r.onsuccess = () => { this.db = r.result; res(this.db); };
           r.onerror = () => { this.db = false; res(false); };
@@ -82,7 +98,9 @@
     async put(o) { const db = await this.open(); if (!db) return; try { db.transaction('months', 'readwrite').objectStore('months').put(o); } catch (e) { /* abaikan */ } },
     async del(m) { const db = await this.open(); if (!db) return; try { db.transaction('months', 'readwrite').objectStore('months').delete(m); } catch (e) { /* abaikan */ } },
     async clear() { const db = await this.open(); if (!db) return; try { db.transaction('months', 'readwrite').objectStore('months').clear(); } catch (e) { /* abaikan */ } },
-  };
+  }; }
+
+  setSeg('pc');
 
   /* ---------- Apps Script ---------- */
   async function getJSON(url) {
@@ -92,10 +110,11 @@
     return d;
   }
   async function api(action, payload) {
-    if (!CFG.CSL_SCRIPT_URL) throw new Error('Apps Script CSL belum terpasang (config.js CSL_SCRIPT_URL).');
+    const url = SEG.url;
+    if (!url) throw new Error(`Apps Script ${SEG.name} belum terpasang (config.js ${SEG.cfg}).`);
     let res;
     try {
-      res = await fetch(CFG.CSL_SCRIPT_URL, {
+      res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(Object.assign({ action }, payload)),
       });
@@ -145,13 +164,15 @@
 
   async function load(opt = {}) {
     if (C.loading) return;
-    C.loading = true; C.err = ''; C.progress = 'Membaca daftar data CSL…'; paintLoading();
+    // Selama menunggu (await), pemakai bisa pindah ke segmen lain: kembalikan segmen ini setiap selesai menunggu
+    const S = SEG.key, URL0 = SEG.url, re = () => setSeg(S), paint = () => { if (routeSeg() === S) paintLoading(); };
+    C.loading = true; C.err = ''; C.progress = 'Membaca daftar data CSL…'; paint();
     try {
-      if (!CFG.CSL_SCRIPT_URL) throw new Error('Apps Script CSL belum terpasang. Tempel apps-script/Code_CSL.gs di Google Sheet CSL PPIC GTK, deploy sebagai Web app, lalu isi CSL_SCRIPT_URL di config.js.');
-      const meta = await getJSON(CFG.CSL_SCRIPT_URL + '?action=meta' + (opt.fresh ? '&fresh=1' : ''));
+      if (!URL0) throw new Error(`Apps Script ${SEG.name} belum terpasang. Tempel apps-script/${SEG.gs}, deploy sebagai Web app, lalu isi ${SEG.cfg} di config.js.`);
+      const meta = await getJSON(URL0 + '?action=meta' + (opt.fresh ? '&fresh=1' : '')); re();
       applyMeta(meta);
-      if (opt.reset) { await IDB.clear(); C.cache.clear(); }
-      if (!C.cache.size) (await IDB.all()).forEach((o) => C.cache.set(o.m, o));
+      if (opt.reset) { await IDB.clear(); re(); C.cache.clear(); }
+      if (!C.cache.size) { const all = await IDB.all(); re(); all.forEach((o) => C.cache.set(o.m, o)); }
       const want = new Map(C.months.map((m) => [m.bulan, m]));
       [...C.cache.keys()].forEach((m) => { if (!want.has(m)) { C.cache.delete(m); IDB.del(m); } });
       const need = C.months.filter((m) => !C.cache.has(m.bulan) || C.cache.get(m.bulan).ver !== m.ver);
@@ -163,28 +184,28 @@
       let done = 0;
       const total = need.length;
       const runOne = async (b) => {
-        const d = await getJSON(CFG.CSL_SCRIPT_URL + '?action=months&m=' + encodeURIComponent(b.join(',')));
+        const d = await getJSON(URL0 + '?action=months&m=' + encodeURIComponent(b.join(','))); re();
         Object.keys(d.months || {}).forEach((m) => {
           const o = { m, ver: d.months[m].ver, so: d.months[m].so, do: d.months[m].do };
           C.cache.set(m, o); IDB.put(o);
         });
         done += b.length;
-        C.progress = `Mengunduh data SO-DO: ${done} dari ${total} bulan…`; paintLoading();
+        C.progress = `Mengunduh data SO-DO: ${done} dari ${total} bulan…`; paint();
       };
-      if (total) { C.progress = `Mengunduh data SO-DO: 0 dari ${total} bulan…`; paintLoading(); }
+      if (total) { C.progress = `Mengunduh data SO-DO: 0 dari ${total} bulan…`; paint(); }
       const queue = batches.slice();
       const worker = async () => { while (queue.length) await runOne(queue.shift()); };
-      await Promise.all([worker(), worker()]);
-      C.progress = 'Menghitung…'; paintLoading();
+      await Promise.all([worker(), worker()]); re();
+      C.progress = 'Menghitung…'; paint();
       build();
       C.loaded = true;
     } catch (err) {
-      C.err = 'Data CSL belum bisa dimuat: ' + err.message;
+      re(); C.err = 'Data CSL belum bisa dimuat: ' + err.message;
     } finally {
-      C.loading = false; paintLoading();
-      renderHome();
-      if (window.TASKS) window.TASKS.refresh();
-      if (C.route) render(C.route);
+      re(); C.loading = false; paint();
+      if (S === 'pc') { renderHome(); if (window.TASKS) window.TASKS.refresh(); }
+      if (C.route && routeSeg() === S) render(C.route);
+      setSeg(routeSeg());
     }
   }
 
@@ -367,7 +388,6 @@
   /* =====================================================================
      DASHBOARD CSL (GRAFIK CSL)
      ===================================================================== */
-  const D = { grp: 'ALL' };
   function csl(m, g) {
     const mo = C.A.month[m] && C.A.month[m][g] || {};
     const so = mo.so || 0, dq = mo.do || 0;
@@ -380,11 +400,11 @@
     const m = $('cdMonth').value;
     const a = csl(m, 'ALL'), off = csl(m, 'OFFLINE'), on = csl(m, 'ONLINE');
     const tgt = pNum('TARGET_CSL', 1);
+    if (isB()) D.grp = 'ALL';   // Beauty: tanpa pembagian Offline / Online
     $('cdKpi').innerHTML = kpis([
       { num: fPct(a.csl), lbl: `CSL ${monLabel(m)}`, tone: cslTone(a.csl), title: `DO bulan sama ${fRp(a.do)} ÷ SO ${fRp(a.so)} · target ${fPct(tgt)}` },
       { num: fPct(a.cslOs), lbl: 'CSL + OS', title: `Semua DO terkirim di bulan ini ${fRp(a.dos)} ÷ SO ${fRp(a.so)}` },
-      { num: fPct(off.csl), lbl: 'CSL Offline (GTK)', tone: cslTone(off.csl) },
-      { num: fPct(on.csl), lbl: 'CSL Online (BIMS)', tone: cslTone(on.csl) },
+      ...(isB() ? [] : [{ num: fPct(off.csl), lbl: 'CSL Offline (GTK)', tone: cslTone(off.csl) }, { num: fPct(on.csl), lbl: 'CSL Online (BIMS)', tone: cslTone(on.csl) }]),
       { num: fBig(a.so), lbl: 'SO bulan ini (Rp)' },
       { num: fBig(a.sisa), lbl: 'Sisa SO bulan ini (Rp)', tone: a.sisa ? 'warn' : '' },
     ]);
@@ -392,13 +412,13 @@
     const months = periodMonths($('cdPeriod').value);
     const useOs = $('cdOs').checked;
     $('cdChartSub').textContent = `${useOs ? 'CSL + OS' : 'CSL'} per bulan, ${monLabel(months[0])} – ${monLabel(months[months.length - 1])}. Garis putus-putus = target ${fPct(tgt)}.`;
-    $('cdChart').innerHTML = lineChart(months, ['ALL', 'OFFLINE', 'ONLINE'].map((g) => ({
-      name: GRP_LABEL[g], cls: 's-' + g.toLowerCase(),
+    $('cdChart').innerHTML = lineChart(months, (isB() ? ['ALL'] : ['ALL', 'OFFLINE', 'ONLINE']).map((g) => ({
+      name: isB() ? 'Semua customer' : GRP_LABEL[g], cls: 's-' + g.toLowerCase(),
       vals: months.map((x) => { const r = csl(x, g); return useOs ? r.cslOs : r.csl; }),
     })), tgt, m);
     const g = D.grp;
     const rows = months.map((x) => csl(x, g));
-    $('cdTblTitle').textContent = `${GRP_LABEL[g]} — Rp juta`;
+    $('cdTblTitle').textContent = `${isB() ? 'Semua customer' : GRP_LABEL[g]} — Rp juta`;
     const head = `<thead><tr><th class="pl-sticky pl-c1">Keterangan</th>${months.map((x) => `<th class="num csl-mcol${x === m ? ' is-sel' : ''}" data-m="${x}" title="Klik untuk memilih ${monLabel(x)}">${monShort(x)}</th>`).join('')}</tr></thead>`;
     const tr = (lbl, f, cls = '') => `<tr class="${cls}"><td class="pl-sticky pl-c1">${lbl}</td>${rows.map((r, i) => f(r).replace('<td class="', `<td class="${months[i] === m ? 'is-sel ' : ''}`)).join('')}</tr>`;
     $('cdTable').innerHTML = head + '<tbody>'
@@ -521,6 +541,7 @@
   }
   function renderSku() {
     fillSel($('csGrp'), grpOpts(), 'OFFLINE');
+    if (isB()) $('csGrp').value = 'ALL';
     fillSel($('csEnd'), monthOpts([...new Set(C.A.monthsAll.concat(C.A.soList))].sort()), lastSoMonth());
     const g = $('csGrp').value, months = skuMonths();
     const rows = skuRows(g, months, $('csQ').value.trim());
@@ -587,6 +608,7 @@
   }
   function renderOs() {
     fillSel($('coGrp'), grpOpts(), 'ALL');
+    if (isB()) $('coGrp').value = 'ALL';
     $('coCancel').checked = C.cancelSisa;
     const g = $('coGrp').value, mode = $('coMode').value, q = $('coQ').value.trim();
     const ls = osLines(g, q);
@@ -969,7 +991,6 @@
   /* =====================================================================
      PEMERIKSAAN DATA
      ===================================================================== */
-  const CK = { tab: 'dist' };
   function checks() {
     const L = C.lines;
     const dist = new Map(), ref = new Map(), code = new Map();
@@ -1011,6 +1032,7 @@
     $('ckRows').innerHTML = cur.rows.map((r) => `<tr>${r.map((v) => `<td>${v}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cur.head.length}" class="csl-empty">Tidak ada temuan.</td></tr>`;
   }
   function paintBadge() {
+    if (SEG.key !== 'pc') return withSeg('pc', paintBadge);
     const b = $('cslBadge'); if (!b || !C.loaded) return;
     const n = checks().filter((x) => ['dist', 'code', 'over'].includes(x.id)).reduce((a, x) => a + x.rows.length, 0);
     b.hidden = !n; b.textContent = n;
@@ -1019,7 +1041,6 @@
   /* =====================================================================
      UPDATE DATA: upload satu file Excel CSL (INPUT SODO, (GTK), (BIMS))
      ===================================================================== */
-  const U = { x: null };
   // Tanggal dari Excel: angka serial, "2026-10-31", "2026-10-31 06:42:26", "31/10/2026"
   function toDT(v) {
     if (v === '' || v === null || v === undefined) return '';
@@ -1153,6 +1174,83 @@
     return { file: file.name, months, list, nSo: s.so.length, nDo: s.dos.length, bad: s.bad, diff: s.diff, fct, soGap,
       removed: C.months.map((x) => x.bulan).filter((m) => !by.has(m)) };
   }
+  /* ---------- CSL Beauty: file SO_DO_BEAUTY (tab per tahun, 1 baris per SO + kode) ---------- */
+  // Kolom: NO SO, DATE INPUT SO, CUST, KOTA, MONTH, WEEK, KODE FG, NAMA PRODUK, SO, PRICE/PCS, AMOUNT SO, DO, AMOUNT DO,
+  // BULAN DO 1, GAP, DO OS LAST MONTH, BULAN DO 2, AMOUNT DO OS, SO LOSS, SISA, NOTE. Tidak ada nomor & tanggal DO, jadi DO dibentuk
+  // per bulan: <SO>/DO-yyyy-mm (Delivered), <SO>/OS-yyyy-mm (Delivered, DO OS), <SO>/LOSS (Cancelled), <SO>/SISA (belum terkirim).
+  const MONW = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MEI: 5, MAY: 5, JUN: 6, JUL: 7, AGU: 8, AGS: 8, AUG: 8, SEP: 9, OKT: 10, OCT: 10, NOV: 11, DES: 12, DEC: 12 };
+  function bMonth(txt, soDate) {
+    const t = up(txt); if (!t) return '';
+    const mi = MONW[t.replace(/[^A-Z]/g, '').slice(0, 3)]; if (!mi) return '';
+    const yy = t.match(/(\d{2,4})\s*$/);
+    let y = +soDate.slice(0, 4);
+    if (yy) y = yy[1].length === 2 ? 2000 + +yy[1] : +yy[1];
+    else if (mi < +soDate.slice(5, 7) - 6) y += 1;          // mis. SO Des, DO Jan → tahun berikutnya
+    else if (mi > +soDate.slice(5, 7) + 6) y -= 1;
+    return `${y}-${String(mi).padStart(2, '0')}`;
+  }
+  async function parseBeauty(file) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellFormula: false, cellHTML: false, cellText: false, dense: true });
+    const norm = (v) => up(v).replace(/\s+/g, ' ').replace(/ ?\/ ?/g, '/');
+    const bySo = new Map(); let bad = 0, nSheet = 0;
+    wb.SheetNames.forEach((sn) => {
+      const r = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: true, blankrows: false });
+      const hi = r.findIndex((x, i) => i < 30 && norm(x[0]) === 'NO SO' && x.some((v) => norm(v) === 'KODE FG'));
+      if (hi < 0) return;
+      nSheet++;
+      const h = r[hi].map(norm), at = (n) => h.indexOf(n);
+      const c = { no: 0, date: at('DATE INPUT SO'), cust: at('CUST'), kota: at('KOTA'), week: at('WEEK'), kode: at('KODE FG'), nama: at('NAMA PRODUK'), so: at('SO'), price: h.findIndex((v) => /^PRICE/.test(v)),
+        do: at('DO'), m1: at('BULAN DO 1'), os: at('DO OS LAST MONTH'), m2: at('BULAN DO 2'), loss: at('SO LOSS'), sisa: at('SISA') };
+      const miss = Object.entries(c).filter(([, v]) => v < 0).map(([k]) => k);
+      if (miss.length) throw new Error(`Sheet ${sn}: kolom tidak ditemukan (${miss.join(', ')}).`);
+      const here = new Map();
+      for (let i = hi + 1; i < r.length; i++) {
+        const x = r[i]; if (!x) continue;
+        const no = String(x[c.no] || '').trim(), kode = String(x[c.kode] || '').trim();
+        if (!no || !kode || !/^SO/i.test(no)) continue;
+        const date = toDT(x[c.date]).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { bad++; continue; }
+        if (!here.has(no)) here.set(no, []);
+        here.get(no).push({ no, date, kode, x, c });
+      }
+      here.forEach((L, no) => bySo.set(no, L));   // tab berikutnya (tahun lebih baru) menggantikan SO yang sama → SO Desember tidak dobel
+    });
+    if (!nSheet) throw new Error('Baris judul (NO SO … KODE FG) tidak ditemukan. Pilih file SO DO Beauty.');
+    const so = [], dos = [];
+    let nRows = 0;
+    bySo.forEach((L, no) => {
+      L.forEach(({ date, kode, x, c }) => {
+        nRows++;
+        const m = date.slice(0, 7), cust = String(x[c.cust] || '').trim();
+        const nama = String(x[c.nama] || '').replace(/^\[[^\]]*\]\s*/, '').trim();
+        so.push([no, date, cust, '', kode, nama, numOf(x[c.so]), numOf(x[c.price]), '', String(x[c.kota] || '').trim(), up(cust) || '?', 'OFFLINE', String(x[c.week] || '').trim()]);
+        const q1 = numOf(x[c.do]), q2 = numOf(x[c.os]), ql = numOf(x[c.loss]), qs = numOf(x[c.sisa]);
+        if (q1) { const dm = bMonth(x[c.m1], date) || m; dos.push([m, `${no}/DO-${dm}`, dm === m ? date : dm + '-01', no, kode, '', q1, 'Delivered']); }
+        if (q2) { const dm = bMonth(x[c.m2], date) || bMonth(x[c.m1], date) || m; dos.push([m, `${no}/OS-${dm}`, dm === m ? date : dm + '-01', no, kode, '', q2, 'Delivered']); }
+        if (ql) dos.push([m, `${no}/LOSS`, '', no, kode, '', ql, 'Cancelled']);
+        if (qs) dos.push([m, `${no}/SISA`, '', no, kode, '', qs, 'Waiting Availability']);
+      });
+    });
+    const by = new Map();
+    so.forEach((r) => { const m = r[1].slice(0, 7); if (!by.has(m)) by.set(m, { so: [], do: [] }); by.get(m).so.push(r); });
+    dos.forEach((r) => { if (by.has(r[0])) by.get(r[0]).do.push(r); });
+    const old = new Map(C.months.map((x) => [x.bulan, x.hash || '']));
+    const sheetMonths = new Set(C.months.map((x) => x.bulan));
+    const months = [...by.keys()].sort().map((m) => {
+      const o = by.get(m), hash = hashOf(JSON.stringify(o.so) + '|' + JSON.stringify(o.do));
+      return { m, so: o.so, do: o.do, hash, changed: old.get(m) !== hash };
+    });
+    const list = months.slice().reverse().map((o) => ({ m: o.m, nSo: o.so.length, nDo: o.do.length, soChanged: o.changed, soNew: !sheetMonths.has(o.m), nFct: 0, fctChanged: false }));
+    U.sel = new Set(list.filter((x) => x.soChanged).map((x) => x.m));
+    return { file: file.name, beauty: true, months, list, nSo: so.length, nDo: dos.length, bad, diff: [], fct: [], soGap: [], nSheet,
+      amtSo: sum(so.map((r) => r[6] * r[7])), removed: C.months.map((x) => x.bulan).filter((m) => !by.has(m)) };
+  }
+  function checkBeauty(p) {
+    return `<p class="ok">File SO DO Beauty: ${p.nSheet} tab · ${nf0.format(p.nSo)} baris SO (SO yang sama di dua tab dihitung sekali) · ${monShort(p.months[0].m)} – ${monShort(p.months[p.months.length - 1].m)} (${p.months.length} bulan) · SO ${fRp(p.amtSo)}.</p>
+      <p class="hint">DO dibentuk per bulan dari kolom DO / BULAN DO 1 dan DO OS / BULAN DO 2; SO LOSS dihitung Cancelled, SISA dihitung belum terkirim. File ini tidak punya forecast.</p>`
+      + excelMonthsHtml(p) + (p.bad ? `<p class="err">${p.bad} baris dilewati karena tanggal SO kosong / tidak terbaca.</p>` : '');
+  }
   function checkExcel(p) {
     const ch = p.months.filter((x) => x.changed);
     const fm = [...new Set(p.fct.map((r) => r[0]))].sort();
@@ -1186,6 +1284,7 @@
   }
   async function sendExcel() {
     const p = U.x; if (!p) return;
+    const S = SEG.key, re = () => setSeg(S);
     const btn = $('cuXSend'), res = $('cuXResult');
     btn.disabled = true; res.className = 'send-result';
     const sel = U.sel || new Set();
@@ -1202,18 +1301,20 @@
       for (let i = 0; i < parts.length; i++) {
         res.textContent = `Menyimpan ${parts[i].map((x) => monShort(x.m)).join(', ')} (bagian ${i + 1} dari ${parts.length})… ${sec()} detik`;
         const hash = {}; parts[i].forEach((x) => { hash[x.m] = x.hash; });
-        await api('replaceMonths', { months: parts[i].map((x) => x.m), so: [].concat(...parts[i].map((x) => x.so)), do: [].concat(...parts[i].map((x) => x.do)), hash, file: p.file });
+        await api('replaceMonths', { months: parts[i].map((x) => x.m), so: [].concat(...parts[i].map((x) => x.so)), do: [].concat(...parts[i].map((x) => x.do)), hash, file: p.file }); re();
       }
       res.textContent = `Menyimpan forecast & merapikan… ${sec()} detik`;
-      await api('finishExcel', { keep, fct: fctSend, file: p.file, nSo: p.nSo, changed: ch.length, note: `bulan dipilih: ${[...sel].sort().map(monShort).join(', ')}` + (p.diff.length ? ` · ${p.diff.length} baris beda hitungan Excel` : '') });
-      C.excelDiff = p.diff; C.excelGap = p.soGap;
+      re(); await api('finishExcel', { keep, fct: fctSend, file: p.file, nSo: p.nSo, changed: ch.length, note: `bulan dipilih: ${[...sel].sort().map(monShort).join(', ')}` + (p.diff.length ? ` · ${p.diff.length} baris beda hitungan Excel` : '') });
+      re(); C.excelDiff = p.diff; C.excelGap = p.soGap;
       res.className = 'send-result ok';
       res.textContent = `Tersimpan dalam ${sec()} detik. Memuat ulang data…`;
       U.x = null;
-      await load({ fresh: true });
+      await load({ fresh: true }); re();
       res.textContent = `Tersimpan: ${ch.length} bulan SO-DO diperbarui, forecast ${[...sel].filter((m) => p.fct.some((r) => r[0] === m)).length} bulan (${sec()} detik).`;
-      toast('Data CSL diperbarui dari Excel.');
+      toast(`Data ${SEG.name} diperbarui dari Excel.`);
+      setSeg(routeSeg());
     } catch (err) {
+      setSeg(routeSeg());
       res.className = 'send-result err';
       res.textContent = `Gagal: ${err.message} — bulan yang sudah tersimpan tetap aman; upload ulang file yang sama (yang sudah sama akan dilewati).`;
       btn.disabled = false;
@@ -1232,6 +1333,7 @@
      Beranda, info, routing
      ===================================================================== */
   function renderHome() {
+    if (SEG.key !== 'pc') return withSeg('pc', renderHome);   // Beranda hanya Personal Care
     if (!$('hCsl')) return;
     if (!C.loaded || !C.A || !C.A.soList.length) return;
     const m = lastSoMonth(), a = csl(m, 'ALL');
@@ -1244,14 +1346,13 @@
   function renderInfo() {
     const el = $('dataInfo'); if (!el) return;
     if (!C.loaded) { el.textContent = C.err ? 'Data CSL belum termuat' : 'Memuat data CSL…'; return; }
-    el.textContent = `Dibaca dari CSL PPIC GTK ${String(C.readAt).slice(0, 16)} · SO s/d ${fDate(C.A.lastSo)} · DO s/d ${fDate(C.A.lastDo)} · ${nf0.format(C.lines.length)} baris SO`;
+    el.textContent = `Dibaca dari ${SEG.name} ${String(C.readAt).slice(0, 16)} · SO s/d ${fDate(C.A.lastSo)} · DO s/d ${fDate(C.A.lastDo)} · ${nf0.format(C.lines.length)} baris SO`;
   }
   /* =====================================================================
      SELL IN — bukaan SO per SKU per bulan (bulan menurut tanggal SO)
      ===================================================================== */
-  const SI = { tab: 'mx', ms: 'q' };
   const SI_START = '2025-01';
-  const siRegOpts = () => [['ALL', 'Semua region'], ['OFFLINE', 'Offline (GTK)']].concat(REGS.map((r) => [r, 'Region ' + r]), [['ONLINE', 'Online (BIMS)'], ['?', 'Region belum diketahui']]);
+  const siRegOpts = () => (isB() ? [['ALL', 'Semua customer']].concat([...new Set(C.lines.map((L) => L.region || '?'))].sort().map((r) => [r, r])) : [['ALL', 'Semua region'], ['OFFLINE', 'Offline (GTK)']].concat(REGS.map((r) => [r, 'Region ' + r]), [['ONLINE', 'Online (BIMS)'], ['?', 'Region belum diketahui']]));
   const siRegOk = (L, reg) => reg === 'ALL' || (reg === 'OFFLINE' ? L.status === 'OFFLINE' : reg === 'ONLINE' ? L.status === 'ONLINE' : (L.region || '?') === reg);
   const siG = (reg) => (reg === 'OFFLINE' || reg === 'ONLINE' ? reg : 'ALL');
   const dim = (m) => new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
@@ -1445,13 +1546,28 @@
     if (!f) return;
     try { f(); } catch (err) { console.error(err); toast('Gagal menampilkan halaman: ' + err.message); }
   }
-  function enter(key) {
+  function enter(route) {
+    const seg = /^cslb\//.test(route || '') ? 'beauty' : 'pc';
+    setSeg(seg);
+    const key = 'csl/' + String(route || 'csl/dashboard').replace(/^cslb?\//, '');
     C.route = key;
+    segUi();
     const lnk = $('lnkSheet');
-    if (lnk && (C.sheetUrl || CFG.CSL_SHEET_URL)) { lnk.hidden = false; lnk.href = C.sheetUrl || CFG.CSL_SHEET_URL; }
+    if (lnk && (C.sheetUrl || SEG.sheet)) { lnk.hidden = false; lnk.href = C.sheetUrl || SEG.sheet; }
     if (!C.loaded && !C.loading) { load(); }
     paintLoading();
     render(key);
+  }
+
+  // Teks & bagian halaman yang berbeda untuk CSL Beauty
+  const PC_TXT = {};
+  function segUi() {
+    document.body.dataset.cslseg = SEG.key;
+    const set = (id, beautyHtml) => { const el = $(id); if (!el) return; if (!(id in PC_TXT)) PC_TXT[id] = el.innerHTML; el.innerHTML = isB() ? beautyHtml : PC_TXT[id]; };
+    set('cuXTitle', 'Upload SO DO Beauty');
+    set('cuXLead', 'Pilih file <b>SO DO Beauty</b> (.xlsx) dengan tab per tahun (2025, 2026, …). Website membaca kolom NO SO, DATE INPUT SO, CUST, KODE FG, SO, PRICE, DO, BULAN DO 1, DO OS, BULAN DO 2, SO LOSS, dan SISA. SO yang muncul di dua tab (mis. Desember) dihitung sekali dari tab yang lebih baru. Data disimpan di Google Sheet <b>CSL Beauty</b>.');
+    set('cuXBtnTxt', 'Pilih file SO DO Beauty');
+    document.querySelectorAll('[data-csl-loading]').forEach((el) => { if (!C.loading && !C.err) el.textContent = `Memuat data ${SEG.name}…`; });
   }
 
   /* ---------- Urutkan kolom tabel CSL (klik judul kolom) ---------- */
@@ -1562,8 +1678,8 @@
     else if (day >= 20 && !has(next)) T.push({ id: 'csl-fct-' + next, proj: 'CSL', level: 'check', title: `Siapkan forecast ${monLabel(next)}`, count: 0, unit: '', desc: 'Forecast bulan depan belum ada. Isi kolom FCT di sheet (GTK)/(BIMS) Excel CSL lalu upload.', link: '#/csl/update', linkLabel: 'Update Data CSL', keys: [next], items: [] });
     return T;
   }
-  window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { csl: cslTasks });
-  window.PPIC_STATUS = Object.assign(window.PPIC_STATUS || {}, { csl: () => (C.loaded ? 'ready' : C.err ? C.err.replace(/^Data CSL belum bisa dimuat: /, '') : 'loading') });
+  window.PPIC_TASKS = Object.assign(window.PPIC_TASKS || {}, { csl: (...a) => withSeg('pc', () => cslTasks(...a)) });
+  window.PPIC_STATUS = Object.assign(window.PPIC_STATUS || {}, { csl: () => withSeg('pc', () => C.loaded ? 'ready' : C.err ? C.err.replace(/^Data CSL belum bisa dimuat: /, '') : 'loading') });
 
   /* ---------- Event ---------- */
   const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
@@ -1647,8 +1763,8 @@
     await new Promise((r) => setTimeout(r, 30));
     const t0 = Date.now();
     try {
-      U.x = await parseExcel(f);
-      $('cuXCheck').innerHTML = checkExcel(U.x) + `<p class="hint">Dibaca dalam ${Math.round((Date.now() - t0) / 100) / 10} detik.</p>`;
+      U.x = isB() ? await parseBeauty(f) : await parseExcel(f);
+      $('cuXCheck').innerHTML = (U.x.beauty ? checkBeauty(U.x) : checkExcel(U.x)) + `<p class="hint">Dibaca dalam ${Math.round((Date.now() - t0) / 100) / 10} detik.</p>`;
       $('cuXSend').disabled = !U.sel.size;
     } catch (err) { U.x = null; $('cuXCheck').innerHTML = `<p class="err">${esc(err.message)}</p>`; }
     inp.value = '';
@@ -1671,12 +1787,16 @@
   on('cuReset', 'click', () => { C.loaded = false; load({ reset: true, fresh: true }); });
 
   // DO terkirim (DELIVERED) per baris untuk menu lain (Inventory FG: Fast / Slow / Not Move / Dead Stock)
-  async function doOut() {
+  async function doOut(seg = 'pc') {
+    const back = () => setSeg(routeSeg());
+    setSeg(seg);
+    if (!SEG.url) { back(); return { lines: [], noDate: 0, from: '', to: '', readAt: '', none: true }; }
     if (!C.loaded) {
       if (!C.loading) await load();
-      while (C.loading) await new Promise((r) => setTimeout(r, 300));
+      setSeg(seg);
+      while (C.loading) { await new Promise((r) => setTimeout(r, 300)); setSeg(seg); }
     }
-    if (!C.loaded) throw new Error(C.err || 'Data CSL belum bisa dimuat.');
+    if (!C.loaded) { const e = C.err; back(); throw new Error(e || 'Data CSL belum bisa dimuat.'); }
     const lines = []; let noDate = 0;
     [...C.cache.values()].forEach((o) => {
       if (!o || !o.do) return;
@@ -1690,14 +1810,16 @@
       });
     });
     const ms = C.months.map((m) => m.bulan).filter(Boolean).sort();
-    return { lines, noDate, from: ms[0] || '', to: ms[ms.length - 1] || '', readAt: C.readAt };
+    const out = { lines, noDate, from: ms[0] || '', to: ms[ms.length - 1] || '', readAt: C.readAt };
+    back();
+    return out;
   }
   window.CSL = {
-    enter, reload: () => load({ fresh: true }), sheetUrl: () => C.sheetUrl || CFG.CSL_SHEET_URL || '', doOut,
-    _state: C, _sug: sugRow, _stats: statsOf,
+    enter, reload: () => { setSeg(routeSeg()); return load({ fresh: true }); }, sheetUrl: () => { setSeg(routeSeg()); return C.sheetUrl || SEG.sheet || ''; }, doOut,
+    get _state() { return C; }, _sug: sugRow, _stats: statsOf, _seg: () => SEG.key,
   };
   // Halaman CSL dibuka langsung lewat alamat; selain itu muat di belakang untuk angka Beranda
   const k0 = location.hash.replace(/^#\/?/, '');
-  if (k0.startsWith('csl/')) enter(k0);
-  else if (CFG.CSL_SCRIPT_URL) setTimeout(() => { if (!C.loaded && !C.loading) load(); }, 600);
+  if (/^cslb?\//.test(k0)) enter(k0);
+  if (CFG.CSL_SCRIPT_URL) setTimeout(() => withSeg('pc', () => { if (!C.loaded && !C.loading) load(); }), 600);
 })();
