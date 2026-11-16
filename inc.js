@@ -132,7 +132,7 @@
 
   /* ---------- Saringan ---------- */
   const qOk = (x) => { const q = I.q.toLowerCase(); return !q || `${x.kode} ${x.nama} ${x.po} ${x.sup} ${x.noIn} ${x.sn}`.toLowerCase().includes(q); };
-  const pick = (L, m) => L.filter((x) => (!m || x.m === m) && (!I.kel || x.kel === I.kel) && (!I.src || x.src === I.src) && qOk(x));
+  const pick = (L, m) => L.filter((x) => (!m || x.m === m) && (!I.kel || x.kel === I.kel) && (I.tab !== 'daftar' || ((!I.src || x.src === I.src) && qOk(x))));
   const sumBy = (L, key) => { const mp = new Map(); L.forEach((x) => { const k = key(x); const o = mp.get(k) || { val: 0, qty: 0, n: 0, kode: new Set(), rows: [] }; o.val += x.val; o.qty += x.qty; o.n++; o.kode.add(x.kode); o.rows.push(x); mp.set(k, o); }); return mp; };
   const tot = (L) => L.reduce((t, x) => t + x.val, 0);
   function cslOf(m) {
@@ -159,68 +159,91 @@
     if (I.err && !I.loaded) { $('incTop').hidden = true; $('incBody').innerHTML = `<p class="check err">${esc(I.err)}</p>`; return; }
     if (!I.loaded) return;
     $('incTop').hidden = false;
-    const ms = [...new Set(I.rows.map((x) => x.m).filter(Boolean))].sort().reverse();
-    $('incMonth').innerHTML = ms.map((m) => `<option value="${m}"${m === I.m ? ' selected' : ''}>${monLabel(m)}${m < I.cutoff ? ' · report' : ''}</option>`).join('');
-    $('incMonth').hidden = I.tab === 'grafik' || I.tab === 'rtr';
+    const ms = monthsAll();
+    const per = I.tab === 'grafik' || I.tab === 'rtr';
+    $('incMonth').innerHTML = ms.slice().reverse().map((m) => `<option value="${m}"${m === I.m ? ' selected' : ''}>${monLabel(m)}</option>`).join('');
+    $('incMonthBox').hidden = per;
+    const i = ms.indexOf(I.m);
+    $('incPrev').disabled = i <= 0; $('incNext').disabled = i < 0 || i >= ms.length - 1;
     document.querySelectorAll('#incKel [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.kel)));
     document.querySelectorAll('#incTab [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.tab)));
-    $('incSrc').value = I.src;
-    const L = pick(I.rows, I.tab === 'grafik' ? '' : I.m);
-    renderKpi(L);
-    $('incInfo').innerHTML = [
-      `${I.kel ? `<b>${KEL[I.kel]}</b>` : '<b>Personal Care + Beauty</b>'}`,
-      I.tab === 'grafik' ? `tahun ${I.year}` : `<b>${monLabel(I.m)}</b>${I.m < I.cutoff ? ' (data dari file report)' : ' (data Odoo + manual)'}`,
-      'hanya status Received', I.metaNote ? `<span class="pl-bad">${esc(I.metaNote)}</span>` : '',
-    ].filter(Boolean).join(' · ');
-    $('incBody').innerHTML = I.tab === 'grafik' ? viewGrafik() : I.tab === 'daftar' ? viewDaftar(L) : I.tab === 'rtr' ? viewRtr() : viewBulan(L);
-  }
-  function renderKpi(L) {
-    if (I.tab === 'grafik' || I.tab === 'rtr') { $('incKpi').innerHTML = ''; return; }
-    const t = tot(L), g = sumBy(L, (x) => x.gol), c = cslOf(I.m);
-    const card = (lbl, num, sub, tone) => `<div class="pk inv-k${tone ? ' is-' + tone : ''}"><span class="pk-lbl">${lbl}</span><span class="pk-num">${num}</span><span class="inv-ksub">${sub || ''}</span></div>`;
     const rt = pick(I.rtr, '');
-    $('incKpi').innerHTML = card('Incoming value', fBig(t), `${nf0.format(L.length)} penerimaan · ${new Set(L.map((x) => x.po)).size} PO · ${new Set(L.map((x) => x.sup)).size} supplier`)
-      + ['RM', 'PM', 'WIP', '?'].filter((k) => g.has(k)).map((k) => card(`${k === '?' ? 'Tanpa golongan' : k} <small>${fPct(ratio(g.get(k).val, t))}</small>`, fBig(g.get(k).val), `${g.get(k).kode.size} material`)).join('')
-      + card('% terhadap SO', fPct(ratio(t, c.so)), c.so ? `SO ${fBig(c.so)}` : I.csl.pc ? 'SO belum ada' : 'menunggu data CSL')
-      + card('% terhadap DO', fPct(ratio(t, c.dos)), c.dos ? `DO ${fBig(c.dos)}` : '')
-      + (rt.length ? `<button type="button" class="pk inv-k is-warn" data-inc-tab="rtr"><span class="pk-lbl">Masih karantina</span><span class="pk-num">${fBig(tot(rt))}</span><span class="inv-ksub">${rt.length} baris Ready to Receive · tidak dihitung</span></button>` : '');
+    $('incTab').querySelector('[data-v="rtr"]').innerHTML = `Masih karantina${rt.length ? ` <span class="inc-badge">${rt.length}</span>` : ''}`;
+    const L = pick(I.rows, I.tab === 'grafik' ? '' : I.m);
+    $('incHero').innerHTML = per ? '' : hero(L, rt);
+    $('incBody').innerHTML = (I.metaNote ? `<p class="check warn">${esc(I.metaNote)}</p>` : '') + (I.tab === 'grafik' ? viewGrafik() : I.tab === 'daftar' ? viewDaftar(L) : I.tab === 'rtr' ? viewRtr() : viewBulan(L));
+  }
+  const monthsAll = () => [...new Set(I.rows.map((x) => x.m).filter(Boolean))].sort();
+  // Ringkasan atas: nilai incoming bulan ini vs bulan lalu, komposisi RM/PM/WIP, rasio ke SO/DO, karantina
+  function hero(L, rt) {
+    if (!L.length) return '<div class="inc-hero"><p class="muted">Tidak ada incoming pada bulan dan saringan ini.</p></div>';
+    const t = tot(L), ms = monthsAll(), pm = ms[ms.indexOf(I.m) - 1], pt = pm ? tot(pick(I.rows, pm)) : NaN;
+    const d = isNum(pt) && pt ? (t - pt) / pt : NaN;
+    const g = sumBy(L, (x) => x.gol), c = cslOf(I.m);
+    const parts = GOL_ORDER.filter((k) => g.has(k)).map((k) => ({ k, v: g.get(k).val, n: g.get(k).kode.size }));
+    const CL = { RM: '#1e7a46', PM: '#c0392b', WIP: '#c9962b', FG: '#5b6f86', '?': '#aab4bd' };
+    const lbl = (k) => (k === '?' ? 'Tanpa golongan' : k);
+    const ratioBox = (name, v, base, note) => `<div class="inc-ratio"><span class="inc-rl">% terhadap ${name}</span><b>${fPct(ratio(t, base))}</b><small>${base ? `${name} ${fBig(base)}` : note}</small></div>`;
+    const src = [...new Set(L.map((x) => x.src))];
+    return `<div class="inc-hero">
+      <div class="inc-hmain">
+        <span class="inc-hl">Incoming ${monLabel(I.m)}${I.kel ? ` · ${KEL[I.kel]}` : ''}</span>
+        <div class="inc-hv">${fRp(t)}</div>
+        <div class="inc-hd">${isNum(d) ? `<span class="${d >= 0 ? 'inc-up' : 'inc-dn'}">${d >= 0 ? '▲' : '▼'} ${fPct(Math.abs(d))}</span> dibanding ${monLabel(pm)} (${fBig(pt)})` : 'Bulan pertama data'}${I.m === todayStr().slice(0, 7) ? ` <span class="inc-run">bulan berjalan · data s/d ${esc(fDate(L.map((x) => x.tgl.slice(0, 10)).sort().pop()))}</span>` : ''}</div>
+        <div class="inc-hs">${nf0.format(L.length)} penerimaan · ${new Set(L.map((x) => x.po)).size} PO · ${new Set(L.map((x) => x.sup)).size} supplier · sumber ${src.map((s) => `<span class="inc-src inc-src-${esc(s)}">${esc(s)}</span>`).join(' ')}</div>
+      </div>
+      <div class="inc-hmix">
+        <span class="inc-hl">Komposisi</span>
+        <div class="inc-stack">${parts.map((p) => `<i style="width:${Math.max(0.5, p.v / t * 100)}%;background:${CL[p.k]}" title="${lbl(p.k)} ${fRp(p.v)}"></i>`).join('')}</div>
+        <ul class="inc-mixl">${parts.map((p) => `<li><i style="background:${CL[p.k]}"></i>${lbl(p.k)} <b>${fPct(p.v / t)}</b> <span class="muted">${fBig(p.v)} · ${p.n} material</span></li>`).join('')}</ul>
+      </div>
+      <div class="inc-hr">${ratioBox('SO', c.so, c.so, I.csl.pc ? 'SO belum ada' : 'memuat CSL…')}${ratioBox('DO', c.dos, c.dos, '')}</div>
+    </div>
+    ${rt.length ? `<button type="button" class="inc-quar" data-inc-tab="rtr"><b>${fBig(tot(rt))}</b> masih karantina (${rt.length} baris Ready to Receive) — belum dihitung sebagai incoming. <u>Lihat</u></button>` : ''}`;
   }
   const head = (cols) => `<thead><tr>${cols.map((c) => `<th${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead>`;
+  const barCell = (p, color) => `<span class="inc-bar"><i style="width:${Math.max(0, Math.min(100, p * 100))}%${color ? `;background:${color}` : ''}"></i></span>`;
   function viewBulan(L) {
-    if (!L.length) return '<p class="check">Tidak ada incoming pada bulan dan saringan ini.</p>';
+    if (!L.length) return '';
     const t = tot(L);
-    // Per golongan → kategori
+    const CL = { RM: '#1e7a46', PM: '#c0392b', WIP: '#c9962b', FG: '#5b6f86', '?': '#aab4bd' };
+    // Kategori: per golongan → kategori, dengan bar porsi
     const byG = sumBy(L, (x) => x.gol);
     let kat = '';
     GOL_ORDER.filter((g) => byG.has(g)).forEach((g) => {
       const o = byG.get(g);
-      kat += `<tr class="inc-gr"><th>${esc(GOL[g])}</th><th class="num">${o.kode.size}</th><th class="num">${fRp(o.val)}</th><th class="num">${fPct(ratio(o.val, t))}</th></tr>`;
+      kat += `<div class="inc-kg"><span class="inc-dot" style="background:${CL[g]}"></span><b>${esc(GOL[g])}</b><span class="inc-kv">${fRp(o.val)} <small>${fPct(o.val / t)}</small></span></div>`;
       [...sumBy(o.rows, (x) => x.kat || 'Tanpa kategori')].sort((a, b) => b[1].val - a[1].val).forEach(([k, v]) => {
-        kat += `<tr><td class="inc-in${k === 'Tanpa kategori' ? ' muted' : ''}">${esc(k)}</td><td class="num">${v.kode.size}</td><td class="num">${fRp(v.val)}</td><td class="num">${fPct(ratio(v.val, t))}</td></tr>`;
+        kat += `<div class="inc-kr"><span class="inc-kn${k === 'Tanpa kategori' ? ' muted' : ''}">${esc(k)} <small class="muted">${v.kode.size} material</small></span>${barCell(v.val / t, CL[g])}<span class="inc-kv">${fBig(v.val)} <small>${fPct(v.val / t)}</small></span></div>`;
       });
     });
-    const noKat = L.filter((x) => !x.kat).length;
-    // Per material
+    const noKat = new Set(L.filter((x) => !x.kat).map((x) => x.kode)).size;
+    // Top 10
     const byM = [...sumBy(L, (x) => x.kode)].sort((a, b) => b[1].val - a[1].val);
-    const top = byM.slice(0, 10);
+    const top = byM.slice(0, 10), mx = top.length ? top[0][1].val : 1;
     const rk = (kode) => I.reason.get(`${I.m}|${I.kel || 'ALL'}|${kode}`) || '';
-    const mrow = ([kode, o], i, withReason) => {
+    const topHtml = top.map(([kode, o], i) => {
+      const x = o.rows[0], r = rk(kode);
+      return `<li class="inc-ti">
+        <span class="inc-tn">${i + 1}</span>
+        <div class="inc-tb">
+          <div class="inc-tt"><span><b>${esc(x.nama || kode)}</b> <small class="muted">${esc(kode)} · ${esc(x.gol === '?' ? '–' : x.gol)}${!I.kel ? ` · ${KEL[x.kel]}` : ''} · ${fQ(o.qty)} ${esc(x.uom)}</small></span><span class="inc-kv"><b>${fBig(o.val)}</b> <small>${fPct(o.val / t)}</small></span></div>
+          ${barCell(o.val / mx, CL[x.gol])}
+          <div class="inc-tr" data-inc-rbox="${esc(kode)}">${r ? `<span class="inc-rt">${esc(r)}</span> <button type="button" class="btn-link" data-inc-redit="${esc(kode)}">ubah</button>` : `<button type="button" class="btn-link inc-radd" data-inc-redit="${esc(kode)}">+ alasan</button>`}</div>
+        </div></li>`;
+    }).join('');
+    const mrow = ([kode, o], i) => {
       const x = o.rows[0];
       return `<tr><td class="num">${i + 1}</td><td><span class="pl-code">${esc(kode)}</span> ${esc(x.nama)}${!I.kel ? ` <small class="muted">${KEL[x.kel] || ''}</small>` : ''}</td><td>${esc(x.gol === '?' ? '–' : x.gol)}${x.kat ? ` <small class="muted">${esc(x.kat)}</small>` : ''}</td>
-        <td class="num">${fQ(o.qty)} <small class="muted">${esc(x.uom)}</small></td><td class="num"><b>${fRp(o.val)}</b></td><td class="num">${fPct(ratio(o.val, t))}</td>
-        ${withReason ? `<td><input type="text" class="inc-reason" data-inc-reason="${esc(kode)}" value="${esc(rk(kode))}" placeholder="Ketik alasan…"></td>` : `<td class="num">${o.n}</td><td>${esc([...new Set(o.rows.map((r) => r.sup))].join(', '))}</td>`}</tr>`;
+        <td class="num">${fQ(o.qty)} <small class="muted">${esc(x.uom)}</small></td><td class="num"><b>${fRp(o.val)}</b></td><td class="num">${fPct(o.val / t)}</td><td class="num">${o.n}</td><td>${esc([...new Set(o.rows.map((r) => r.sup))].join(', '))}</td></tr>`;
     };
-    return `<div class="inc-grid">
-      <section class="inv-card"><h3>Per golongan &amp; kategori</h3>
-        <div class="table-wrap"><table class="po-table inv-t">${head([['Golongan / kategori'], ['Material', 'num'], ['Value', 'num'], ['% value', 'num']])}<tbody>${kat}</tbody>
-        <tfoot><tr><th>Total</th><th class="num">${new Set(L.map((x) => x.kode)).size}</th><th class="num">${fRp(t)}</th><th class="num">100%</th></tr></tfoot></table></div>
-        <p class="hint">Kategori dari kolom KATEGORI di DB_GOLONGAN (Value and Qty Inventory).${noKat ? ` ${noKat} baris belum punya kategori.` : ''}</p></section>
-      <section class="inv-card"><h3>Largest incoming in value</h3>
-        <div class="table-wrap"><table class="po-table inv-t">${head([['No', 'num'], ['Material'], ['Golongan'], ['Qty', 'num'], ['Value', 'num'], ['Rasio', 'num'], ['Alasan']])}<tbody>${top.map((e, i) => mrow(e, i, true)).join('')}</tbody></table></div>
-        <p class="hint">Alasan tersimpan per bulan${I.kel ? ' dan kelompok' : ''}; ketik lalu tekan Enter atau pindah kolom.</p></section>
+    return `<div class="inc-two">
+      <section class="inv-card"><div class="inc-ch"><h3>Top 10 incoming</h3><small class="muted">menurut value</small></div><ol class="inc-top">${topHtml}</ol></section>
+      <section class="inv-card"><div class="inc-ch"><h3>Per golongan &amp; kategori</h3></div><div class="inc-kat">${kat}</div>
+        ${noKat ? `<p class="hint">${noKat} material belum punya kategori. Kategori diambil dari kolom KATEGORI di DB_GOLONGAN (Value and Qty Inventory).</p>` : ''}</section>
     </div>
-    <section class="inv-card"><h3>Per material <small class="muted">${byM.length} material</small></h3>
-      <div class="table-wrap inv-tw"><table class="po-table inv-t">${head([['No', 'num'], ['Material'], ['Golongan'], ['Qty', 'num'], ['Value', 'num'], ['Rasio', 'num'], ['Penerimaan', 'num'], ['Supplier']])}<tbody>${byM.map((e, i) => mrow(e, i, false)).join('')}</tbody></table></div></section>`;
+    <details class="inv-card inc-all"${I.openAll ? ' open' : ''}><summary><b>Semua material</b> <span class="muted">${byM.length} material · klik untuk ${I.openAll ? 'menutup' : 'membuka'}</span></summary>
+      <div class="table-wrap inv-tw"><table class="po-table inv-t">${head([['No', 'num'], ['Material'], ['Golongan'], ['Qty', 'num'], ['Value', 'num'], ['Porsi', 'num'], ['Penerimaan', 'num'], ['Supplier']])}<tbody>${byM.map(mrow).join('')}</tbody></table></div></details>`;
   }
   function yearMonths() {
     const ms = [...new Set(I.rows.map((x) => x.m).filter((m) => m && m.startsWith(I.year)))].sort();
@@ -286,7 +309,9 @@
   }
   function viewDaftar(L) {
     const shown = L.slice(0, 2000);
-    return `<div class="table-wrap inv-tw"><table class="po-table inv-t inc-list">${head([['Tanggal'], ['No IN'], ['No PO'], ['Supplier'], ['Material'], ['Qty', 'num'], ['Harga', 'num'], ['Value', 'num'], ['Golongan'], ['Kelompok'], ['Sumber'], ['']])}<tbody>
+    return `<div class="toolbar inc-dbar"><label class="tb-field tb-narrow"><span class="sr">Sumber</span><select id="incSrc"><option value="">Semua sumber</option>${['Report', 'Odoo', 'Manual'].map((v) => `<option${v === I.src ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="tb-search"><span class="sr">Cari</span><input type="search" id="incQ" placeholder="Cari kode, nama, PO, supplier, No IN" value="${esc(I.q)}"></label><span class="muted">${nf0.format(L.length)} baris · ${fRp(tot(L))}</span></div>
+      <div class="table-wrap inv-tw"><table class="po-table inv-t inc-list">${head([['Tanggal'], ['No IN'], ['No PO'], ['Supplier'], ['Material'], ['Qty', 'num'], ['Harga', 'num'], ['Value', 'num'], ['Golongan'], ['Kelompok'], ['Sumber'], ['']])}<tbody>
       ${shown.map((x) => `<tr><td>${esc(fDate(x.tgl.slice(0, 10)))}</td><td>${esc(x.noIn || '–')}</td><td>${esc(x.po)}</td><td>${esc(x.sup)}</td><td><span class="pl-code">${esc(x.kode)}</span> ${esc(x.nama)}${x.sn ? `<div class="muted inv-sm">${esc(x.sn)}</div>` : ''}</td>
         <td class="num">${fQ(x.qty)} <small class="muted">${esc(x.uom)}</small></td><td class="num">${fRp(x.harga)}</td><td class="num"><b>${fRp(x.val)}</b></td><td>${esc(x.gol === '?' ? '–' : x.gol)}${x.kat ? `<div class="muted inv-sm">${esc(x.kat)}</div>` : ''}</td><td>${KEL[x.kel] || ''}</td>
         <td><span class="inc-src inc-src-${esc(x.src)}">${esc(x.src)}</span></td><td>${x.src === 'Manual' ? `<button type="button" class="btn-link" data-inc-edit="${esc(x.id)}">Ubah</button> <button type="button" class="btn-link danger" data-inc-del="${esc(x.id)}">Hapus</button>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="12">Tidak ada data.</td></tr>'}
@@ -440,8 +465,11 @@
     $('incMonth').addEventListener('change', () => { I.m = $('incMonth').value; render(); });
     $('incKel').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.kel = b.dataset.v; savePref(); render(); });
     $('incTab').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.tab = b.dataset.v; savePref(); render(); });
-    $('incSrc').addEventListener('change', () => { I.src = $('incSrc').value; render(); });
-    let qt; $('incQ').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(() => { I.q = S($('incQ').value); render(); }, 200); });
+    const step = (k) => { const ms = monthsAll(), i = ms.indexOf(I.m) + k; if (ms[i]) { I.m = ms[i]; render(); } };
+    $('incPrev').addEventListener('click', () => step(-1)); $('incNext').addEventListener('click', () => step(1));
+    let qt;
+    $('view-rep-inc').addEventListener('input', (e) => { if (e.target.id !== 'incQ') return; clearTimeout(qt); qt = setTimeout(() => { I.q = S(e.target.value); const pos = e.target.selectionStart; render(); const q = $('incQ'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (er) { /* abaikan */ } } }, 250); });
+    $('view-rep-inc').addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('inc-all')) I.openAll = e.target.open; }, true);
     $('incUp').addEventListener('change', async () => { const f = $('incUp').files[0]; $('incUp').value = ''; if (f) upOdoo(f); });
     $('incAdd').addEventListener('click', () => manualDialog(''));
     $('incXls').addEventListener('click', exportXls);
@@ -449,14 +477,16 @@
       const t = e.target.closest('[data-inc-tab]'); if (t) { I.tab = t.dataset.incTab; savePref(); render(); return; }
       const ed = e.target.closest('[data-inc-edit]'); if (ed) { manualDialog(ed.dataset.incEdit); return; }
       const dl = e.target.closest('[data-inc-del]'); if (dl) { deleteManual(dl.dataset.incDel); return; }
+      const re = e.target.closest('[data-inc-redit]'); if (re) { const k = re.dataset.incRedit, box = document.querySelector(`[data-inc-rbox="${CSS.escape(k)}"]`); box.innerHTML = `<input type="text" class="inc-reason" data-inc-reason="${esc(k)}" value="${esc(I.reason.get(`${I.m}|${I.kel || 'ALL'}|${k}`) || '')}" placeholder="Alasan incoming besar… (Enter untuk simpan)">`; box.querySelector('input').focus(); return; }
       const j = e.target.closest('[data-inc-jpg]'); if (j) { toJpg(j.dataset.incJpg).catch((er) => toast('Gagal membuat JPG: ' + er.message)); }
     });
     $('view-rep-inc').addEventListener('change', async (e) => {
       if (e.target.id === 'incYear') { I.year = e.target.value; render(); return; }
+      if (e.target.id === 'incSrc') { I.src = e.target.value; render(); return; }
       const r = e.target.closest('[data-inc-reason]'); if (!r) return;
       const kode = r.dataset.incReason, val = S(r.value);
       r.disabled = true;
-      try { const d = await api('saveReason', { bulan: I.m, kelompok: I.kel || 'ALL', kode, alasan: val }); I.reason = new Map((d.reason || []).map((x) => [`${x[0]}|${x[1]}|${x[2]}`, x[3]])); toast('Alasan tersimpan.'); }
+      try { const d = await api('saveReason', { bulan: I.m, kelompok: I.kel || 'ALL', kode, alasan: val }); I.reason = new Map((d.reason || []).map((x) => [`${x[0]}|${x[1]}|${x[2]}`, x[3]])); toast('Alasan tersimpan.'); render(); return; }
       catch (er) { toast(er.message); }
       r.disabled = false;
     });
