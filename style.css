@@ -2030,3 +2030,19 @@ td .pj-kbtn + small { display: block; font-size: 11px; }
 @media (max-width: 700px) { .lp-eq { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media print { .lp-card { border-radius: 0; padding: 6px 8px; } .lp-eq { gap: 4px; } .lp-v { font-size: 12px; } .lp-chip { font-size: 10px; } .lp-notes { font-size: 10px; } }
 .ph-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0 4px; }
+
+/* Inventory FG: pergerakan */
+.inv-mvbar { align-items: center; }
+.inv-mvl { font-weight: 600; font-size: 13px; color: #34465a; }
+.inv-mvn { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #34465a; }
+.inv-mvn input { width: 56px; padding: 4px 6px; border: 1px solid var(--line, #d5dbe1); border-radius: 6px; text-align: right; }
+.inv-mv { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
+.inv-mv-F { background: #e3f1e6; color: #1d5e2f; }
+.inv-mv-S { background: #fff2cf; color: #7a5300; }
+.inv-mv-N { background: #fde7da; color: #9a3d12; }
+.inv-mv-D { background: #f6dcd9; color: #7d221b; }
+.inv-mvg th { text-align: left; }
+.inv-mvg td:first-child { box-shadow: inset 3px 0 0 var(--gc); }
+.inv-mvmsg { margin: 0 0 8px; }
+.inv-kmv { text-align: left; cursor: pointer; }
+.inv-mvt { font-size: 13.5px; }

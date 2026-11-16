@@ -47,10 +47,10 @@
     gol: new Map(), harga: new Map(), snaps: [], stok: new Map(), log: [],
     ct: 'line', bdim: { MAT: 'gol', FG: 'brand' }, bsnaps: null, bcats: null,
     kel: 'MAT', all: { MAT: { stok: new Map(), snaps: [] }, FG: { stok: new Map(), snaps: [] } }, selSnap: { MAT: '', FG: '' },
-    snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
+    snap: '', g: '', brand: '', jenis: '', lok: '', q: '', view: 'kat', mvP: 3, mvF: '', mvPar: 80, mvWk: 50, mv: null, mvCache: new Map(), ms: 'v', chart: '', open: new Set(), sheetUrl: '', readAt: '',
   };
-  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm', 'ct'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
-  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel, pm: I.pm, ct: I.ct })); } catch (e) { /* abaikan */ } };
+  try { const v = JSON.parse(localStorage.getItem('ppic.inv') || '{}'); ['view', 'ms', 'kel', 'pm', 'ct', 'mvP', 'mvPar', 'mvWk'].forEach((k) => { if (v[k]) I[k] = v[k]; }); if (![3, 6, 12].includes(+I.mvP)) I.mvP = 3; I.mvP = +I.mvP; if (I.pm !== 'latest') I.pm = 'date'; if (I.kel !== 'FG') I.kel = 'MAT'; } catch (e) { /* abaikan */ }
+  const savePref = () => { try { localStorage.setItem('ppic.inv', JSON.stringify({ view: I.view, ms: I.ms, kel: I.kel, pm: I.pm, ct: I.ct, mvP: I.mvP, mvPar: I.mvPar, mvWk: I.mvWk })); } catch (e) { /* abaikan */ } };
 
   /* ---------- Apps Script ---------- */
   async function load(force) {
@@ -120,10 +120,54 @@
   }
   const golOf = (kode) => { const g = I.gol.get(kode); return g && GOLS.includes(g.gol) ? g.gol : '?'; };
 
+  /* ---------- Pergerakan FG dari DO CSL: Fast / Slow / Not Move / Dead Stock ---------- */
+  // Periode P bulan dihitung mundur dari tanggal snapshot. Fast = masuk Pareto qty (mvPar %) DAN ada DO di ≥ mvWk % minggu.
+  // Slow = ada DO tapi bukan Fast. Not Move = tanpa DO di periode, ada DO di periode sebelumnya (s/d 2× P). Dead Stock = tanpa DO 2× P.
+  const MV = { F: 'Fast Moving', S: 'Slow Moving', N: 'Not Move', D: 'Dead Stock' };
+  const MV_CLR = { F: '#1e7a46', S: '#c9962b', N: '#d0612a', D: '#8e2b22' };
+  const dayN = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 864e5;
+  const isoOf = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
+  const addMon = (d, k) => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + k, dd = +d.slice(8, 10); const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return new Date(Date.UTC(y, m, Math.min(dd, last))).toISOString().slice(0, 10); };
+  async function loadMv() {
+    if (I.mv && (I.mv.lines || I.mv.loading)) return;
+    I.mv = { loading: true };
+    try {
+      if (!window.CSL || !window.CSL.doOut) throw new Error('modul CSL tidak tersedia');
+      const d = await window.CSL.doOut();
+      const by = new Map(); d.lines.forEach(([k, dt, q]) => { if (!by.has(k)) by.set(k, []); by.get(k).push([dt, q]); });
+      I.mv = { lines: d.lines, by, from: d.from, to: d.to, noDate: d.noDate };
+    } catch (e) { I.mv = { err: e.message }; }
+    I.mvCache.clear();
+    if (I.kel === 'FG') render();
+  }
+  function mvCalc(snap) {
+    if (!I.mv || !I.mv.by || !snap) return null;
+    const P = I.mvP, key = `${snap}|${P}|${I.mvPar}|${I.mvWk}`;
+    if (I.mvCache.has(key)) return I.mvCache.get(key);
+    const end = snap.slice(0, 10), from = isoOf(dayN(addMon(end, -P)) + 1), pFrom = isoOf(dayN(addMon(end, -2 * P)) + 1);
+    const nW = Math.max(1, Math.ceil((dayN(end) - dayN(from) + 1) / 7)), f0 = dayN(from);
+    const out = new Map(); let tot = 0;
+    I.mv.by.forEach((L, k) => {
+      const o = { qty: 0, wk: new Set(), last: '', prev: false };
+      L.forEach(([dt, q]) => { if (dt > end) return; if (dt > o.last) o.last = dt; if (dt >= from) { o.qty += q; o.wk.add(Math.floor((dayN(dt) - f0) / 7)); } else if (dt >= pFrom) o.prev = true; });
+      if (o.qty > 0) tot += o.qty;
+      out.set(k, o);
+    });
+    // Pareto: urut qty terbesar; masuk selama kumulatif sebelum item < batas
+    let cum = 0; const lim = tot * I.mvPar / 100;
+    [...out].filter(([, o]) => o.qty > 0).sort((a, b) => b[1].qty - a[1].qty).forEach(([, o]) => { o.par = cum < lim - 1e-9; cum += o.qty; });
+    out.forEach((o) => { o.nw = o.wk.size; o.fr = o.nw / nW; o.avg = o.qty / P; o.cls = o.qty > 0 ? (o.par && o.fr * 100 >= I.mvWk - 1e-9 ? 'F' : 'S') : o.prev ? 'N' : 'D'; });
+    const res = { map: out, from, end, pFrom, nW, P, tot, short: I.mv.from && `${I.mv.from}-01` > pFrom ? (`${I.mv.from}-01` > from ? 'all' : 'prev') : '' };
+    I.mvCache.set(key, res);
+    return res;
+  }
+  const mvOf = (M, kode) => (M ? (M.map.get(kode) || { qty: 0, nw: 0, fr: 0, avg: 0, last: '', cls: 'D' }) : null);
+  const mvChip = (c) => `<span class="inv-mv inv-mv-${c}">${MV[c]}</span>`;
+
   /* ---------- Hitung per snapshot ---------- */
   // rows: per kode+lokasi; filter mengikuti saringan (golongan, kategori, lokasi, cari)
   function calc(snap, ignoreFilter) {
-    const L = I.stok.get(snap) || [], q = I.q.toLowerCase();
+    const L = I.stok.get(snap) || [], q = I.q.toLowerCase(), MVF = I.kel === 'FG' && I.mvF ? mvCalc(I.snap) : null, MVS = I.kel === 'FG' ? mvCalc(snap) : null;
     const out = [];
     L.forEach((r) => {
       const g = I.gol.get(r.kode), gol = golOf(r.kode), kat = (g && g.kat) || 'Tanpa kategori', brand = (g && g.brand) || '', jenis = (g && g.jenis) || 'Tanpa kategori';
@@ -133,9 +177,10 @@
         if (I.jenis && jenis !== I.jenis) return;
         if (I.lok && r.lok !== I.lok) return;
         if (q && !(r.kode + ' ' + ((g && g.nama) || '')).toLowerCase().includes(q)) return;
+        if (I.kel === 'FG' && I.mvF && MVF && mvOf(MVF, r.kode).cls !== I.mvF) return;
       }
       const p = priceAt(r.kode, snap);
-      out.push({ kode: r.kode, nama: (g && g.nama) || '', uom: (g && g.uom) || '', gol, kat, brand, jenis, lok: r.lok, qty: r.qty, src: r.src, note: r.note, price: p ? p.h : null, from: p ? p.from : '', val: p ? r.qty * p.h : 0, noPrice: !p, noGol: !g || gol === '?' });
+      out.push({ kode: r.kode, nama: (g && g.nama) || '', uom: (g && g.uom) || '', gol, kat, brand, jenis, lok: r.lok, qty: r.qty, src: r.src, note: r.note, price: p ? p.h : null, from: p ? p.from : '', val: p ? r.qty * p.h : 0, noPrice: !p, noGol: !g || gol === '?', mv: MVS ? mvOf(MVS, r.kode).cls : '' });
     });
     return out;
   }
@@ -161,6 +206,14 @@
     document.querySelectorAll('#invKel [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.kel)));
     $('invGol').hidden = I.kel === 'FG';
     $('invGol').innerHTML = [['', 'Semua'], ['RM', 'RM'], ['PM', 'PM'], ['WIP', 'WIP']].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === I.g}">${t}</button>`).join('');
+    if (I.kel !== 'FG' && I.view === 'mov') I.view = 'kat';
+    $('invViewMov').hidden = I.kel !== 'FG';
+    $('invMvBar').hidden = I.kel !== 'FG';
+    if (I.kel === 'FG') {
+      document.querySelectorAll('#invMvP [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === I.mvP)));
+      $('invMvF').value = I.mvF; $('invMvPar').value = I.mvPar; $('invMvWk').value = I.mvWk;
+      if (!I.mv) loadMv();
+    }
     document.querySelectorAll('#invView [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === I.view)));
     const all = I.snap ? calc(I.snap, true) : [];
     const pool = all.filter((r) => !I.g || r.gol === I.g);
@@ -187,7 +240,7 @@
     $('invInfo').innerHTML = `Stok <b>${esc(KEL_LBL[I.kel])}</b> · snapshot <b>${esc(fSnap(I.snap))}</b>${meta && meta.file ? ` · ${esc(meta.file)}` : ''}${pv ? ` · dibandingkan dengan ${esc(fSnap(pv))}` : ' · snapshot pertama'} · harga: ${I.pm === 'latest' ? 'terkini (harga paling baru, apa pun tanggal snapshotnya)' : `terakhir yang berlaku pada/sebelum ${esc(fDate(I.snap.slice(0, 10)))}`}`;
     renderKpi(rows, prows);
     renderChart();
-    $('invBody').innerHTML = renderWarn(rows) + (I.view === 'kat' ? viewKat(rows, prows) : I.view === 'mat' ? viewMat(rows, prows) : viewLok(rows));
+    $('invBody').innerHTML = (I.kel === 'FG' ? mvNote() : '') + renderWarn(rows) + (I.view === 'kat' ? viewKat(rows, prows) : I.view === 'mat' ? viewMat(rows, prows) : I.view === 'mov' ? viewMov(rows) : viewLok(rows));
   }
   function renderKpi(rows, prows) {
     const tot = rows.reduce((t, r) => t + r.val, 0), ptot = prows ? prows.reduce((t, r) => t + r.val, 0) : NaN;
@@ -202,7 +255,13 @@
       }
     }
     const noP = new Set(rows.filter((r) => r.noPrice).map((r) => r.kode)).size, noG = new Set(rows.filter((r) => r.noGol).map((r) => r.kode)).size;
-    $('invKpi').innerHTML = card('Total value', tot, ptot, `${nf0.format(new Set(rows.map((r) => r.kode)).size)} kode`)
+    const M = I.kel === 'FG' ? mvCalc(I.snap) : null;
+    let mvCard = '';
+    if (M) {
+      const bad = rows.filter((r) => mvOf(M, r.kode).cls !== 'F'), bv = bad.reduce((t, r) => t + r.val, 0);
+      mvCard = `<button type="button" class="pk inv-k inv-kmv" data-inv-mv="1" style="--gc:${MV_CLR.N}" title="Lihat per pergerakan"><span class="pk-lbl">Slow, Not Move, Dead <small>${fPct(tot ? bv / tot : NaN)}</small></span><span class="pk-num">${fBig(bv)}</span><span class="inv-ksub">${new Set(bad.map((r) => r.kode)).size} kode · periode ${M.P} bln</span></button>`;
+    }
+    $('invKpi').innerHTML = card('Total value', tot, ptot, `${nf0.format(new Set(rows.map((r) => r.kode)).size)} kode`) + mvCard
       + gl.map((g) => { const o = by.get(g), p = pby.get(g); return card(`${esc(grpLbl(g))}${g === 'Lainnya' ? ' brand' : ''} <small>${fPct(tot ? o.val / tot : NaN)}</small>`, o.val, prows ? (p ? p.val : 0) : NaN, `qty ${fQ(o.qty)} · ${o.n.size} kode`, g); }).join('')
       + (noP || noG ? `<button type="button" class="pk is-warn inv-kw" data-inv-warn="1"><span class="pk-lbl">Perlu dilengkapi</span><span class="pk-num">${noP + noG}</span><span class="inv-ksub">${noP ? `${noP} tanpa harga` : ''}${noP && noG ? ' · ' : ''}${noG ? `${noG} tanpa golongan` : ''}</span></button>` : '');
   }
@@ -258,14 +317,44 @@
       <p class="hint">Kategori berpola "BRAND - JENIS" dikelompokkan per brand lalu per jenis. Klik baris untuk membuka isinya; klik material untuk menampilkan pergerakannya di grafik. Qty dijumlah apa adanya, jadi total qty lintas UoM (Kg, Pcs) hanya untuk gambaran.</p>`;
   }
   function viewMat(rows, prows) {
+    const MVm = I.kel === 'FG' ? mvCalc(I.snap) : null;
     const by = sumBy(rows, (r) => r.kode), pm = prows ? sumBy(prows, (r) => r.kode) : null;
     const L = [...by].sort((a, b) => b[1].val - a[1].val);
     const shown = L.slice(0, 1500);
     return `<div class="table-wrap inv-tw"><table class="po-table inv-t">${head([['Material'], ['Golongan'], ['Kategori'], ['Lokasi'], ['Qty', 'num'], ['Δ qty', 'num'], ['Harga', 'num'], ['Value', 'num'], ['Δ value', 'num']])}<tbody>
-      ${shown.map(([kode, m]) => { const r = m.rows[0], p = pm ? (pm.get(kode) || { val: 0, qty: 0 }) : null; return `<tr><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(kode)}"><span class="pl-code">${esc(kode)}</span><span class="pl-name">${esc(r.nama || '(tidak ada di golongan)')}</span></button></td><td><span class="inv-g" style="--gc:${GOL_CLR[r.gol]}">${esc(r.gol === '?' ? '–' : r.gol)}</span></td><td>${esc(r.kat)}</td><td>${m.rows.length > 1 ? `<span title="${esc(m.rows.map((x) => `${x.lok || '(tanpa lokasi)'}: ${fQ(x.qty)}`).join('\n'))}">${m.rows.length} lokasi</span>` : esc(r.lok)}${m.rows.some((x) => x.src === 'manual') ? ' <span class="inv-tag" title="Ada koreksi manual">manual</span>' : ''}</td>
+      ${shown.map(([kode, m]) => { const r = m.rows[0], p = pm ? (pm.get(kode) || { val: 0, qty: 0 }) : null; return `<tr><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(kode)}"><span class="pl-code">${esc(kode)}</span><span class="pl-name">${esc(r.nama || '(tidak ada di golongan)')}</span></button>${MVm ? ' ' + mvChip(mvOf(MVm, kode).cls) : ''}</td><td><span class="inv-g" style="--gc:${GOL_CLR[r.gol]}">${esc(r.gol === '?' ? '–' : r.gol)}</span></td><td>${esc(r.kat)}</td><td>${m.rows.length > 1 ? `<span title="${esc(m.rows.map((x) => `${x.lok || '(tanpa lokasi)'}: ${fQ(x.qty)}`).join('\n'))}">${m.rows.length} lokasi</span>` : esc(r.lok)}${m.rows.some((x) => x.src === 'manual') ? ' <span class="inv-tag" title="Ada koreksi manual">manual</span>' : ''}</td>
         <td class="num">${fQ(m.qty)} <small class="muted">${esc(r.uom)}</small></td><td class="num">${p ? `<span class="${dCls(m.qty - p.qty)}">${dTxt(m.qty - p.qty, fQ)}</span>` : '–'}</td>
         <td class="num">${r.noPrice ? '<span class="inv-tag">tanpa harga</span>' : `${fRp(r.price)}<div class="muted inv-sm">${esc(fDate(r.from))}</div>`}</td><td class="num"><b>${fRp(m.val)}</b></td><td class="num">${p ? `<span class="${dCls(m.val - p.val)}">${dTxt(m.val - p.val, fRp)}</span>` : '–'}</td></tr>`; }).join('') || '<tr class="empty"><td colspan="9">Tidak ada data pada saringan ini.</td></tr>'}
       </tbody></table></div>${L.length > shown.length ? `<p class="hint">Menampilkan 1.500 dari ${nf0.format(L.length)} kode (value terbesar). Pakai pencarian atau saringan untuk mempersempit.</p>` : ''}`;
+  }
+  function mvNote() {
+    if (!I.mv || I.mv.loading) return `<p class="check inv-mvmsg">Memuat data DO dari CSL Personal Care untuk menghitung Fast / Slow / Not Move / Dead Stock…</p>`;
+    if (I.mv.err) return `<p class="check err inv-mvmsg">Pergerakan FG belum bisa dihitung: ${esc(I.mv.err)}</p>`;
+    const M = mvCalc(I.snap); if (!M) return '';
+    const dFrom = I.mv.from ? fDate(I.mv.from + '-01') : '–';
+    return `<p class="mrp-count inv-mvmsg">Pergerakan dihitung dari DO terkirim (Delivered) CSL Personal Care, periode <b>${M.P} bulan</b>: ${esc(fDate(M.from))} – ${esc(fDate(M.end))} (${M.nW} minggu). <b>Fast</b> = masuk ${I.mvPar}% qty DO terbesar dan ada DO di ≥ ${I.mvWk}% minggu · <b>Slow</b> = ada DO selain itu · <b>Not Move</b> = tanpa DO di periode, masih ada DO ${esc(fDate(M.pFrom))} – ${esc(fDate(isoOf(dayN(M.from) - 1)))} · <b>Dead Stock</b> = tanpa DO sejak ${esc(fDate(M.pFrom))}.</p>`
+      + (M.short ? `<p class="check warn inv-mvmsg">Data DO di CSL baru tersedia mulai ${esc(dFrom)}. ${M.short === 'all' ? 'Periode ini lebih panjang dari data yang ada, jadi Fast/Slow dihitung dari data yang tersedia saja dan' : ''} Not Move dan Dead Stock belum bisa dibedakan dengan akurat (FG yang tidak keluar dianggap Dead Stock).</p>` : '');
+  }
+  function viewMov(rows) {
+    const M = mvCalc(I.snap);
+    if (!M) return '<p class="muted">Menunggu data DO CSL…</p>';
+    const tot = rows.reduce((t, r) => t + r.val, 0);
+    const by = sumBy(rows, (r) => mvOf(M, r.kode).cls);
+    const fm = (v) => (v ? nf1.format(v) : '–');
+    let html = '';
+    ['F', 'S', 'N', 'D'].forEach((c) => {
+      const o = by.get(c); if (!o) return;
+      const open = I.open.has('MV:' + c);
+      html += `<tr class="inv-kr inv-mvg${open ? ' is-open' : ''}" data-inv-open="MV:${c}" style="--gc:${MV_CLR[c]}"><td class="inv-chev" aria-hidden="true">${open ? '▾' : '▸'}</td><td colspan="6"><b class="inv-mvt" style="color:${MV_CLR[c]}">${MV[c]}</b> <span class="muted">· ${o.n.size} kode</span></td><td class="num"><b>${fQ(o.qty)}</b></td><td class="num"><b>${fRp(o.val)}</b></td><td class="num">${fPct(tot ? o.val / tot : NaN)}</td><td></td></tr>`;
+      if (!open) return;
+      [...sumBy(o.rows, (r) => r.kode)].sort((a, b) => b[1].val - a[1].val).forEach(([kode, m]) => {
+        const r0 = m.rows[0], x = mvOf(M, kode), cov = x.avg > 0 ? m.qty / x.avg : null;
+        html += `<tr class="inv-mr"><td></td><td><button type="button" class="btn-link inv-mat" data-inv-chart="${esc(kode)}"><span class="pl-code">${esc(kode)}</span> ${esc(r0.nama)}</button></td><td>${esc(r0.kat)}</td><td class="num">${x.nw} / ${M.nW}</td><td class="num">${fQ(x.qty)}</td><td class="num">${fQ(x.avg)}</td><td>${x.last ? esc(fDate(x.last)) : '<span class="muted">belum pernah</span>'}</td><td class="num">${fQ(m.qty)} <small class="muted">${esc(r0.uom)}</small></td><td class="num">${fRp(m.val)}</td><td class="num">${fPct(tot ? m.val / tot : NaN)}</td><td class="num">${cov === null ? '–' : fm(cov)}</td></tr>`;
+      });
+    });
+    return `<div class="table-wrap"><table class="po-table inv-t inv-mvtab">${head([['', 'inv-chev'], ['Pergerakan / FG'], ['Brand - jenis'], ['Minggu ada DO', 'num'], [`Qty DO ${M.P} bln`, 'num'], ['Rata-rata DO / bln', 'num'], ['DO terakhir'], ['Stok', 'num'], ['Value', 'num'], ['Porsi', 'num'], ['Stok cukup (bln)', 'num']])}<tbody>${html || '<tr class="empty"><td colspan="11">Tidak ada data pada saringan ini.</td></tr>'}</tbody>
+      <tfoot><tr><th colspan="7">Total</th><th class="num">${fQ(rows.reduce((t, r) => t + r.qty, 0))}</th><th class="num">${fRp(tot)}</th><th class="num">100%</th><th></th></tr></tfoot></table></div>
+      <p class="hint">Klik baris pergerakan untuk membuka daftar FG. Stok cukup (bln) = stok ÷ rata-rata DO per bulan. Kode FG dicocokkan langsung dengan kode di DO CSL. Grafik "Pergerakan" memakai golongan pergerakan pada tanggal masing-masing snapshot.</p>`;
   }
   function viewLok(rows) {
     const by = sumBy(rows, (r) => r.lok), tot = rows.reduce((t, r) => t + r.val, 0);
@@ -276,8 +365,8 @@
   }
 
   /* ---------- Grafik & ringkasan pergerakan ---------- */
-  const BDIM = { MAT: [['gol', 'Golongan'], ['kat', 'Kategori']], FG: [['brand', 'Brand'], ['jenis', 'Jenis'], ['kat', 'Brand - jenis']] };
-  const bKey = (r, dim) => (dim === 'brand' ? r.brand || 'Tanpa brand' : dim === 'jenis' ? r.jenis : dim === 'gol' ? GOL_LBL[r.gol] || r.gol : r.kat);
+  const BDIM = { MAT: [['gol', 'Golongan'], ['kat', 'Kategori']], FG: [['brand', 'Brand'], ['jenis', 'Jenis'], ['kat', 'Brand - jenis'], ['mv', 'Pergerakan']] };
+  const bKey = (r, dim) => (dim === 'mv' ? (r.mv ? MV[r.mv] : 'Menunggu DO CSL') : dim === 'brand' ? r.brand || 'Tanpa brand' : dim === 'jenis' ? r.jenis : dim === 'gol' ? GOL_LBL[r.gol] || r.gol : r.kat);
   const dimOf = () => { const d = I.bdim[I.kel]; return BDIM[I.kel].some((x) => x[0] === d) ? d : BDIM[I.kel][0][0]; };
   const dimLbl = (d) => (BDIM[I.kel].find((x) => x[0] === d) || ['', ''])[1];
   const SNAP_PAL = ['#c9dccf', '#93bba0', '#5d9a73', '#2f7a4c', '#106a3a', '#0b4a29'];
@@ -742,6 +831,10 @@
     $('invSnap').addEventListener('change', () => { setSnap($('invSnap').value); render(); });
     $('invGol').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.g = b.dataset.v; render(); });
     $('invView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.view = b.dataset.v; savePref(); render(); });
+    $('invMvP').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.mvP = +b.dataset.v; savePref(); render(); });
+    $('invMvF').addEventListener('change', () => { I.mvF = $('invMvF').value; render(); });
+    ['invMvPar', 'invMvWk'].forEach((id) => $(id).addEventListener('change', () => { const v = Math.max(0, Math.min(100, Number($(id).value) || 0)); if (id === 'invMvPar') I.mvPar = v || 80; else I.mvWk = v; savePref(); render(); }));
+    $('invKpi').addEventListener('click', (e) => { if (e.target.closest('[data-inv-mv]')) { I.view = 'mov'; savePref(); render(); } });
     $('invPm').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.pm) return; I.pm = b.dataset.v; savePref(); render(); });
     $('invChart').addEventListener('change', (e) => {
       const s1 = e.target.closest('[data-bsnap]'); if (s1) { const set = new Set(I.bsnaps); if (s1.checked) set.add(s1.dataset.bsnap); else set.delete(s1.dataset.bsnap); if (!set.size) { s1.checked = true; return; } I.bsnaps = [...set]; I.snapOpen = true; renderChart(); return; }

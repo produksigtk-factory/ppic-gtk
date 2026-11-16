@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=07fd7248">
+<link rel="stylesheet" href="style.css?v=01af7947">
 </head>
 <body>
 <div class="shell">
@@ -1040,13 +1040,20 @@
             <label class="tb-field tb-narrow"><span class="sr">Lokasi</span><select id="invLok"></select></label>
             <label class="tb-search"><span class="sr">Cari</span><input type="search" id="invQ" placeholder="Cari kode atau nama"></label>
           </div>
+          <div class="toolbar inv-mvbar" id="invMvBar" hidden>
+            <span class="inv-mvl">Pergerakan (DO CSL)</span>
+            <div class="pj-seg" id="invMvP" role="group" aria-label="Periode pengamatan DO"><button type="button" data-v="3">3 bulan</button><button type="button" data-v="6">6 bulan</button><button type="button" data-v="12">12 bulan</button></div>
+            <label class="tb-field tb-narrow"><span class="sr">Saring pergerakan</span><select id="invMvF"><option value="">Semua pergerakan</option><option value="F">Fast Moving</option><option value="S">Slow Moving</option><option value="N">Not Move</option><option value="D">Dead Stock</option></select></label>
+            <label class="inv-mvn" title="Fast = termasuk FG dengan qty DO terbesar yang totalnya mencapai persen ini (Pareto)">Pareto qty <input type="number" id="invMvPar" min="10" max="100" step="5"> %</label>
+            <label class="inv-mvn" title="Fast juga harus ada DO di minimal persen minggu ini dalam periode">Minggu ada DO ≥ <input type="number" id="invMvWk" min="0" max="100" step="5"> %</label>
+          </div>
           <p class="mrp-count" id="invInfo"></p>
           <div class="pl-kpis inv-kpis" id="invKpi"></div>
           <section class="inv-card" id="invChartCard">
             <div class="inv-ch"><h3 id="invChartTitle"></h3><div class="inv-chr"><div class="pj-seg" id="invCt" role="group" aria-label="Jenis grafik"><button type="button" data-v="line">Garis pergerakan</button><button type="button" data-v="bar">Batang per kategori</button><button type="button" data-v="wf">Waterfall</button></div><button type="button" class="btn btn-sm btn-ghost" id="invJpg" title="Unduh grafik + ringkasan sebagai gambar JPG untuk PowerPoint">Unduh JPG</button><div class="pj-seg" id="invMs" role="group" aria-label="Ukuran"><button type="button" data-v="v">Value</button><button type="button" data-v="q">Qty</button></div></div></div>
             <div id="invChart"></div>
           </section>
-          <div class="inv-vbar"><div class="pj-seg" id="invView" role="group" aria-label="Tampilan"><button type="button" data-v="kat">Per kategori</button><button type="button" data-v="mat">Per material</button><button type="button" data-v="lok">Per lokasi</button></div></div>
+          <div class="inv-vbar"><div class="pj-seg" id="invView" role="group" aria-label="Tampilan"><button type="button" data-v="kat">Per kategori</button><button type="button" data-v="mat">Per material</button><button type="button" data-v="lok">Per lokasi</button><button type="button" data-v="mov" id="invViewMov">Per pergerakan</button></div></div>
         </div>
         <div id="invBody"></div>
       </section>
@@ -1333,8 +1340,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=6c66277d"></script>
 <script src="app.js?v=3722dba7"></script>
-<script src="inv.js?v=ec94d228"></script>
-<script src="csl.js?v=97753814"></script>
+<script src="inv.js?v=c93755c6"></script>
+<script src="csl.js?v=46101673"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
 </body>

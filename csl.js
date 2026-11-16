@@ -1670,8 +1670,30 @@
   });
   on('cuReset', 'click', () => { C.loaded = false; load({ reset: true, fresh: true }); });
 
+  // DO terkirim (DELIVERED) per baris untuk menu lain (Inventory FG: Fast / Slow / Not Move / Dead Stock)
+  async function doOut() {
+    if (!C.loaded) {
+      if (!C.loading) await load();
+      while (C.loading) await new Promise((r) => setTimeout(r, 300));
+    }
+    if (!C.loaded) throw new Error(C.err || 'Data CSL belum bisa dimuat.');
+    const lines = []; let noDate = 0;
+    [...C.cache.values()].forEach((o) => {
+      if (!o || !o.do) return;
+      const h = o.do.h || {};
+      (o.do.l || []).forEach(([noDO, , kode, , qty]) => {
+        const hd = h[noDO] || ['', ''];
+        if (normSt(hd[1]) !== 'DELIVERED') return;
+        const d = String(hd[0] || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { noDate++; return; }
+        lines.push([String(kode).trim(), d, Number(qty) || 0]);
+      });
+    });
+    const ms = C.months.map((m) => m.bulan).filter(Boolean).sort();
+    return { lines, noDate, from: ms[0] || '', to: ms[ms.length - 1] || '', readAt: C.readAt };
+  }
   window.CSL = {
-    enter, reload: () => load({ fresh: true }), sheetUrl: () => C.sheetUrl || CFG.CSL_SHEET_URL || '',
+    enter, reload: () => load({ fresh: true }), sheetUrl: () => C.sheetUrl || CFG.CSL_SHEET_URL || '', doOut,
     _state: C, _sug: sugRow, _stats: statsOf,
   };
   // Halaman CSL dibuka langsung lewat alamat; selain itu muat di belakang untuk angka Beranda
