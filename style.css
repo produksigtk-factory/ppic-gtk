@@ -44,6 +44,8 @@ button, input, select { font: inherit; color: inherit; }
 }
 .menu-item:hover { background: #f3f6f4; }
 .menu-item.sub { font-weight: 500; padding-left: 26px; color: #34465a; }
+.menu-sublabel { display: block; padding: 8px 12px 2px 26px; font-size: 12px; font-weight: 600; color: #6b7a8a; }
+.menu-sublabel ~ .menu-item.sub { padding-left: 38px; }
 .menu-item.is-active { background: var(--brand-soft); color: var(--brand-dark); border-left-color: var(--gold); font-weight: 700; }
 .menu-group-head {
   width: 100%; display: flex; justify-content: space-between; align-items: center;

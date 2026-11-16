@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=cd789e3f">
+<link rel="stylesheet" href="style.css?v=07fd7248">
 </head>
 <body>
 <div class="shell">
@@ -73,7 +73,9 @@
           <span>Kebutuhan Report</span><span class="chev" aria-hidden="true"></span>
         </button>
         <div class="submenu">
-          <a class="menu-item sub" href="#/rep/inventory" data-route="rep/inventory">Value and Qty Inventory</a>
+          <span class="menu-sublabel">Value and Qty Inventory</span>
+          <a class="menu-item sub" href="#/rep/inv-mat" data-route="rep/inv-mat">RM, PM, dan WIP</a>
+          <a class="menu-item sub" href="#/rep/inv-fg" data-route="rep/inv-fg">FG</a>
         </div>
       </div>
 
@@ -1027,7 +1029,7 @@
           <button type="button" class="btn btn-sm btn-ghost" id="invEdit" title="Koreksi qty manual pada snapshot terpilih">Koreksi stok</button>
         </div>
         <p class="check" id="invMsg"></p>
-        <div class="pj-seg inv-kel" id="invKel" role="group" aria-label="Kelompok stok"><button type="button" data-v="MAT">Material (RM, PM, WIP)</button><button type="button" data-v="FG">FG</button></div>
+        <div class="pj-seg inv-kel" id="invKel" role="group" aria-label="Kelompok stok" hidden><button type="button" data-v="MAT">Material (RM, PM, WIP)</button><button type="button" data-v="FG">FG</button></div>
         <div id="invTop" hidden>
           <div class="toolbar">
             <label class="tb-field"><span class="sr">Snapshot</span><select id="invSnap" title="Snapshot stok"></select></label>
@@ -1330,8 +1332,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=6c66277d"></script>
-<script src="app.js?v=e459e244"></script>
-<script src="inv.js?v=cc054299"></script>
+<script src="app.js?v=3722dba7"></script>
+<script src="inv.js?v=ec94d228"></script>
 <script src="csl.js?v=97753814"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

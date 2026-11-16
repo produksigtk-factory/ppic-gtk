@@ -779,7 +779,16 @@
   }
 
   window.INV = {
-    enter() { bind(); render(); if (!I.loaded && !I.loading) load(); },
+    // Sub menu: rep/inv-mat (RM, PM, WIP) dan rep/inv-fg (FG); rep/inventory lama = RM, PM, WIP
+    enter(key) {
+      bind();
+      const kel = /inv-fg$/.test(key || location.hash) ? 'FG' : 'MAT';
+      if (kel !== I.kel) { I.kel = kel; I.bsnaps = null; I.bcats = null; I.g = ''; I.brand = ''; I.jenis = ''; I.lok = ''; I.chart = ''; I.open.clear(); savePref(); if (I.loaded) useKel(); }
+      const um = $('invUp-stokmat'), uf = $('invUp-stokfg');
+      if (um) um.closest('label').hidden = kel === 'FG';
+      if (uf) uf.closest('label').hidden = kel !== 'FG';
+      render(); if (!I.loaded && !I.loading) load();
+    },
     reload() { load(true); },
     sheetUrl() { return I.sheetUrl || CFG.INV_SHEET_URL || ''; },
   };

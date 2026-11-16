@@ -168,7 +168,9 @@
     'csl/musim':         { view: 'view-csl-musim',         crumb: 'CSL Personal Care',         title: 'Seasonal',        actions: 'csl' },
     'csl/update':        { view: 'view-csl-update',        crumb: 'CSL Personal Care',         title: 'Update Data CSL', actions: 'csl' },
     'csl/cek':           { view: 'view-csl-cek',           crumb: 'CSL Personal Care',         title: 'Pemeriksaan Data CSL', actions: 'csl' },
-    'rep/inventory':     { view: 'view-rep-inv',           crumb: 'Kebutuhan Report',          title: 'Value and Qty Inventory', actions: 'inv' },
+    'rep/inv-mat':       { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'RM, PM, dan WIP', actions: 'inv' },
+    'rep/inv-fg':        { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'FG', actions: 'inv' },
+    'rep/inventory':     { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'RM, PM, dan WIP', actions: 'inv' },
   };
   function route() {
     let key = location.hash.replace(/^#\/?/, '') || 'beranda';
