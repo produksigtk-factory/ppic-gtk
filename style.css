@@ -2190,3 +2190,22 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .inv-sumg .inv-mv td:first-child { overflow: hidden; }
 .inv-sumg .inv-mv .inv-mat .pl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-sumg table.inv-mv { display: table; width: 100%; padding: 0; border-radius: 0; background: none; font-weight: 400; }
+
+/* ---------- Rencana Produksi: kolom Plan bulan ---------- */
+#plTable th.pl-pmh { background: #eef3ef; min-width: 104px; vertical-align: middle; }
+#plTable th.pl-pmh small { display: block; font-weight: 500; color: #6b7a72; }
+#plTable td.pl-pm { background: #f4f7f5; min-width: 104px; font-weight: 600; white-space: nowrap; position: relative; }
+#plTable td.pl-pm .pm-ic { font-style: normal; font-size: 11px; margin-left: 5px; }
+#plTable td.pl-pm small { display: block; font-weight: 500; font-size: 11px; color: #5b6660; }
+#plTable td.pl-pm .pl-in { width: 72px; display: inline-block; }
+#plTable td.pm-match { background: #e3f3e8; color: #1f6b3d; }
+#plTable td.pm-less { background: #fbe1de; color: #a12a1f; }
+#plTable td.pm-more { background: #fff0d9; color: #8a5200; }
+#plTable td.pm-none { background: #eef1ef; color: #5b6660; }
+#plTable td.pm-nomon { background: #f4f7f5; color: #8a959a; }
+.kf-chip.pm-match { background: #e3f3e8; color: #1f6b3d; }
+.kf-chip.pm-less { background: #fbe1de; color: #a12a1f; }
+.kf-chip.pm-more { background: #fff0d9; color: #8a5200; }
+.kf-chip.pm-none, .kf-chip.pm-nomon { background: #eef1ef; color: #5b6660; }
+.pm-sums { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-bottom: 6px; }
+.pm-sum .kf-chip { margin-left: 2px; }

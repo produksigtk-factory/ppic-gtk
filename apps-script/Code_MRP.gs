@@ -23,6 +23,7 @@ const MRP_CONFIG = {
   // Tab di file MRP ini
   SKU_SHEET: 'SKU_MRP',
   PLAN_SHEET: 'RENCANA_PRODUKSI',
+  MONTH_SHEET: 'PLAN_BULAN',
   STOCK_SHEET: 'STOK',
   GANTUNG_SHEET: 'STOK_GANTUNG',
   ADJ_SHEET: 'STOK_KOREKSI',
@@ -40,6 +41,8 @@ const MRP_CONFIG = {
 const MRP_HEAD = {
   SKU_MRP: { head: ['KODE', 'NAMA', 'JENIS', 'BOM ID AKTIF', 'UKURAN BATCH (KG)', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6, 7, 8] },
   RENCANA_PRODUKSI: { head: ['BULAN', 'WEEK', 'KODE', 'QTY KG', 'BOM ID', 'SUMBER', 'DIUBAH'], text: [1, 2, 3, 5, 6, 7] },
+  // Plan satu bulan per SKU (kg; pcs untuk Banded/2in1/KIT). Hanya pembanding: hitungan kebutuhan tetap dari plan per week.
+  PLAN_BULAN: { head: ['BULAN', 'KODE', 'QTY', 'SUMBER', 'DIUBAH'], text: [1, 2, 4, 5] },
   STOK: { head: ['TANGGAL STOK', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
   // Stok Gantung: stok yang ada tetapi tidak bisa dipakai (diupload sendiri). Stok Tersedia = Stok Awal − Stok Gantung.
   STOK_GANTUNG: { head: ['TANGGAL', 'KODE', 'NAMA', 'QTY', 'UoM', 'SUMBER', 'CATATAN'], text: [1, 2, 3, 5, 6, 7] },
@@ -77,6 +80,8 @@ function doGet(e) {
       .map(r => [s_(r[0]), s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]), s_(r[5]), s_(r[6]), d_(r[7], tz, 'yyyy-MM-dd HH:mm')]);
     const plan = rows_(ss.getSheetByName(MRP_CONFIG.PLAN_SHEET), 7)
       .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), d_(r[6], tz, 'yyyy-MM-dd HH:mm')]);
+    const planMon = rows_(ss.getSheetByName(MRP_CONFIG.MONTH_SHEET), 5)
+      .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), n_(r[2]), s_(r[3]), d_(r[4], tz, 'yyyy-MM-dd HH:mm')]);
     // gantung: [tanggal, kode, nama, qty, uom, sumber, catatan]
     const gantung = rows_(ss.getSheetByName(MRP_CONFIG.GANTUNG_SHEET), 7)
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd'), s_(r[1]), s_(r[2]), n_(r[3]), s_(r[4]), s_(r[5]), s_(r[6])]);
@@ -90,7 +95,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, planMon, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -168,8 +173,14 @@ function doPost(e) {
     let res;
     if (action === 'verify') return json_({ ok: true });
     else if (action === 'saveKonf') res = saveKonf_(ss, body.rows || [], body.del || [], body.file || '', now);
-    else if (action === 'savePlan') res = savePlan_(ss, body.cells || [], now);
-    else if (action === 'replacePlan') res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
+    else if (action === 'savePlan') {
+      res = (body.cells || []).length ? savePlan_(ss, body.cells, now) : { saved: 0 };
+      if (body.monthCells) res.monthSaved = saveMonth_(ss, body.monthCells, now);
+    }
+    else if (action === 'replacePlan') {
+      res = replacePlan_(ss, body.months || [], body.rows || [], body.file || '', now);
+      if (body.monthRows && (body.monthMonths || []).length) res.monthSaved = replaceMonth_(ss, body.monthMonths, body.monthRows, body.file || '', now);
+    }
     else if (action === 'saveSku') res = saveSku_(ss, body.sku || {}, now);
     else if (action === 'uploadStock') res = uploadStock_(ss, body.date, body.rows || [], body.file || '', now);
     else if (action === 'saveKurang') res = saveKurang_(ss, body, now);
@@ -286,6 +297,45 @@ function replacePlan_(ss, months, rows, file, now) {
   if (all.length) sh.getRange(2, 1, all.length, 7).setValues(all);
   log_(ss, now, 'Upload rencana', `${file || 'file'} · bulan ${[...mset].join(', ')} · ${fresh.length} sel`);
   return { saved: fresh.length };
+}
+
+/* ---------- Plan satu bulan (tab PLAN_BULAN) ---------- */
+// monthCells: [{ bulan, kode, qty }] — qty kosong/0 = baris dihapus
+function saveMonth_(ss, cells, now) {
+  const sh = sheet_(ss, MRP_CONFIG.MONTH_SHEET), tz = ss.getSpreadsheetTimeZone();
+  const last = sh.getLastRow();
+  const keys = last > 1 ? sh.getRange(2, 1, last - 1, 2).getValues().map(r => d_(r[0], tz, 'yyyy-MM') + '|' + s_(r[1])) : [];
+  const idx = new Map(keys.map((k, i) => [k, i + 2]));
+  const del = [], add = [];
+  let n = 0;
+  cells.forEach(c => {
+    const bulan = s_(c.bulan), kode = s_(c.kode), qty = Number(c.qty);
+    if (!/^\d{4}-\d{2}$/.test(bulan) || !kode) return;
+    const at = idx.get(bulan + '|' + kode), row = [bulan, kode, qty > 0 ? qty : '', 'Website', now];
+    if (at) { if (qty > 0) sh.getRange(at, 1, 1, 5).setValues([row]); else del.push(at); }
+    else if (qty > 0) add.push(row);
+    n++;
+  });
+  if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 5).setValues(add);
+  del.sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
+  if (n === 1) log_(ss, now, 'Edit plan bulan', `${cells[0].kode} ${cells[0].bulan}: ${Number(cells[0].qty) > 0 ? cells[0].qty : 'dikosongkan'}`);
+  else if (n) log_(ss, now, 'Edit plan bulan', `${n} SKU diubah`);
+  return n;
+}
+// Upload: plan bulan untuk bulan yang punya kolom bulanan di file diganti isi file
+function replaceMonth_(ss, months, rows, file, now) {
+  const sh = sheet_(ss, MRP_CONFIG.MONTH_SHEET), tz = ss.getSpreadsheetTimeZone();
+  const mset = new Set(months.map(s_)), last = sh.getLastRow();
+  const keep = last > 1 ? sh.getRange(2, 1, last - 1, 5).getValues()
+    .map(r => [d_(r[0], tz, 'yyyy-MM'), s_(r[1]), n_(r[2]), s_(r[3]), d_(r[4], tz, 'yyyy-MM-dd HH:mm')])
+    .filter(r => r[0] && !mset.has(r[0])) : [];
+  const fresh = rows.map(r => [s_(r[0]), s_(r[1]), Number(r[2]) || 0, 'Upload' + (file ? ': ' + file : ''), now])
+    .filter(r => mset.has(r[0]) && r[1] && r[2] > 0);
+  const all = keep.concat(fresh);
+  if (last > 1) sh.getRange(2, 1, last - 1, 5).clearContent();
+  if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
+  log_(ss, now, 'Upload plan bulan', `${file || 'file'} · bulan ${[...mset].join(', ')} · ${fresh.length} SKU`);
+  return fresh.length;
 }
 
 function saveSku_(ss, k, now) {

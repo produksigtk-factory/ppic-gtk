@@ -3116,7 +3116,7 @@
   // Hitungan dilakukan di browser: rencana kg → kebutuhan material per week (ekstrak/bulk dipecah) →
   // saldo stok berjalan dengan incoming manual.
   const P = {
-    ready: false, edit: false, pin: '', hz: null, queue: new Map(), qTimer: null, saving: false,
+    ready: false, edit: false, pin: '', hz: null, queue: new Map(), mqueue: new Map(), qTimer: null, saving: false, planMon: new Map(),
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
     parsedStock: null, parsedPlan: null,
   };
@@ -3142,6 +3142,9 @@
       if (!r[0] || !r[1] || !r[2]) return;
       P.plan.set(`${r[0]}|${r[1]}|${r[2]}`, { bulan: r[0], week: r[1], code: r[2], kg: Number(r[3]) || 0, bom: r[4] || '', src: r[5], time: r[6] });
     });
+    P.hasPlanMon = Array.isArray(d.planMon);
+    P.planMon = new Map();
+    (d.planMon || []).forEach((r) => { if (r[0] && r[1] && Number(r[2]) > 0) P.planMon.set(`${r[0]}|${r[1]}`, { bulan: r[0], code: r[1], qty: Number(r[2]), src: r[3], time: r[4] }); });
     const st = d.stock || [];
     P.stockDate = st.reduce((m, r) => (r[0] > m ? r[0] : m), '');
     P.stockSrc = (st.find((r) => r[0] === P.stockDate) || [])[5] || '';
@@ -3629,20 +3632,31 @@
     clearTimeout(P.qTimer);
     P.qTimer = setTimeout(flushPlan, 700);
   }
+  function queueMonth(cell) {
+    P.mqueue.set(`${cell.bulan}|${cell.kode}`, cell);
+    paintPlanSave('wait');
+    clearTimeout(P.qTimer);
+    P.qTimer = setTimeout(flushPlan, 700);
+  }
   async function flushPlan() {
-    if (P.saving || !P.queue.size) return;
-    const cells = [...P.queue.values()];
-    P.queue.clear();
+    if (P.saving || (!P.queue.size && !P.mqueue.size)) return;
+    const cells = [...P.queue.values()], monthCells = [...P.mqueue.values()];
+    P.queue.clear(); P.mqueue.clear();
     P.saving = true; paintPlanSave('saving');
     try {
-      const res = await mrpApi('savePlan', { cells });
+      const res = await mrpApi('savePlan', monthCells.length ? { cells, monthCells } : { cells });
+      if (monthCells.length && res.monthSaved === undefined) {
+        cells.length = 0;   // plan per week sudah tersimpan
+        throw new Error('Plan bulan belum bisa disimpan: Apps Script MRP perlu diperbarui (Code_MRP.gs terbaru → Deploy → Manage deployments → New version).');
+      }
       paintPlanSave('ok', savedAt(res));
     } catch (err) {
       cells.forEach((c) => { if (!P.queue.has(`${c.bulan}|${c.week}|${c.kode}`)) P.queue.set(`${c.bulan}|${c.week}|${c.kode}`, c); });
+      monthCells.forEach((c) => { if (!P.mqueue.has(`${c.bulan}|${c.kode}`)) P.mqueue.set(`${c.bulan}|${c.kode}`, c); });
       paintPlanSave('err', err.message);
     } finally {
       P.saving = false;
-      if (P.queue.size && $('plSave').dataset.s !== 'err') flushPlan();
+      if ((P.queue.size || P.mqueue.size) && $('plSave').dataset.s !== 'err') flushPlan();
     }
   }
   function paintPlanSave(s, info) {
@@ -3688,6 +3702,8 @@
     P.skus.forEach((k) => { if (k.jenis !== 'Ekstrak' && k.aktif) codes.add(k.code); });
     const weeks = hzWeeks(), keys = new Set(weeks.map((w) => w.bulan + '|' + w.week));
     P.plan.forEach((p) => { if (keys.has(p.bulan + '|' + p.week) && p.kg > 0) codes.add(p.code); });
+    const mons = new Set(weeks.map((w) => w.bulan));
+    P.planMon.forEach((o) => { if (mons.has(o.bulan)) codes.add(o.code); });
     return [...codes].sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
   }
   // Konfirmasi Produksi per SKU-week (MO tersimpan): kg (pcs untuk Banded/KIT) + daftar MO
@@ -3709,6 +3725,26 @@
     if (Math.abs(d) <= plan * 0.01) return { cls: 'kf-match', t: 'Sesuai plan' };
     return d < 0 ? { cls: 'kf-less', t: `Kurang ${fmtKg(-d)} dari plan` } : { cls: 'kf-more', t: `Lebih ${fmtKg(d)} dari plan` };
   }
+  // ---- Plan satu bulan: pembanding Σ plan week di bulan yang sama (toleransi 1%) ----
+  const sumWeekOf = (b, c) => { let t = 0; P.plan.forEach((p) => { if (p.bulan === b && p.code === c) t += p.kg; }); return t; };
+  const sumKonfOf = (b, c, KF) => { let t = 0; (KF || konfByCell()).forEach((o, k) => { const [bb, , cc] = k.split('|'); if (bb === b && cc === c) t += o.q; }); return t; };
+  function monStatus(pm, sw) {
+    if (!(pm > 0) && !(sw > 0)) return null;
+    if (!(pm > 0)) return { cls: 'pm-nomon', ic: '?', t: `Belum ada Plan bulan · Σ week ${fmtKg(sw)}` };
+    if (!(sw > 0)) return { cls: 'pm-none', ic: '–', t: 'Belum dibagi ke week' };
+    const d = sw - pm;
+    if (Math.abs(d) <= pm * 0.01) return { cls: 'pm-match', ic: '✓', t: `Sesuai: Σ week ${fmtKg(sw)}` };
+    return d < 0 ? { cls: 'pm-less', ic: '▼', t: `Σ week ${fmtKg(sw)} · kurang ${fmtKg(-d)} dari Plan bulan` } : { cls: 'pm-more', ic: '▲', t: `Σ week ${fmtKg(sw)} · lebih ${fmtKg(d)} dari Plan bulan` };
+  }
+  function pmCell(c, b, KF) {
+    const o = P.planMon.get(`${b}|${c}`), pm = o ? o.qty : 0, sw = sumWeekOf(b, c), kq = sumKonfOf(b, c, KF), st = monStatus(pm, sw);
+    const pct = pm > 0 && kq > 0 ? kq / pm : NaN;
+    const tip = [st ? st.t : '', kq > 0 ? `Konfirmasi (MO) sebulan ${fmtKg(kq)}${isFinite(pct) ? ` · ${nf.format(Math.round(pct * 100))}% dari Plan bulan` : ''}` : '', o && o.src ? `Sumber: ${o.src}${o.time ? ' · ' + o.time : ''}` : ''].filter(Boolean).join('\n');
+    const val = P.edit
+      ? `<input class="pl-in pl-min" inputmode="decimal" data-b="${b}" data-c="${esc(c)}" value="${pm || ''}" aria-label="${esc(c)} Plan bulan ${esc(monLabel(b))}">`
+      : `<span class="pm-v">${fmtKg(pm) || (sw > 0 ? '<span class="kf-dash">–</span>' : '')}</span>`;
+    return `<td class="num pl-pm m-start${st ? ' ' + st.cls : ''}" data-b="${b}" data-c="${esc(c)}"${tip ? ` title="${esc(tip)}"` : ''}>${val}${st ? `<i class="pm-ic" aria-hidden="true">${st.ic}</i>` : ''}${kq > 0 && isFinite(pct) ? `<small>MO ${nf.format(Math.round(pct * 100))}%</small>` : ''}</td>`;
+  }
   function renderRencana() {
     fillHz($('plHz'));
     const weeks = hzWeeks();
@@ -3719,11 +3755,12 @@
     KF.forEach((o, k) => { const [b, w, c] = k.split('|'); if (weeks.some((x) => x.bulan === b && x.week === w)) allCodes.add(c); });   // MO di luar rencana tetap tampil
     let codes = [...allCodes].sort((a, b) => a.localeCompare(b, 'id', { numeric: true })).filter((c) => !q || (c + ' ' + nameOf(c)).toLowerCase().includes(q));
     const cell = (c, w) => P.plan.get(`${w.bulan}|${w.week}|${c}`);
-    if (only) codes = codes.filter((c) => weeks.some((w) => (cell(c, w) || {}).kg > 0 || kfOf(c, w)));
+    if (only) codes = codes.filter((c) => weeks.some((w) => (cell(c, w) || {}).kg > 0 || kfOf(c, w) || P.planMon.has(`${w.bulan}|${c}`)));
     const months = []; weeks.forEach((w) => { const l = months[months.length - 1]; if (l && l.b === w.bulan) l.n++; else months.push({ b: w.bulan, n: 1 }); });
-    $('plHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th>${months.map((m) => `<th colspan="${m.n * 2}" class="pl-month">${monLabel(m.b)}</th>`).join('')}<th colspan="2"></th></tr>`
-      + `<tr class="pl-whead"><th class="pl-sticky pl-c1" rowspan="2">SKU <small class="pl-thnote">kg; Banded/2in1/KIT dalam pcs · klik untuk BOM per week</small></th>${weeks.map((w, i) => `<th colspan="2" class="pl-w pl-wgrp${wCls(weeks, i)}" title="${esc(wTitle(w))}">${w.week}<small>${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}</small></th>`).join('')}<th colspan="2" class="pl-wgrp">Total</th></tr>`
-      + `<tr class="pl-shead">${weeks.map((w, i) => `<th class="num pl-sp${wCls(weeks, i)}" title="Rencana dari MPS">Plan</th><th class="num pl-sk" title="Total MO terkonfirmasi (Konfirmasi Produksi) di week ini">Konfirmasi</th>`).join('')}<th class="num pl-sp">Plan</th><th class="num pl-sk">Konfirmasi</th></tr>`;
+    const mS = (i) => i === 0 || weeks[i - 1].bulan !== weeks[i].bulan;
+    $('plHead').innerHTML = `<tr class="pl-mhead"><th class="pl-sticky pl-c1"></th>${months.map((m) => `<th colspan="${m.n * 2 + 1}" class="pl-month">${monLabel(m.b)}</th>`).join('')}<th colspan="2"></th></tr>`
+      + `<tr class="pl-whead"><th class="pl-sticky pl-c1" rowspan="2">SKU <small class="pl-thnote">kg; Banded/2in1/KIT dalam pcs · klik untuk BOM per week</small></th>${weeks.map((w, i) => `${mS(i) ? `<th rowspan="2" class="num pl-pmh m-start" title="Plan satu bulan, dibandingkan dengan jumlah plan semua week di ${esc(monLabel(w.bulan))}: ✓ sesuai · ▼ Σ week kurang · ▲ Σ week lebih · – belum dibagi ke week · ? belum ada Plan bulan. MO % = Konfirmasi sebulan dibanding Plan bulan.">Plan bulan<small>vs Σ week</small></th>` : ''}<th colspan="2" class="pl-w pl-wgrp" title="${esc(wTitle(w))}">${w.week}<small>${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}</small></th>`).join('')}<th colspan="2" class="pl-wgrp">Total</th></tr>`
+      + `<tr class="pl-shead">${weeks.map(() => `<th class="num pl-sp" title="Rencana dari MPS">Plan</th><th class="num pl-sk" title="Total MO terkonfirmasi (Konfirmasi Produksi) di week ini">Konfirmasi</th>`).join('')}<th class="num pl-sp">Plan</th><th class="num pl-sk">Konfirmasi</th></tr>`;
     const tot = new Array(weeks.length).fill(0), totK = new Array(weeks.length).fill(0);
     let nWarn = 0;
     $('plRows').innerHTML = codes.map((c) => {
@@ -3741,14 +3778,14 @@
         const tip = [b ? `BOM terkunci: ${refOf(b)}` : '', warn ? `${fmtKg(kg)} kg bukan kelipatan/gabungan ukuran batch (${sku.batch.join(', ')} kg)` : ''].filter(Boolean).join('\n');
         const t = tip ? ` title="${esc(tip)}"` : '';
         const tag = b && multi ? `<small class="pl-cbom${sku && b.id !== sku.bom ? ' is-diff' : ''}">${esc(refOf(b))}</small>` : '';
-        return (P.edit
-          ? `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}><input class="pl-in" inputmode="decimal" data-b="${w.bulan}" data-w="${w.week}" data-c="${esc(c)}" value="${kg || ''}" aria-label="${esc(c)} ${esc(wLabel(w))} ${pcs ? 'pcs' : 'kg'}">${tag}</td>`
-          : `<td class="num pl-cell${warn ? ' pl-warn' : ''}${wCls(weeks, i)}"${t}>${fmtKg(kg)}${tag}</td>`) + kTd;
+        return (mS(i) ? pmCell(c, w.bulan, KF) : '') + (P.edit
+          ? `<td class="num pl-cell${warn ? ' pl-warn' : ''}"${t}><input class="pl-in" inputmode="decimal" data-b="${w.bulan}" data-w="${w.week}" data-c="${esc(c)}" value="${kg || ''}" aria-label="${esc(c)} ${esc(wLabel(w))} ${pcs ? 'pcs' : 'kg'}">${tag}</td>`
+          : `<td class="num pl-cell${warn ? ' pl-warn' : ''}"${t}>${fmtKg(kg)}${tag}</td>`) + kTd;
       }).join('');
       const bomTxt = !list.length ? '<span class="pl-bad pl-sub">Tidak ada BOM</span>' : `<span class="pl-sub">BOM default ${esc(refOf((sku && bomById(c, sku.bom)) || list[0]))}${multi ? ` · ${list.length} versi` : ''}</span>`;
       const badges = (pcs ? '<span class="pl-unit" title="Produk rakitan (Banded / 2in1 / KIT): diisi dalam pcs; komponen FG-nya tidak dipecah ke bahan baku">pcs</span>' : '') + (sku ? '' : '<span class="pl-tmp" title="Belum ada di Parameter SKU">baru</span>');
       return `<tr data-code="${esc(c)}"${pcs ? ' class="is-pcs"' : ''}>${matCell(c, nameOf(c), badges).replace('</td>', bomTxt + '</td>').replace('class="pl-sticky pl-c1"', 'class="pl-sticky pl-c1 pl-click" tabindex="0" title="Klik untuk melihat / mengubah BOM per week"')}${tds}<td class="num pl-rowtot"><b>${fmtKg(rowTot)}</b>${pcs && rowTot ? ' <small>pcs</small>' : ''}</td><td class="num pl-kf pl-rowkf"><b>${fmtKg(rowK)}</b>${pcs && rowK ? ' <small>pcs</small>' : ''}</td></tr>`;
-    }).join('') || `<tr class="empty"><td colspan="${weeks.length * 2 + 3}">Tidak ada SKU yang cocok.</td></tr>`;
+    }).join('') || `<tr class="empty"><td colspan="${weeks.length * 2 + months.length + 3}">Tidak ada SKU yang cocok.</td></tr>`;
     paintPlanFoot(tot, totK);
     const nCell = [...P.plan.values()].filter((p) => p.kg > 0 && weeks.some((w) => w.bulan === p.bulan && w.week === p.week)).length;
     const perMon = selMonths().map((b) => { return { b, kg: [...P.plan.values()].filter((p) => p.bulan === b && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0) }; });
@@ -3764,12 +3801,20 @@
       const st = konfStatus((P.plan.get(k) || {}).kg || 0, (KF.get(k) || {}).q || 0); if (!st) return;
       if (st.cls === 'kf-match') nMatch++; else if (st.cls === 'kf-none') nNone++; else if (st.cls === 'kf-out') nOut++; else nLess++;
     });
-    $('plInfo').innerHTML = `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana · Konfirmasi: <span class="kf-chip kf-match">${nf.format(nMatch)} sesuai</span> <span class="kf-chip kf-less">${nf.format(nLess)} beda qty</span> <span class="kf-chip kf-none">${nf.format(nNone)} belum ada MO</span> <span class="kf-chip kf-out">${nf.format(nOut)} di luar rencana</span>`;
+    const pmSum = months.map((m) => {
+      const cs = new Set(); P.planMon.forEach((o) => { if (o.bulan === m.b) cs.add(o.code); }); P.plan.forEach((p) => { if (p.bulan === m.b && p.kg > 0) cs.add(p.code); });
+      const n = { 'pm-match': 0, 'pm-less': 0, 'pm-more': 0, 'pm-none': 0, 'pm-nomon': 0 };
+      if (!cs.size) return '';
+      cs.forEach((c) => { const st = monStatus((P.planMon.get(`${m.b}|${c}`) || {}).qty || 0, sumWeekOf(m.b, c)); if (st) n[st.cls]++; });
+      return `<span class="pm-sum"><b>Plan bulan ${esc(monLabel(m.b))}:</b> <span class="kf-chip pm-match">${n['pm-match']} sesuai</span>${n['pm-less'] ? ` <span class="kf-chip pm-less">${n['pm-less']} Σ week kurang</span>` : ''}${n['pm-more'] ? ` <span class="kf-chip pm-more">${n['pm-more']} Σ week lebih</span>` : ''}${n['pm-none'] ? ` <span class="kf-chip pm-none">${n['pm-none']} belum dibagi ke week</span>` : ''}${n['pm-nomon'] ? ` <span class="kf-chip pm-nomon">${n['pm-nomon']} tanpa Plan bulan</span>` : ''}</span>`;
+    }).join('');
+    $('plInfo').innerHTML = (P.hasPlanMon ? '' : '<span class="pl-bad">Plan bulan belum terbaca: perbarui Apps Script MRP (Code_MRP.gs) lalu Deploy versi baru.</span><br>') + `<span class="pm-sums">${pmSum}</span>` + `${nf.format(codes.length)} SKU ditampilkan · ${nf.format(nCell)} sel berisi rencana · Konfirmasi: <span class="kf-chip kf-match">${nf.format(nMatch)} sesuai</span> <span class="kf-chip kf-less">${nf.format(nLess)} beda qty</span> <span class="kf-chip kf-none">${nf.format(nNone)} belum ada MO</span> <span class="kf-chip kf-out">${nf.format(nOut)} di luar rencana</span>`;
   }
   function paintPlanFoot(tot, totK) {
     const weeks = hzWeeks(), sum = (a) => a.reduce((x, y) => x + y, 0);
     if (!totK) { const KF = konfByCell(); totK = weeks.map((w) => [...KF.entries()].filter(([k]) => k.startsWith(`${w.bulan}|${w.week}|`) && planUnit(k.split('|')[2]) !== 'pcs').reduce((t, [, o]) => t + o.q, 0)); }
-    $('plFoot').innerHTML = `<tr><td class="pl-sticky pl-c1"><b>Total kg</b></td>${tot.map((v, i) => `<td class="num${wCls(weeks, i)}"><b>${fmtKg(v)}</b></td><td class="num pl-kf"><b>${fmtKg(totK[i])}</b></td>`).join('')}<td class="num"><b>${fmtKg(sum(tot))}</b></td><td class="num pl-kf"><b>${fmtKg(sum(totK))}</b></td></tr>`;
+    const pmTot = (b) => { let t = 0; P.planMon.forEach((o) => { if (o.bulan === b && planUnit(o.code) !== 'pcs') t += o.qty; }); return t; };
+    $('plFoot').innerHTML = `<tr><td class="pl-sticky pl-c1"><b>Total kg</b></td>${tot.map((v, i) => `${i === 0 || weeks[i - 1].bulan !== weeks[i].bulan ? `<td class="num pl-pm m-start"><b>${fmtKg(pmTot(weeks[i].bulan))}</b></td>` : ''}<td class="num"><b>${fmtKg(v)}</b></td><td class="num pl-kf"><b>${fmtKg(totK[i])}</b></td>`).join('')}<td class="num"><b>${fmtKg(sum(tot))}</b></td><td class="num pl-kf"><b>${fmtKg(sum(totK))}</b></td></tr>`;
   }
   // Klik sel Konfirmasi: daftar MO di SKU-week itu
   $('plTable').addEventListener('click', (e) => {
@@ -3794,6 +3839,14 @@
     const kg = raw === '' ? 0 : Number(raw);
     if (isNaN(kg) || kg < 0) { inp.classList.add('is-bad'); toast('Isi qty dengan angka.'); return; }
     inp.classList.remove('is-bad');
+    if (inp.classList.contains('pl-min')) {
+      const b = inp.dataset.b, c = inp.dataset.c;
+      if (kg > 0) P.planMon.set(`${b}|${c}`, { bulan: b, code: c, qty: kg, src: 'Website', time: '' }); else P.planMon.delete(`${b}|${c}`);
+      queueMonth({ bulan: b, kode: c, qty: kg || '' });
+      refreshPm(inp.closest('tr'), b, c, true);
+      paintPlanFoot(hzWeeks().map((x) => [...P.plan.values()].filter((p) => p.bulan === x.bulan && p.week === x.week && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0)));
+      return;
+    }
     const b = inp.dataset.b, w = inp.dataset.w, c = inp.dataset.c, k = `${b}|${w}|${c}`;
     const old = P.plan.get(k);
     const lock = (old && old.bom) || (activeBom(c) || {}).id || '';   // BOM dikunci saat week ini pertama diisi
@@ -3811,6 +3864,7 @@
     tr.querySelector('.pl-rowtot').innerHTML = `<b>${fmtKg(rt)}</b>${pcsRow && rt ? ' <small>pcs</small>' : ''}`;
     const tot = weeks.map((x) => [...P.plan.values()].filter((p) => p.bulan === x.bulan && p.week === x.week && planUnit(p.code) !== 'pcs').reduce((t, p) => t + p.kg, 0));
     paintPlanFoot(tot);
+    refreshPm(tr, b, c, false);
     // status konfirmasi di sel sebelahnya
     const kTd = td.nextElementSibling;
     if (kTd && kTd.classList.contains('pl-kf')) {
@@ -3820,6 +3874,14 @@
       if (!kf) kTd.innerHTML = kg > 0 ? '<span class="kf-dash">–</span>' : '';
     }
   });
+  // Perbarui sel Plan bulan satu baris tanpa menggambar ulang tabel (fokus input tetap)
+  function refreshPm(tr, b, c, keepInput) {
+    const td = tr && tr.querySelector(`td.pl-pm[data-b="${b}"]`); if (!td) return;
+    const tmp = document.createElement('tbody'); tmp.innerHTML = `<tr>${pmCell(c, b)}</tr>`;
+    const nt = tmp.querySelector('td');
+    if (keepInput) { td.className = nt.className; td.title = nt.title; td.querySelectorAll('.pm-ic, small').forEach((x) => x.remove()); [...nt.childNodes].filter((x) => !(x.matches && x.matches('input, .pm-v'))).forEach((x) => td.appendChild(x)); }
+    else td.replaceWith(nt);
+  }
   $('plTable').addEventListener('keydown', (e) => {
     const inp = e.target.closest('.pl-in'); if (!inp || (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
     e.preventDefault();
@@ -3868,17 +3930,21 @@
   $('plUpload').addEventListener('click', () => { location.hash = '#/mrp/update'; setTimeout(() => $('planFile').focus(), 100); });
   // Format upload kosong: baris 1 = judul week (kunci lookup), baris 2 = tanggal week
   function downloadPlanTemplate() {
-    const weeks = hzWeeks();
-    const head = ['KODE', 'NAMA (opsional)'].concat(weeks.map((w) => `${w.week} ${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`));
-    const dates = ['Isi kode SKU mulai baris 3', 'Qty kg (Banded/2in1/KIT: pcs)'].concat(weeks.map((w) => `${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}`));
+    const weeks = hzWeeks(), MU = (b) => `${BULAN_PANJANG[Number(b.slice(5)) - 1].toUpperCase()} ${b.slice(0, 4)}`;
+    const head = ['KODE', 'NAMA (opsional)'], dates = ['Isi kode SKU mulai baris 3', 'Qty kg (Banded/2in1/KIT: pcs)'];
+    weeks.forEach((w, i) => {
+      if (i === 0 || weeks[i - 1].bulan !== w.bulan) { head.push(`PLAN ${MU(w.bulan)}`); dates.push('Plan satu bulan'); }
+      head.push(`${w.week} ${MU(w.bulan)}`); dates.push(`${fmtDate(w.start).slice(0, 6)} – ${fmtDate(w.end).slice(0, 6)}`);
+    });
     const ws = XLSX.utils.aoa_to_sheet([head, dates]);
-    ws['!cols'] = [{ wch: 14 }, { wch: 38 }].concat(weeks.map(() => ({ wch: 20 })));
+    ws['!cols'] = [{ wch: 14 }, { wch: 38 }].concat(head.slice(2).map(() => ({ wch: 20 })));
     ws['!freeze'] = { xSplit: 2, ySplit: 2 };
     const info = XLSX.utils.aoa_to_sheet([
       ['Format upload rencana produksi (MRP PPIC GTK)'], [''],
       ['1. Isi kode SKU di kolom A mulai baris 3, qty di kolom week. Kolom NAMA boleh dikosongkan.'],
       ['   Satuan qty: kg untuk produk biasa; pcs untuk produk rakitan (Banded / 2in1 / KIT).'],
       ['2. Baris 1 (mis. "W1 NOVEMBER 2026") adalah kunci kolom; jangan diubah. Baris 2 hanya keterangan tanggal.'],
+      ['   Kolom "PLAN NOVEMBER 2026" = plan satu bulan (pembanding jumlah plan week). Boleh dikosongkan/dihapus bila belum ada.'],
       ['3. Upload di website: MRP → Update Data MRP → Upload rencana produksi.'],
       ['4. Bulan yang ada di file mengganti rencana bulan itu; kode yang tidak ada di DATABASE diberi peringatan.'], [''],
       ['Bulan', selMonths().map(monLabel).join(', ')], ['Dibuat', todayStr()],
@@ -3895,7 +3961,11 @@
     const weeks = hzWeeks();
     const data = planRowsList().map((c) => {
       const o = { KODE: c, NAMA: (P.skus.get(c) || {}).name || '', SATUAN: planUnit(c), BOM: activeBom(c) ? refOf(activeBom(c)) : '' };
-      weeks.forEach((w) => { o[`${w.week} ${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`] = (P.plan.get(`${w.bulan}|${w.week}|${c}`) || {}).kg || 0; });
+      weeks.forEach((w, i) => {
+        const MU = `${BULAN_PANJANG[Number(w.bulan.slice(5)) - 1].toUpperCase()} ${w.bulan.slice(0, 4)}`;
+        if (i === 0 || weeks[i - 1].bulan !== w.bulan) o[`PLAN ${MU}`] = (P.planMon.get(`${w.bulan}|${c}`) || {}).qty || 0;
+        o[`${w.week} ${MU}`] = (P.plan.get(`${w.bulan}|${w.week}|${c}`) || {}).kg || 0;
+      });
       return o;
     });
     const wb = XLSX.utils.book_new();
@@ -6076,6 +6146,16 @@
     }
     return { bulan: `${y}-${String(mon).padStart(2, '0')}`, week: 'W' + m[1] };
   }
+  // Kolom plan satu bulan: "PLAN NOVEMBER 2026", "PLAN BULAN NOVEMBER", "TOTAL NOVEMBER", "2026-11 PLAN"
+  function monthHeader(h) {
+    const s = txt(h).toUpperCase().replace(/\s+/g, ' ');
+    let m = s.match(/^(\d{4})-(\d{2}) (?:PLAN|TOTAL)$/);
+    if (m) return `${m[1]}-${m[2]}`;
+    m = s.match(/^(?:PLAN BULAN|PLAN|TOTAL PLAN|TOTAL) ([A-Z]+)(?: (\d{4}))?$/);
+    if (!m || !MON_MAP[m[1]]) return null;
+    const w = weekHeader(`W1 ${m[1]}${m[2] ? ' ' + m[2] : ''}`);
+    return w ? w.bulan : null;
+  }
   function parsePlan(wb) {
     const names = wb.SheetNames.slice().sort((a, b) => (/plan weekly/i.test(b) ? 1 : 0) - (/plan weekly/i.test(a) ? 1 : 0));
     for (const sn of names) {
@@ -6087,6 +6167,13 @@
         const cols = new Map();
         head.forEach((x, i) => { const w = weekHeader(x); if (w) { const k = w.bulan + '|' + w.week; if (!cols.has(k)) cols.set(k, { i, w }); } });
         if (!cols.size) continue;
+        const mcols = new Map();
+        head.forEach((x, i) => { const b = monthHeader(x); if (b && !mcols.has(b)) mcols.set(b, i); });
+        const monthCells = [];
+        if (mcols.size) rows.slice(h + 1).forEach((r) => {
+          const code = normCode(r[iK]); if (!code || /^total/i.test(code)) return;
+          mcols.forEach((i, b) => { const q = Number(r[i]); if (q > 0) monthCells.push({ bulan: b, code, qty: q }); });
+        });
         const cells = [], unknown = new Set(), notSku = new Set(), warn = [];
         rows.slice(h + 1).forEach((r) => {
           const code = normCode(r[iK]);
@@ -6103,7 +6190,7 @@
         });
         const months = [...new Set([...cols.values()].map((c) => c.w.bulan))].sort();
         const noWeek = [...cols.values()].filter((c) => !P.weekBy.has(c.w.bulan + '|' + c.w.week)).map((c) => `${c.w.week} ${monLabel(c.w.bulan)}`);
-        return { sheet: sn, months, cells, unknown: [...unknown], notSku: [...notSku], warn, noWeek };
+        return { sheet: sn, months, cells, monthMonths: [...mcols.keys()].sort(), monthCells, unknown: [...unknown], notSku: [...notSku], warn, noWeek };
       }
     }
     throw new Error('Kolom KODE dan kolom week (mis. "W1 NOVEMBER") tidak ditemukan. Pakai sheet PLAN WEEKLY dari template, atau unduh contoh dari menu Rencana Produksi.');
@@ -6120,6 +6207,7 @@
       const before = [...P.plan.values()].filter((x) => p.months.includes(x.bulan));
       $('planCheck').className = 'check ok';
       $('planCheck').innerHTML = `Sheet <b>${esc(p.sheet)}</b> · bulan <b>${p.months.map(monLabel).join(', ')}</b> · <b>${nf.format(p.cells.length)}</b> sel berisi · total <b>${fmtKg(kg)} kg</b> dari ${nf.format(new Set(p.cells.map((c) => c.code)).size)} SKU.`
+        + (p.monthMonths.length ? `<br>Kolom <b>Plan bulan</b> terbaca untuk ${p.monthMonths.map(monLabel).join(', ')}: ${nf.format(p.monthCells.length)} SKU. Plan bulan yang tersimpan untuk bulan itu ikut diganti.` : '<br><span class="muted">Tidak ada kolom Plan bulan (mis. "PLAN NOVEMBER 2026") di file; Plan bulan yang tersimpan tidak berubah.</span>')
         + `<br>Rencana yang sekarang tersimpan untuk bulan tersebut (${nf.format(before.length)} sel, ${fmtKg(before.reduce((t, x) => t + x.kg, 0))} kg) akan <b>diganti</b>. Bulan lain tidak berubah.`
         + (p.unknown.length ? `<div class="warn-box up-warn"><b>${p.unknown.length} kode SKU tidak ada di DATABASE (tidak punya BOM):</b> ${esc(p.unknown.join(', '))}<br>Tetap ikut disimpan, tetapi kebutuhan materialnya tidak bisa dihitung sampai BOM-nya ada. Periksa apakah kodenya salah ketik.</div>` : '')
         + (p.notSku.length ? `<br><span class="muted">${p.notSku.length} SKU belum ada di Parameter SKU (BOM dikunci ke versi pertama): ${esc(p.notSku.join(', '))}</span>` : '')
@@ -6132,9 +6220,12 @@
     const p = P.parsedPlan; if (!p) return;
     $('planSend').disabled = true; $('planResult').className = 'send-result'; $('planResult').textContent = 'Mengirim ke Google Sheet…';
     try {
-      const res = await mrpApi('replacePlan', { months: p.months, file: p.file, rows: p.cells.map((c) => [c.bulan, c.week, c.code, c.kg, ((P.plan.get(`${c.bulan}|${c.week}|${c.code}`) || {}).bom) || (activeBom(c.code) || {}).id || '']) });
+      const body = { months: p.months, file: p.file, rows: p.cells.map((c) => [c.bulan, c.week, c.code, c.kg, ((P.plan.get(`${c.bulan}|${c.week}|${c.code}`) || {}).bom) || (activeBom(c.code) || {}).id || '']) };
+      if (p.monthMonths.length) { body.monthMonths = p.monthMonths; body.monthRows = p.monthCells.map((c) => [c.bulan, c.code, c.qty]); }
+      const res = await mrpApi('replacePlan', body);
       $('planResult').className = 'send-result ok';
-      $('planResult').textContent = `Tersimpan ${savedAt(res)}: ${nf.format(res.saved)} sel untuk ${p.months.map(monLabel).join(', ')}.`;
+      $('planResult').textContent = `Tersimpan ${savedAt(res)}: ${nf.format(res.saved)} sel untuk ${p.months.map(monLabel).join(', ')}.`
+        + (p.monthMonths.length ? (res.monthSaved === undefined ? ' Plan bulan TIDAK tersimpan: Apps Script MRP perlu diperbarui.' : ` Plan bulan: ${nf.format(res.monthSaved)} SKU.`) : '');
       P.parsedPlan = null; $('planFile').value = ''; $('planName').textContent = 'Belum ada file';
       loadMrp(true);
     } catch (err) { $('planResult').className = 'send-result err'; $('planResult').textContent = 'Gagal: ' + err.message; $('planSend').disabled = false; }
