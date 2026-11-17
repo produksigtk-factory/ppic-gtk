@@ -2238,3 +2238,16 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .lp-usep .lp-use th, .lp-usep .lp-use td { padding: 2px 5px; }
 .lp-usep .lp-use tr { break-inside: avoid; page-break-inside: avoid; }
 .inc-imgb { display: inline-flex; gap: 6px; }
+.inv-imgact { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+#invTab { align-items: center; }
+.snap-box { position: fixed; left: -10000px; top: 0; background: #fff; padding: 24px 28px; color: #1d2724; z-index: -1; }
+.snap-box .snap-t { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.snap-box .snap-s { font-size: 13px; color: #6b7a72; margin-bottom: 14px; }
+.snap-box .snap-f { font-size: 11px; color: #9aa5b1; margin-top: 10px; }
+.snap-box button { cursor: default; }
+.snap-box .inv-kbl { max-height: none; overflow: visible; }
+.snap-box .table-wrap, .snap-box .pl-wrap { max-height: none !important; overflow: visible !important; }
+.snap-box .inv-gr th:first-child { box-shadow: none; border-left: 4px solid var(--gc); }
+.snap-box .inc-stack i + i { box-shadow: none; border-left: 2px solid #fff; }
+.snap-box summary { display: block; list-style: none; }
+.snap-box summary::-webkit-details-marker { display: none; }

@@ -250,6 +250,7 @@
     const M2 = pv ? movement([pv, I.snap], 'v') : null;
     renderHero(rows, prows, M2);
     $('invChartCard').hidden = I.view !== 'chart';
+    $('invImgAct').hidden = !['sum', 'kat'].includes(I.view);
     if (I.view === 'chart') renderChart();
     const v = I.view;
     $('invBody').innerHTML = v === 'chart' ? '' : (I.kel === 'FG' && v === 'mov' ? mvNote() : '') + renderWarn(rows) + (v === 'sum' ? viewSum(rows, prows, M2) : v === 'kat' ? viewKat(rows, prows) : v === 'mat' ? viewMat(rows, prows) : v === 'mov' ? viewMov(rows) : viewLok(rows));
@@ -901,6 +902,14 @@
     });
     $('invJpg').addEventListener('click', exportJpg);
     $('invCopy').addEventListener('click', copyImg);
+    // Ringkasan & Per kategori → gambar
+    const tabSnap = () => {
+      const v = I.view, ttl = `${v === 'sum' ? 'Ringkasan' : 'Per kategori'} · Stok ${KEL_LBL[I.kel]}`;
+      const sub = [`snapshot ${fSnap(I.snap)}`, $('invInfo').textContent, filtTxt()].filter(Boolean).join(' · ');
+      return window.domToCanvas(v === 'sum' ? [$('invHero'), $('invBody')] : [$('invBody')], { title: ttl, sub });
+    };
+    $('invTCopy').addEventListener('click', () => window.copyCanvasImage(tabSnap()));
+    $('invTJpg').addEventListener('click', () => { toast('Menyiapkan gambar…'); tabSnap().then((cv) => { const a = document.createElement('a'); a.href = cv.toDataURL('image/jpeg', 0.95); a.download = `Inventory_${I.kel === 'FG' ? 'FG' : 'Material'}_${I.view === 'sum' ? 'ringkasan' : 'per_kategori'}_${I.snap.slice(0, 10)}.jpg`; a.click(); }).catch((e) => toast(e.message)); });
     $('invCt').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.ct) return; I.ct = b.dataset.v; savePref(); renderChart(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
     $('invBrand').addEventListener('change', () => { I.brand = $('invBrand').value; I.jenis = ''; render(); });

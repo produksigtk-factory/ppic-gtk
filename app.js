@@ -7662,6 +7662,20 @@
       .then(() => toast('Gambar tersalin. Tempel (Ctrl+V) di PowerPoint, email, atau WhatsApp.'))
       .catch((e) => toast('Gagal menyalin gambar: ' + (e && e.message ? e.message : e) + '. Pakai Unduh JPG.'));
   };
+  // Potret elemen halaman → canvas (html2canvas dimuat saat pertama dipakai). nodes: elemen yang disalin berurutan; title: judul di atas.
+  let h2cP = null;
+  const loadH2c = () => h2cP || (h2cP = new Promise((res, rej) => { if (window.html2canvas) return res(window.html2canvas); const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; sc.onload = () => res(window.html2canvas); sc.onerror = () => { h2cP = null; rej(new Error('Pustaka gambar tidak bisa dimuat.')); }; document.head.appendChild(sc); }));
+  window.domToCanvas = async (nodes, { title = '', sub = '', width = 1400 } = {}) => {
+    const h2c = await loadH2c();
+    const box = document.createElement('div');
+    box.className = 'snap-box'; box.style.width = width + 'px';
+    box.innerHTML = `${title ? `<div class="snap-t">${esc(title)}</div>` : ''}${sub ? `<div class="snap-s">${esc(sub)}</div>` : ''}`;
+    nodes.filter(Boolean).forEach((n) => { const c = n.cloneNode(true); c.removeAttribute('id'); c.querySelectorAll('[id]').forEach((x) => x.removeAttribute('id')); c.querySelectorAll('details:not([open])').forEach((dt) => [...dt.children].forEach((x) => { if (x.tagName !== 'SUMMARY') x.remove(); })); c.querySelectorAll('button, input, select').forEach((x) => { if (x.matches('input, select')) x.replaceWith(Object.assign(document.createElement('span'), { textContent: x.value || '' })); }); box.appendChild(c); });
+    box.insertAdjacentHTML('beforeend', `<div class="snap-f">Sumber: PPIC Gondowangi · dibuat ${esc(fmtDate(todayStr()))}</div>`);
+    document.body.appendChild(box);
+    try { return await h2c(box, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true }); }
+    finally { box.remove(); }
+  };
   window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld, workdaysSince };
   route();
   loadData();
