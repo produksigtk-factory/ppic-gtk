@@ -7202,10 +7202,11 @@
       const need = mm ? mm.sku.get(u.sku) || 0 : 0;
       const sell = months.map((b) => (SI ? Math.round(SI.m.get(u.sku + '|' + b) || 0) : null));
       const avg = SI ? sell.reduce((t, x) => t + x, 0) / 3 : null;
-      return { sku: u.sku, name: u.name, bom: u.bom, perTon: Math.round(u.perTon * 1e6) / 1e6, perPcs: u.perPcs, need: Math.round(need * 1000) / 1000, share: tot ? need / tot : 0, sell, avg: avg === null ? null : Math.round(avg) };
-    }).sort((a, b) => b.need - a.need || (b.avg || 0) - (a.avg || 0) || b.perTon - a.perTon || a.sku.localeCompare(b.sku));
+      return { sku: u.sku, name: u.name, bom: u.bom, perTon: Math.round(u.perTon * 1e6) / 1e6, perPcs: u.perPcs, need: Math.round(need * 1000) / 1000, share: tot ? need / tot : 0, sell, avg: avg === null ? null : Math.round(avg), setara: avg && u.perPcs ? Math.round(avg * u.perPcs * 1000) / 1000 : null };
+    }).filter((x) => x.need > 0 || (x.avg || 0) > 0).sort((a, b) => b.need - a.need || (b.avg || 0) - (a.avg || 0) || b.perTon - a.perTon || a.sku.localeCompare(b.sku));
     // dibekukan di satu sel Google Sheet (maks ±49.000 karakter): ringkas & batasi 30 produk teratas
     const top = rows.slice(0, 30).map((x) => Object.assign(x, { name: x.name.length > 48 ? x.name.slice(0, 47) + '…' : x.name, share: Math.round(x.share * 1000) / 1000, perPcs: undefined }));
+    // produk tanpa kebutuhan & tanpa Sell In sudah dibuang di atas
     return { months, rows: top, more: Math.max(0, rows.length - top.length), tot: Math.round(tot * 1000) / 1000, err: SI ? (SI.errs || []).join('; ') : 'Sell In tidak bisa dimuat.' };
   }
   const prSchedOf = (r) => { const L = r.sched || prSched(r.kirim); const bk = Number(prNum(r.buka)) || 0; return L ? L.map((x) => ({ d: x.d, q: Number(x.q) || 0 })) : bk ? [{ d: r.kirim || '', q: bk }] : []; };
@@ -7277,16 +7278,18 @@
       if (!U) return `<div class="lp-card">${head('<span class="lp-chip is-muted">Belum dihitung</span>')}<p class="lp-empty">Klik "Perbarui lampiran" untuk menghitung penggunaan material.</p></div>`;
       months = months || U.months;
       const u = esc(d.uom || ''), act = U.rows.filter((x) => x.need > 0).length;
+      U.rows = U.rows.filter((x) => x.need > 0 || (x.avg || 0) > 0);   // produk tanpa kebutuhan & tanpa Sell In tidak ditampilkan
       if (!U.rows.length) return `<div class="lp-card">${head('<span class="lp-chip is-muted">Tidak dipakai di BoM aktif SKU mana pun</span>')}</div>`;
       const ml = U.months.map((b) => `<th class="num">${monShort(b)} ${b.slice(2, 4)}</th>`).join('');
-      const tb = U.rows.map((x) => `<tr${x.need > 0 ? '' : ' class="lp-dim"'}><td><b>${esc(x.sku)}</b><small>${esc(x.name)}</small></td><td>${esc(x.bom)}</td><td class="num">${prNumTxt(x.perTon)}</td><td class="num">${x.need > 0 ? `<b>${prNumTxt(x.need)}</b><small>${nf.format(Math.round(x.share * 100))}%</small>` : '–'}</td>${x.sell ? x.sell.map((v) => `<td class="num">${v ? nf.format(v) : '–'}</td>`).join('') + `<td class="num"><b>${x.avg ? nf.format(x.avg) : '–'}</b></td>` : `<td class="num" colspan="4">–</td>`}</tr>`).join('');
+      const tb = U.rows.map((x) => `<tr${x.need > 0 ? '' : ' class="lp-dim"'}><td><b>${esc(x.sku)}</b><small>${esc(x.name)}</small></td><td>${esc(x.bom)}</td><td class="num">${prNumTxt(x.perTon)}</td><td class="num">${x.need > 0 ? `<b>${prNumTxt(x.need)}</b><small>${nf.format(Math.round(x.share * 100))}%</small>` : '–'}</td>${x.sell ? x.sell.map((v) => `<td class="num">${v ? nf.format(v) : '–'}</td>`).join('') + `<td class="num"><b>${x.avg ? nf.format(x.avg) : '–'}</b></td><td class="num">${x.setara ? `<b>${prNumTxt(x.setara)}</b>` : '–'}</td>` : `<td class="num" colspan="5">–</td>`}</tr>`).join('');
+      const totSet = U.rows.reduce((t, x) => t + (x.setara || 0), 0), hasSet = U.rows.some((x) => x.setara !== undefined);
       return `<div class="lp-card">${head(`<span class="lp-chip is-neutral">${U.rows.length} produk · ${act} ada kebutuhan</span>`)}
-        <div class="pr-hit-w"><table class="pr-st-t lp-use"><thead><tr><th>Produk</th><th>BoM aktif</th><th class="num">Pemakaian<br><small>${u} / 1.000 kg</small></th><th class="num">Kebutuhan<br><small>${u}, s/d ${esc(d.last || '')}</small></th>${ml}<th class="num">Rata-rata<br><small>pcs/bln</small></th></tr></thead>
-        <tbody>${tb}</tbody><tfoot><tr><th colspan="3">Total</th><th class="num"><b>${prNumTxt(U.tot)}</b></th><th colspan="${U.months.length + 1}"></th></tr></tfoot></table></div>
-        ${U.more ? `<p class="lp-empty">+${U.more} produk lain (tanpa kebutuhan / Sell In lebih kecil) tidak ditampilkan.</p>` : ''}${U.err ? `<p class="lp-empty">Sell In: ${esc(U.err)}</p>` : ''}</div>`;
+        <div class="pr-hit-w"><table class="pr-st-t lp-use"><thead><tr><th>Produk</th><th>BoM aktif</th><th class="num">Pemakaian<br><small>${u} / 1.000 kg</small></th><th class="num">Kebutuhan<br><small>${u}, s/d ${esc(d.last || '')}</small></th>${ml}<th class="num">Rata-rata<br><small>pcs/bln</small></th><th class="num">Setara material<br><small>${u}/bln</small></th></tr></thead>
+        <tbody>${tb}</tbody><tfoot><tr><th colspan="3">Total</th><th class="num"><b>${prNumTxt(U.tot)}</b></th><th colspan="${U.months.length + 1}"></th><th class="num"><b>${totSet ? prNumTxt(totSet) : '–'}</b></th></tr></tfoot></table></div>
+        ${U.more ? `<p class="lp-empty">+${U.more} produk lain dengan Sell In lebih kecil tidak ditampilkan.</p>` : ''}${U.err ? `<p class="lp-empty">Sell In: ${esc(U.err)}</p>` : ''}</div>`;
     }).join('');
     const ms = months ? months.map(monLabel) : [];
-    const title = `<div class="pr-lamp-h"><b>Lampiran Penggunaan Material</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Produk yang memakai material ini menurut BoM aktif tiap SKU (termasuk lewat ekstrak/bulk). Kebutuhan = bagian produk itu dalam kebutuhan Lampiran Perhitungan. Sell In = DO Delivered CSL Personal Care + Beauty${ms.length ? ` (${esc(ms[0])} – ${esc(ms[ms.length - 1])})` : ''}, dalam pcs, 3 bulan penuh terakhir. Baris abu-abu = tidak ada kebutuhan di rentang ini.</p>`;
+    const title = `<div class="pr-lamp-h"><b>Lampiran Penggunaan Material</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Produk yang memakai material ini menurut BoM aktif tiap SKU (termasuk lewat ekstrak/bulk). Kebutuhan = bagian produk itu dalam kebutuhan Lampiran Perhitungan. Sell In = DO Delivered CSL Personal Care + Beauty${ms.length ? ` (${esc(ms[0])} – ${esc(ms[ms.length - 1])})` : ''}, dalam pcs, 3 bulan penuh terakhir. Setara material = rata-rata Sell In × pemakaian material per pcs (BoM aktif), yaitu perkiraan material yang terpakai per bulan mengikuti kecepatan jual. Produk tanpa kebutuhan dan tanpa Sell In tidak ditampilkan. Baris abu-abu = tidak ada kebutuhan di rentang ini.</p>`;
     return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
   }
   async function prHitungPayload(rows) {
