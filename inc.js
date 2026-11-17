@@ -472,6 +472,17 @@
     $('incMonth').addEventListener('change', () => { I.m = $('incMonth').value; render(); });
     $('incKel').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.kel = b.dataset.v; savePref(); render(); });
     $('incTab').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.tab = b.dataset.v; savePref(); render(); });
+    // Tab aktif (+ ringkasan atas) → gambar
+    const TABL = { bulan: 'Ringkasan', grafik: 'Grafik per bulan', daftar: 'Daftar incoming', rtr: 'Masih karantina' };
+    const tabSnap = () => {
+      const per = I.tab === 'grafik' || I.tab === 'rtr', kel = I.kel ? KEL[I.kel] : 'Personal Care + Beauty';
+      const when = I.tab === 'grafik' ? String(I.year) : I.tab === 'rtr' ? 'per hari ini' : monLabel(I.m);
+      const body = $('incBody').cloneNode(true); body.querySelectorAll('.inc-imgb, [data-inc-copy], [data-inc-jpg], [data-inc-redit]').forEach((x) => x.remove());
+      return window.domToCanvas(per ? [body] : [$('incHero'), body], { title: `Incoming RMPM · ${TABL[I.tab] || ''}`, sub: `${kel} · ${when}` });
+    };
+    const fname = () => `Incoming_RMPM_${(TABL[I.tab] || '').replace(/\s+/g, '_')}_${I.kel || 'Semua'}_${I.tab === 'grafik' ? I.year : I.m}.jpg`;
+    $('incTCopy').addEventListener('click', () => window.copyCanvasImage(tabSnap()));
+    $('incTJpg').addEventListener('click', () => { toast('Menyiapkan gambar…'); tabSnap().then((cv) => { const a = document.createElement('a'); a.href = cv.toDataURL('image/jpeg', 0.95); a.download = fname(); a.click(); }).catch((er) => toast(er.message)); });
     const step = (k) => { const ms = monthsAll(), i = ms.indexOf(I.m) + k; if (ms[i]) { I.m = ms[i]; render(); } };
     $('incPrev').addEventListener('click', () => step(-1)); $('incNext').addEventListener('click', () => step(1));
     let qt;
