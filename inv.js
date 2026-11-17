@@ -443,6 +443,7 @@
       if (qa > 0 && qb <= 0) gone.push(m);
       if (qb > 0 && per.every((p) => { const x = p.get(k); return x && Math.abs(x.qty - qb) < 1e-9; })) still.push(m);
       const ck = bKey(r0, dim), c = cat.get(ck) || { va: 0, vb: 0, qa: 0, qb: 0 };
+      m.ck = ck;
       c.va += va; c.vb += vb; c.qa += qa; c.qb += qb; cat.set(ck, c);
     });
     const key = ms === 'v' ? 'v' : 'q';
@@ -450,7 +451,7 @@
     const byD = (L, f) => L.slice().sort((x, y) => f(y) - f(x));
     const dk = key === 'v' ? 'dv' : 'dq';
     return {
-      A, B, dim, ms, vA, vB, qA, qB, effQ, effP, cats,
+      A, B, dim, ms, vA, vB, qA, qB, effQ, effP, cats, mats,
       up: byD(mats.filter((m) => m[dk] > 1e-9), (m) => m[dk]).slice(0, 5),
       dn: byD(mats.filter((m) => m[dk] < -1e-9), (m) => -m[dk]).slice(0, 5),
       nw: byD(nw, (m) => m.vb), gone: byD(gone, (m) => m.va), still: byD(still, (m) => m.vb), stillV: still.reduce((t, m) => t + m.vb, 0),
@@ -466,9 +467,12 @@
     else L.push({ tone: '', t: `Seluruh perubahan value berasal dari perubahan qty${I.pm === 'latest' ? ' (dinilai dengan harga terkini)' : ' (harga tidak berubah)'}.` });
     const cs = M.cats.filter((c) => Math.abs(c.d) > 1e-9), cu = cs.slice().sort((a, b) => b.d - a.d)[0], cd = cs.slice().sort((a, b) => a.d - b.d)[0];
     const lbl = dimLbl(M.dim).toLowerCase();
-    if (cd && cd.d < 0) L.push({ tone: 'dn', t: `Penurunan terbesar per ${lbl}: ${cd.k} ${dTxt(cd.d, fmtM)}${pctTxt(cd.d, cd.a)}.` });
-    if (cu && cu.d > 0) L.push({ tone: 'up', t: `Kenaikan terbesar per ${lbl}: ${cu.k} ${dTxt(cu.d, fmtM)}${pctTxt(cu.d, cu.a)}.` });
     const mt = (m) => `${m.kode} ${m.nama.length > 38 ? m.nama.slice(0, 37) + '…' : m.nama} (${dTxt(M.ms === 'v' ? m.dv : m.dq, fmtM)})`;
+    // material penyumbang terbesar di kategori itu (arah perubahan yang sama)
+    const dk = M.ms === 'v' ? 'dv' : 'dq';
+    const top = (c, sgn) => { const T = (M.mats || []).filter((m) => m.ck === c.k && sgn * m[dk] > 1e-9).sort((a, b) => sgn * (b[dk] - a[dk])); return T.length ? ` — terutama ${T.slice(0, 3).map(mt).join('; ')}${T.length > 3 ? ` (+${T.length - 3} material lain)` : ''}` : ''; };
+    if (cd && cd.d < 0) L.push({ tone: 'dn', t: `Penurunan terbesar per ${lbl}: ${cd.k} ${dTxt(cd.d, fmtM)}${pctTxt(cd.d, cd.a)}${top(cd, -1)}.` });
+    if (cu && cu.d > 0) L.push({ tone: 'up', t: `Kenaikan terbesar per ${lbl}: ${cu.k} ${dTxt(cu.d, fmtM)}${pctTxt(cu.d, cu.a)}${top(cu, 1)}.` });
     if (M.dn.length) L.push({ tone: 'dn', t: `Material paling turun: ${M.dn.slice(0, 3).map(mt).join('; ')}.` });
     if (M.up.length) L.push({ tone: 'up', t: `Material paling naik: ${M.up.slice(0, 3).map(mt).join('; ')}.` });
     const ex = [];
