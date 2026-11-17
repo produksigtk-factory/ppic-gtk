@@ -5313,7 +5313,60 @@
   }
   // Hitung harian untuk 1 week: kebutuhan per tanggal (MO bertanggal → tanggalnya; MO tanpa tanggal & sisa plan → hari pertama),
   // incoming (tanggal datang → tanggalnya; selebihnya hari pertama), ADD/FOH/RS (tanggalnya). Saldo awal = saldo Proyeksi Stok akhir week sebelumnya.
+  /* Plotting Harian basis "MO": sama dengan Stok terkini / Formulir PR — hanya MO Plotting Harian (plan per week tidak dihitung).
+   * Saldo awal week = stok upload + koreksi − gantung + incoming − pemakaian MO − ADD/FOH/RS dari tanggal stok s/d sehari sebelum week.
+   * Banded / 2in1 / KIT tidak dihitung. MO tanpa tanggal di week ini = "Belum dijadwalkan". */
+  function harianCalcMo(wk) {
+    const days = dayList(wk), nd = days.length, today = todayStr();
+    const dates = [...(P.stockHist || new Map()).keys()].filter((d) => d <= today).sort();
+    const d0 = dates.pop() || P.stockDate || '';
+    const keep = P.pjCalc; P.pjCalc = 'plan';
+    let J; try { J = computeProj({ weeks: [wk], all: false }); } finally { P.pjCalc = keep; }
+    if (!d0 || wk.end < d0) return { days, J, j: 0, rows: [], before: true };
+    const ws = wk.start, sh = (P.stockHist || new Map()).get(d0) || new Map();
+    const M = new Map(), mk = (c) => { let o = M.get(c); if (!o) { o = { pre: 0, need: new Array(nd + 1).fill(0), inc: new Array(nd).fill(0), out: new Array(nd).fill(0), preIn: 0, preOut: 0, src: [] }; M.set(c, o); } return o; };
+    const di = (t) => days.indexOf(t);
+    P.konf.forEach((r) => {
+      if (kfIsEk(r.code) || planUnit(r.code) === 'pcs') return;
+      const q = Number(r.kg) || 0; if (!(q > 0)) return;
+      const t = r.tgl || '';
+      let at;   // -1 = sebelum week (memotong saldo awal), 0..nd-1 = hari, nd = belum dijadwalkan
+      if (t) { if (t < d0 || t > wk.end) return; at = t < ws ? -1 : di(t); if (at < 0 && t >= ws) return; }
+      else if (r.bulan === wk.bulan && r.week === wk.week) at = nd;
+      else { const w0 = P.weekBy && P.weekBy.get(r.bulan + '|' + r.week); if (w0 && w0.start < ws && w0.end >= d0) at = -1; else return; }   // MO belum bertanggal di week sebelumnya: tetap memotong saldo awal
+      const n = needOf(r.code, q, r.bom || undefined); if (!n) return;
+      const lbl = `MO ${r.no} · ${r.code} ${fmtKg(q)} kg${t ? '' : ' (belum bertanggal)'}`;
+      n.leaves.forEach((v, c) => {
+        const o = mk(c);
+        if (at === -1) { o.pre += v; return; }
+        if (at < 0 || t && t < d0) return;
+        o.need[at] += v; const m = o.src[at] || (o.src[at] = new Map()); m.set(lbl, (m.get(lbl) || 0) + v);
+      });
+    });
+    (P.incK || []).forEach((x) => { const d = x.datang || x.tgl; if (!d || d < d0 || d > wk.end) return; const o = mk(x.code); if (d < ws) o.preIn += x.qty; else { const i = di(d); if (i >= 0) o.inc[i] += x.qty; } });
+    (P.kurang || []).forEach((x) => { const d = x.tgl; if (!d || d < d0 || d > wk.end) return; const o = mk(x.code); if (d < ws) o.preOut += x.qty; else { const i = di(d); if (i >= 0) o.out[i] += x.qty; } });
+    const jr = new Map(J.rows.map((r) => [r.code, r]));
+    const rows = [];
+    M.forEach((o, code) => {
+      const wNeed = o.need.reduce((t, x) => t + x, 0), wIn = o.inc.reduce((t, x) => t + x, 0), wOut = o.out.reduce((t, x) => t + x, 0);
+      if (!(wNeed || wIn || wOut)) return;
+      if (isFg(code) || kfIsEk(code)) return;
+      const m = MRP.master.get(code) || {}, st = sh.get(code), r0 = jr.get(code) || {};
+      const awal = (st ? st.qty : 0) + P.adj.filter((a) => a.code === code && a.date >= d0).reduce((t, a) => t + a.qty, 0) - ((P.gantung && P.gantung.get(code)) || 0);
+      const open = awal + o.preIn - o.pre - o.preOut;
+      const un = o.need[nd], inclUn = !!P.phInclUn, sal = []; let run = open, short = -1;
+      for (let i = 0; i < nd; i++) {
+        if (days[i] < d0) { sal.push(null); continue; }
+        run += o.inc[i] - o.need[i] - o.out[i] - (inclUn && i === 0 ? un : 0); sal.push(run); if (run < -1e-9 && short < 0) short = i;
+      }
+      const end = open + wIn - wNeed - wOut;
+      if (short < 0 && end < -1e-9) short = nd;
+      rows.push({ code, name: m.name || (st && st.name) || code, uom: m.uom || (st && st.uom) || '', kat: m.kat || '', po: r0.po || null, open, need: o.need, un, end, inc: o.inc, out: o.out, sal, short, wNeed, src: o.src, fix: 0 });
+    });
+    return { days, J, j: 0, rows, before: false, d0 };
+  }
   function harianCalc(wk, basis) {
+    if (basis !== 'cons') return harianCalcMo(wk);
     // index nd = "Belum dijadwalkan" (sisa plan tanpa MO, MO tanpa tanggal) — tidak dipotong per hari kecuali P.phInclUn
     const days = dayList(wk), nd = days.length, di = (t) => { const i = t ? days.indexOf(t) : -1; return i < 0 ? nd : i; };
     const weeks = P.weeks.filter((w) => w.start <= wk.end && (!P.stockDate || w.end >= P.stockDate));
@@ -5439,8 +5492,8 @@
     rows.sort((a, b) => (a.short < 0) - (b.short < 0) || a.short - b.short || a.code.localeCompare(b.code, 'id', { numeric: true }));
     $('phInfo').innerHTML = H.j === undefined ? 'Week ini di luar data week (PEMBAGIAN_WEEK).'
       : H.before ? `<span class="pl-bad">Week ini sebelum tanggal stok (${fmtDate(P.stockDate)}), saldo harian tidak bisa dihitung.</span>`
-      : `${nf.format(rows.length)} material · basis ${basis === 'cons' ? 'PC + CP' : 'BoM MO / plan'} · saldo harian ${P.phInclUn ? 'termasuk' : 'tanpa'} yang belum dijadwalkan`;
-    $('phHead').innerHTML = `<tr><th class="pl-sticky pl-c1" rowspan="2">Material</th><th class="num ph-open" rowspan="2">Saldo awal</th>${days.map((d) => `<th class="num m-start ph-dayh${d === todayStr() ? ' si-cur' : ''}" colspan="2">${esc(dayLbl(d))}</th>`).join('')}<th class="num m-start ph-unh" rowspan="2" title="Sisa plan tanpa MO + MO tanpa tanggal produksi">Belum<br>dijadwalkan</th><th class="num ph-endh" rowspan="2" title="Saldo setelah semua kebutuhan week ini, termasuk yang belum dijadwalkan — sama dengan Proyeksi Stok">Saldo akhir<br>week</th></tr>
+      : `${nf.format(rows.length)} material · basis ${basis === 'cons' ? 'PC + CP' : `MO Plotting Harian (stok ${esc(fmtDate(H.d0 || P.stockDate))} − pemakaian MO bertanggal; plan per week tidak dihitung; Banded/2in1/KIT tidak dihitung — sama dengan Formulir PR & Proyeksi Stok mode Stok terkini)`} · saldo harian ${P.phInclUn ? 'termasuk' : 'tanpa'} MO yang belum bertanggal`;
+    $('phHead').innerHTML = `<tr><th class="pl-sticky pl-c1" rowspan="2">Material</th><th class="num ph-open" rowspan="2">Saldo awal</th>${days.map((d) => `<th class="num m-start ph-dayh${d === todayStr() ? ' si-cur' : ''}" colspan="2">${esc(dayLbl(d))}</th>`).join('')}<th class="num m-start ph-unh" rowspan="2" title="${basis === 'cons' ? 'Sisa plan tanpa MO + MO tanpa tanggal produksi' : 'MO week ini yang belum ada tanggal produksi'}">Belum<br>dijadwalkan</th><th class="num ph-endh" rowspan="2" title="Saldo setelah semua kebutuhan week ini, termasuk yang belum dijadwalkan">Saldo akhir<br>week</th></tr>
       <tr>${days.map((d) => `<th class="num m-start ph-sub${d === todayStr() ? ' si-cur' : ''}">Keluar</th><th class="num ph-sub${d === todayStr() ? ' si-cur' : ''}">Saldo</th>`).join('')}</tr>`;
     const cell = (r, i) => { const o = r.need[i] + r.out[i], s2 = r.sal[i];
       return `<td class="num m-start${o ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${i}"${o ? ' title="Klik untuk rincian"' : ''}>${o ? fmtQ(o) : ''}${i === 0 && P.phInclUn && r.un ? `<small class="ph-unin">−${fmtQ(r.un)} blm dijadwalkan</small>` : ''}${r.inc[i] ? `<small class="ph-in">+${fmtQ(r.inc[i])}</small>` : ''}</td><td class="num ${s2 !== null && s2 < -1e-9 ? 'pl-neg' : ''}">${s2 === null ? '–' : fmtQ(s2)}</td>`; };
