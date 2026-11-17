@@ -4744,7 +4744,15 @@
   /* ---------- Kebutuhan Material ---------- */
   function renderKebutuhan() {
     fillHz($('kbHz'));
-    const R = computeReq(), weeks = R.weeks;
+    const now = $('kbBasis').value === 'now';
+    $('kbHz').hidden = now; $('kbType').disabled = now; if (now) $('kbType').value = 'buy';
+    let R;
+    if (now) {
+      const B = stkBase(), req = new Map();
+      B.M.forEach((o, code) => { if (isFg(code) || kfIsEk(code)) return; const tot = o.w.reduce((t, x) => t + x, 0); if (tot > 1e-9) req.set(code, { code, w: o.w, total: tot, src: o.skuW }); });
+      R = { weeks: stkHeadCols(B), req, made: new Map(), fg: new Map(), noBom: B.info.noBom, now: B };
+    } else R = computeReq();
+    const weeks = R.weeks;
     const q = $('kbQ').value.trim().toLowerCase(), kat = $('kbKat').value, type = $('kbType').value;
     const src = type === 'made' ? R.made : type === 'fg' ? R.fg : R.req;
     let rows = [...src.values()].map((o) => { const m = MRP.master.get(o.code) || {}; return Object.assign({ name: m.name || o.code, uom: m.uom || '', kat: m.kat || 'Tanpa kategori' }, o); });
@@ -4763,15 +4771,17 @@
     $('kbKpi').innerHTML = kpis([{ num: nf.format(R.req.size), lbl: 'material dibeli (RM/PM)' }, { num: nf.format(R.made.size), lbl: 'ekstrak/bulk diproduksi' }, { num: nf.format(R.fg.size), lbl: 'FG untuk rakitan/bonus', title: 'Komponen FG di Banded / 2in1 / KIT dan FG bonus; tidak dipecah ke bahan baku' }]
       .concat(Object.entries(byKat).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => ({ num: nf.format(n), lbl: k })))
       .concat(R.noBom.size ? [{ num: nf.format(R.noBom.size), lbl: 'SKU tanpa BOM', tone: 'bad', title: [...R.noBom].join(', ') }] : []));
-    $('kbInfo').innerHTML = `${nf.format(rows.length)} ${type === 'made' ? 'ekstrak/bulk' : type === 'fg' ? 'FG' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai` + pjMoNote(R);
+    $('kbInfo').innerHTML = `${nf.format(rows.length)} ${type === 'made' ? 'ekstrak/bulk' : type === 'fg' ? 'FG' : 'material'} ditampilkan · klik baris untuk melihat SKU yang memakai` + (R.now ? `<br>Kebutuhan mulai ${esc(fmtDate(R.now.tm))}: MO Plotting Harian bulan berjalan per week (Banded/2in1/KIT tidak dihitung) + Plan bulan penuh untuk bulan berikutnya. Sama dengan Proyeksi Stok mode Stok terkini dan Formulir PR.` : pjMoNote(R));
+    P.kbWeeks = weeks;
   }
   const round4 = (v) => Math.round(v * 10000) / 10000;
   $('kbQ').addEventListener('input', renderKebutuhan);
   $('kbKat').addEventListener('change', renderKebutuhan);
   $('kbType').addEventListener('change', renderKebutuhan);
+  $('kbBasis').addEventListener('change', renderKebutuhan);
   $('kbRows').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-i]'); if (!tr) return;
-    const r = P.kbRows[Number(tr.dataset.i)], weeks = hzWeeks();
+    const r = P.kbRows[Number(tr.dataset.i)], weeks = P.kbWeeks || hzWeeks();
     const lines = [...r.src.entries()].sort((a, b) => a[0].localeCompare(b[0], 'id', { numeric: true }));
     openDialog({
       title: `${r.code} · ${r.name}`, ok: 'Tutup', wide: true, cancel: false, onSubmit: null,
@@ -4781,7 +4791,7 @@
     });
   });
   $('kbExport').addEventListener('click', () => {
-    const weeks = hzWeeks();
+    const weeks = P.kbWeeks || hzWeeks();
     const data = (P.kbRows || []).map((r) => {
       const o = { KODE: r.code, NAMA: r.name, KATEGORI: r.kat, UoM: r.uom };
       weeks.forEach((w, i) => { o[wLabel(w) + ' ' + w.bulan.slice(0, 4)] = round4(r.w[i]); });
@@ -4795,6 +4805,8 @@
   /* ---------- Proyeksi Stok ---------- */
   function renderProyeksi() {
     fillHz($('pjHz'));
+    $('pjHz').hidden = P.pjCalc === 'now';
+    if (P.pjCalc === 'now') return renderProyeksiNow();
     const J = computeProj(pjOpt()), weeks = J.weeks, s = J.s;
     P.proj = J;
     const q = $('pjQ').value.trim().toLowerCase(), mode = $('pjMode').value, kat = $('pjKat').value;
@@ -4908,9 +4920,86 @@
       || `<tr class="empty"><td colspan="${VW.length * 7 + 7}">${mode === 'short' && J.rows.length ? 'Tidak ada material yang kurang di rentang ini.' : 'Belum ada kebutuhan material di rentang ini.'}</td></tr>`;
     pjKpis(J);
   }
-  // pilihan mode hitung Proyeksi (diingat per browser)
-  const PJ_CALC_KEY = 'ppic-pj-calc';
-  try { P.pjCalc = localStorage.getItem(PJ_CALC_KEY) === 'mo' ? 'mo' : 'plan'; } catch (e) { P.pjCalc = 'plan'; }
+  /* ---------- Proyeksi Stok · mode Stok terkini (sama dengan Formulir PR & Lampiran Perhitungan) ---------- */
+  // Kolom stkBase → bentuk "week" untuk gridHead (bulan berikutnya = satu kolom Plan bulan)
+  const stkHeadCols = (B) => B.cols.map((c) => ({ bulan: c.bulan, week: c.kind === 'm' ? 'Plan bulan' : (c.week || 'Sisa') + (c.part ? ' (sisa)' : ''), start: c.d, end: c.de }));
+  function stkNote(B) {
+    const age = Math.round((new Date(B.today + 'T00:00:00') - new Date(B.d0 + 'T00:00:00')) / 86400000), I = B.info;
+    let t = `<b>Stok terkini per ${esc(fmtDate(B.today))}</b> = stok upload ${esc(fmtDate(B.d0))} + koreksi − stok gantung + incoming dikonfirmasi datang − pemakaian MO Plotting Harian (${nf.format(I.moPast)} MO) − ADD/FOH/RS sampai hari ini.`
+      + ` <b>Kebutuhan</b> mulai ${esc(fmtDate(B.tm))}: MO Plotting Harian bulan berjalan (${nf.format(I.moFut)} MO) + Plan bulan penuh untuk bulan berikutnya. Saldo = stok terkini + PO terjadwal − kebutuhan − ADD/FOH/RS. PO telat / tanpa jadwal dipisah.`;
+    if (age > 7) t += ` <span class="pl-warn-t">⚠ Stok yang dipakai sudah ${age} hari (per ${esc(fmtDate(B.d0))}); upload stok terbaru supaya stok terkini lebih tepat.</span>`;
+    if (I.moNoDate.length) t += ` <span class="pl-warn-t">${nf.format(I.moNoDate.length)} MO belum ada tanggal produksi (dihitung sebagai kebutuhan di week-nya):</span> ${esc(I.moNoDate.slice(0, 8).join(', '))}${I.moNoDate.length > 8 ? '…' : ''}.`;
+    if (I.moSkip) t += ` ${nf.format(I.moSkip)} MO Banded/2in1/KIT tidak dihitung.`;
+    if (I.monFallback.length) t += ` <span class="pl-warn-t">Plan bulan kosong, dipakai Σ plan week:</span> ${esc(I.monFallback.slice(0, 8).join(', '))}${I.monFallback.length > 8 ? '…' : ''}.`;
+    if (I.noBom.size) t += ` <span class="pl-bad">${nf.format(I.noBom.size)} SKU tanpa BoM tidak dihitung:</span> ${esc([...I.noBom].slice(0, 8).join(', '))}.`;
+    return t;
+  }
+  function renderProyeksiNow() {
+    const B = stkBase(), H = stkHeadCols(B), n = B.n;
+    const q = $('pjQ').value.trim().toLowerCase(), mode = $('pjMode').value, kat = $('pjKat').value;
+    const codes = new Set();
+    B.M.forEach((v, c) => codes.add(c));
+    if (mode !== 'short') { (P.stock || new Map()).forEach((v, c) => codes.add(c)); poIdx.rows !== state.rows && poRowsOf(''); (poIdx.map || new Map()).forEach((v, c) => { if (MRP.master.has(c)) codes.add(c); }); }
+    if (mode === 'master') MRP.master.forEach((v, c) => codes.add(c));
+    const all = [];
+    codes.forEach((code) => {
+      if (isFg(code) || kfIsEk(code)) return;
+      const d = prCalc(code, 'all', []); if (!d) return;
+      const m = MRP.master.get(code) || {}, used = B.M.has(code);
+      const fs = d.cols.findIndex((c) => c.sal < -1e-9);
+      all.push({ code, name: d.nama || m.name || code, uom: d.uom, kat: m.kat || 'Tanpa kategori', d, used, firstShort: fs, short: fs >= 0 ? -d.deep : 0 });
+    });
+    const kats = [...new Set(all.map((r) => r.kat))].sort((a, b) => a.localeCompare(b, 'id'));
+    $('pjKat').innerHTML = '<option value="">Semua kategori</option>' + kats.map((k) => `<option${k === kat ? ' selected' : ''}>${esc(k)}</option>`).join('');
+    let rows = all.filter((r) => (!q || (r.code + ' ' + r.name).toLowerCase().includes(q)) && (!kat || r.kat === kat));
+    if (mode === 'short') rows = rows.filter((r) => r.firstShort >= 0);
+    rows.sort((a, b) => (a.firstShort < 0) - (b.firstShort < 0) || (a.firstShort - b.firstShort) || b.short - a.short || (!a.used) - (!b.used) || a.code.localeCompare(b.code, 'id', { numeric: true }));
+    P.pjRows = rows; P.pjNow = { B, H };
+    $('pjNoStock').hidden = !!P.stockDate;
+    $('pjNote').innerHTML = stkNote(B);
+    $('pjHead').innerHTML = gridHead(H, {
+      lead: [{ html: 'Material', cls: 'pl-sticky pl-c1' }, { html: `Stok terkini<small>per ${esc(fmtDate(B.today).slice(0, 6))}</small>`, cls: 'num pj-stk', title: 'Stok awal + koreksi − gantung + incoming − pemakaian MO − ADD/FOH/RS sampai hari ini (rincian di bawah angka)' },
+        { html: 'PO telat<small>/ tanpa jadwal</small>', cls: 'num pj-pol', title: 'Sisa PO yang jadwalnya sudah lewat atau belum dijadwalkan (tidak menambah saldo per kolom)' }],
+      subs: [{ label: 'Kebutuhan', cls: 'pj-skur', title: 'MO Plotting Harian (bulan berjalan) atau Plan bulan (bulan berikutnya)' }, { label: 'PO', cls: 'pj-spo', title: 'Sisa jadwal PO di kolom ini; menambah saldo' }, { label: 'Saldo', cls: 'pj-ssal', title: 'Saldo = saldo sebelumnya + PO − kebutuhan − ADD/FOH/RS' }],
+      tail: [{ html: 'PO setelah<small>MPS</small>', cls: 'num pj-poa' }].concat(PJ_TAIL) });
+    const f0 = (v) => (Math.abs(v) > 1e-9 ? fq(v) : '');
+    $('pjRows').innerHTML = rows.slice(0, PJ_MAX).map((r, i) => {
+      const d = r.d, ln = d.poLate + d.poNone;
+      return `<tr class="row" data-i="${i}" tabindex="0">${matCell(r.code, r.name, (r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '') + (r.used ? '' : '<span class="pj-unused" title="Tidak ada kebutuhan">tidak dipakai</span>'))}
+        <td class="num pj-stk"><b class="${d.stok < -1e-9 ? 'pl-bad' : ''}">${fq(d.stok)}</b><small title="stok awal + koreksi − gantung / + incoming / − pemakaian MO / − ADD">${fq(d.awal + d.koreksi - d.gantung)}${d.incPast ? ` +${fq(d.incPast)}` : ''}${d.pakaiPast ? ` −${fq(d.pakaiPast)}` : ''}${d.addPast ? ` −${fq(d.addPast)}` : ''}</small></td>
+        <td class="num pj-pol">${f0(ln)}</td>
+        ${d.cols.map((c, k) => `<td class="num pj-skur w-start${wCls(H, k)}">${c.need || c.add ? `<span class="pj-out">−${fq(c.need + c.add)}</span>` : ''}</td><td class="num pj-spo">${f0(c.po)}</td><td class="num pj-cell${c.sal < -1e-9 ? ' is-neg' : ''}"><b>${fq(c.sal)}</b></td>`).join('')}
+        <td class="num pj-poa">${f0(d.poAfter)}</td>
+        <td data-v="${r.firstShort >= 0 ? r.firstShort : 9999}">${r.firstShort >= 0 ? `<span class="badge b-late">${esc(d.cols[r.firstShort].lf || d.cols[r.firstShort].l)}</span>` : '<span class="badge b-done">Aman</span>'}</td>
+        <td class="num">${r.short ? `<b class="pl-bad">${fq(r.short)}</b>` : ''}</td></tr>`;
+    }).join('') || `<tr class="empty"><td colspan="${n * 3 + 6}">${mode === 'short' ? 'Tidak ada material yang kurang.' : 'Belum ada kebutuhan material.'}</td></tr>`;
+    const nShort = all.filter((r) => r.firstShort >= 0).length, first = all.filter((r) => r.firstShort === 0).length;
+    $('pjKpi').innerHTML = kpis([{ num: nf.format(nShort), lbl: 'material akan kurang', tone: nShort ? 'bad' : 'ok' }, { num: nf.format(first), lbl: `sudah kurang di ${B.cols[0].l}`, tone: first ? 'bad' : '' },
+      { num: nf.format(B.M.size), lbl: 'material terpakai' }, { num: esc(fmtDate(B.d0).slice(0, 6)), lbl: 'tanggal stok upload' }]);
+    $('pjInfo').textContent = `${nf.format(rows.length)} material ditampilkan${rows.length > PJ_MAX ? ` · baris pertama ${nf.format(PJ_MAX)} saja` : ''} · klik baris untuk rincian`;
+  }
+  function openNowDetail(code) {
+    const d = prCalc(code, 'all', []); if (!d) return;
+    const B = stkBase(), mm = B.M.get(code), u = esc(d.uom || '');
+    const mos = mm ? mm.mos.filter((x) => x.ref) : [];
+    const past = mos.filter((x) => x.past), fut = mos.filter((x) => !x.past);
+    const moT = (L) => L.length ? `<table class="po-table pl-mini"><thead><tr><th>MO</th><th>SKU</th><th class="num">Pemakaian ${u}</th></tr></thead><tbody>${L.map((x) => { const k = P.konf.get(x.ref); return `<tr><td><b>${esc(x.ref)}</b><small>${k && k.tgl ? esc(fmtDate(k.tgl)) : 'tanpa tanggal'}</small></td><td>${esc(x.sku)}</td><td class="num">${fq(x.q)}</td></tr>`; }).join('')}</tbody></table>` : '<p class="muted">Tidak ada.</p>';
+    const skuL = mm ? [...mm.skuW.entries()].sort((a, b) => b[1].reduce((t, x) => t + x, 0) - a[1].reduce((t, x) => t + x, 0)) : [];
+    openDialog({ title: `${code} · ${d.nama}`, ok: 'Tutup', cancel: false, wide: true, onSubmit: null,
+      body: `<p class="dlg-lead">Stok terkini per <b>${esc(fmtDate(d.at))}</b>: stok ${esc(fmtDate(d.stokDate))} <b>${fq(d.awal)}</b>${d.koreksi ? ` + koreksi ${fq(d.koreksi)}` : ''}${d.gantung ? ` − gantung ${fq(d.gantung)}` : ''} + incoming <b>${fq(d.incPast)}</b> − pemakaian MO <b>${fq(d.pakaiPast)}</b> − ADD/FOH/RS <b>${fq(d.addPast)}</b> = <b>${fq(d.stok)} ${u}</b>.
+        Kebutuhan ${esc(B.cols[0].l)} s/d ${esc(d.last)}: <b>${fq(d.butuh)}</b> · OS PO <b>${fq(d.ospo)}</b> → ${d.kurang < -1e-9 ? `<b class="pl-bad">kurang ${fq(-d.kurang)}</b>` : `sisa <b>${fq(d.kurang)}</b>`} ${u}.</p>
+        <div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>Kebutuhan per SKU</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>
+        ${skuL.map(([sku, arr]) => `<tr><td><b>${esc(sku)}</b> ${esc((P.skus.get(sku) || {}).name || '')}</td>${arr.map((v) => `<td class="num">${v ? fq(v) : ''}</td>`).join('')}<td class="num"><b>${fq(arr.reduce((t, x) => t + x, 0))}</b></td></tr>`).join('') || `<tr class="empty"><td colspan="${d.cols.length + 2}">Tidak ada kebutuhan.</td></tr>`}
+        <tr><th>Saldo</th>${d.cols.map((c) => `<td class="num${c.sal < -1e-9 ? ' pl-bad' : ''}"><b>${fq(c.sal)}</b></td>`).join('')}<td></td></tr></tbody></table></div>
+        <h4>Pemakaian MO s/d hari ini (memotong stok)</h4>${moT(past)}
+        <h4>MO bulan berjalan yang belum berjalan</h4>${moT(fut)}
+        <p class="pj-actions"><button type="button" class="btn btn-sm btn-ghost" id="nowOld">Koreksi stok, incoming manual &amp; rincian PO (Mode Plan)</button></p>`,
+    });
+    const b = $('dlgBody').querySelector('#nowOld'); if (b) b.addEventListener('click', () => { $('dlg').close(); setTimeout(() => openProjDetail(code), 0); });
+  }
+  // pilihan mode hitung Proyeksi (diingat per browser); bawaan: Stok terkini
+  const PJ_CALC_KEY = 'ppic-pj-calc2';
+  try { const v = localStorage.getItem(PJ_CALC_KEY); P.pjCalc = v === 'mo' || v === 'plan' ? v : 'now'; } catch (e) { P.pjCalc = 'now'; }
   const paintPjCalc = () => document.querySelectorAll('#pjCalc button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.calc === P.pjCalc)));
   paintPjCalc();
   $('pjCalc').addEventListener('click', (e) => {
@@ -4923,10 +5012,11 @@
   $('pjRows').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-i]'); if (!tr) return;
     const code = P.pjRows[Number(tr.dataset.i)].code, pw = e.target.closest('[data-pow]'), kc = e.target.closest('[data-kur]');
+    if (P.pjCalc === 'now') { openNowDetail(code); return; }
     if (kc) pjKurDialog(code, Number(kc.dataset.kur));
     else if (pw) pjWeekPoDialog(code, Number(pw.dataset.pow)); else openProjDetail(code);
   });
-  $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter' || e.target.closest('input')) return; const tr = e.target.closest('tr[data-i]'); if (tr) openProjDetail(P.pjRows[Number(tr.dataset.i)].code); });
+  $('pjRows').addEventListener('keydown', (e) => { if (e.key !== 'Enter' || e.target.closest('input')) return; const tr = e.target.closest('tr[data-i]'); if (tr) (P.pjCalc === 'now' ? openNowDetail : openProjDetail)(P.pjRows[Number(tr.dataset.i)].code); });
   function openProjDetail(code) {
     const J = computeProj(pjOpt()); P.proj = J;
     P.incKBack = () => openProjDetail(code);
@@ -5686,6 +5776,17 @@
   });
 
   $('pjExport').addEventListener('click', () => {
+    if (P.pjCalc === 'now') {
+      const N = P.pjNow; if (!N) return;
+      const data = (P.pjRows || []).map((r) => {
+        const d = r.d, o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'STOK UPLOAD': round4(d.awal), 'TGL STOK': d.stokDate, KOREKSI: round4(d.koreksi), GANTUNG: round4(d.gantung), INCOMING: round4(d.incPast), 'PEMAKAIAN MO': round4(d.pakaiPast), 'ADD/FOH/RS S/D HARI INI': round4(d.addPast), 'STOK TERKINI': round4(d.stok), 'PO TELAT/TANPA JADWAL': round4(d.poLate + d.poNone) };
+        d.cols.forEach((c) => { const k = (c.lf || c.l).toUpperCase(); o[k + ' KEBUTUHAN'] = round4(c.need); o[k + ' ADD/FOH/RS'] = round4(c.add); o[k + ' PO'] = round4(c.po); o[k + ' SALDO'] = round4(c.sal); });
+        o['PO SETELAH MPS'] = round4(d.poAfter); o['MULAI KURANG'] = r.firstShort >= 0 ? (d.cols[r.firstShort].lf || d.cols[r.firstShort].l) : ''; o.KURANG = round4(r.short);
+        return o;
+      });
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Proyeksi Stok');
+      XLSX.writeFile(wb, `Proyeksi_Stok_Terkini_${todayStr()}.xlsx`); return;
+    }
     const J = P.proj; if (!J) return;
     const data = (P.pjRows || []).map((r) => {
       const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'DIPAKAI DI RENTANG': r.used ? 'YA' : 'TIDAK', 'STOK AWAL': round4(r.awal), 'STOK GANTUNG': round4(r.gant), 'STOK TERSEDIA': round4(r.start),
@@ -6459,7 +6560,7 @@
   // Baris rekap: { kodePr, tanggal, no, kode, nama, jenis, note, stok, butuh, ospo, kurang, buka, pakai, kirim, pos[], status, time, by }
   const PR_NUM = ['stok', 'butuh', 'ospo', 'kurang', 'buka', 'pakai'];
   const PR_COLS = [
-    { k: 'stok', h: 'Stok Awal', u: '(Kg/Pcs)' }, { k: 'butuh', h: 'Kebutuhan', u: '(Kg/Pcs)' }, { k: 'ospo', h: 'OS PO', u: '(Kg/Pcs)' },
+    { k: 'stok', h: 'Stok Terkini', u: '(Kg/Pcs)' }, { k: 'butuh', h: 'Kebutuhan', u: '(Kg/Pcs)' }, { k: 'ospo', h: 'OS PO', u: '(Kg/Pcs)' },
     { k: 'kurang', h: 'Kekurangan', u: '(Kg/Pcs)' }, { k: 'buka', h: 'Jumlah Buka PO', u: '(Kg/Pcs)' }, { k: 'pakai', h: 'Pemakaian', u: '(Bulan)' },
   ];
   const splitPo = (t) => String(t || '').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -6702,7 +6803,7 @@
         <div class="table-wrap pr-ed-wrap"><table class="po-table pr-ed"><thead><tr><th>No</th><th>Kode</th><th>Nama Item</th><th>Jenis</th><th>Note</th>${PR_COLS.map((c) => `<th class="num">${c.h}</th>`).join('')}<th>Tgl Kirim</th><th>No PO <small>(pisah koma)</small></th><th>Status</th><th></th></tr></thead><tbody id="prEdRows"></tbody></table></div>
         <div id="prHisPanel"></div>
         <p><button type="button" class="btn btn-ghost btn-sm" id="prEdAdd">Tambah baris</button></p>
-        <p class="hint" id="prMrpNote"></p><p class="hint">Pilih <b>Otomatis</b> atau <b>Manual</b> di Cara hitung. Otomatis: begitu kode diisi, Stok Awal (stok upload pertama bulan ini), Kebutuhan (Kebutuhan Material s/d MPS terakhir), dan OS PO (sisa PO gantung) terisi otomatis. Kekurangan = Stok Awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS (Incoming & ADD/FOH/RS dihitung di belakang, rinciannya di Lampiran Perhitungan); angka otomatis tetap bisa diubah. Manual: semua angka diketik sendiri. Lampiran Perhitungan tetap dihitung sistem. Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
+        <p class="hint" id="prMrpNote"></p><p class="hint">Pilih <b>Otomatis</b> atau <b>Manual</b> di Cara hitung. Otomatis: begitu kode diisi, Stok Terkini (stok upload terakhir + incoming − pemakaian MO Plotting Harian − ADD/FOH/RS s/d hari ini), Kebutuhan (MO Plotting Harian mulai besok s/d akhir bulan + Plan bulan bulan-bulan berikutnya), dan OS PO (sisa PO gantung) terisi otomatis. Kekurangan = Stok Terkini + OS PO − Kebutuhan − ADD/FOH/RS setelah hari ini (rinciannya di Lampiran Perhitungan); angka otomatis tetap bisa diubah. Manual: semua angka diketik sendiri. Lampiran Perhitungan tetap dihitung sistem. Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
       onSubmit: async (fd) => {
         const rows = D.rows.filter((r) => String(r.kode || '').trim());
         if (!rows.length) throw new Error('Isi minimal satu kode material.');
@@ -6718,7 +6819,7 @@
           r.kirim = r.sched.length > 1 ? prSchedStr(r.sched) : r.sched[0].d;
         }
         const all = fd.allst || '';
-        const PR_LBL = { stok: 'Stok Awal', butuh: 'Kebutuhan', ospo: 'OS PO', kurang: 'Kekurangan', buka: 'Jumlah Buka PO' };
+        const PR_LBL = { stok: 'Stok Terkini', butuh: 'Kebutuhan', ospo: 'OS PO', kurang: 'Kekurangan', buka: 'Jumlah Buka PO' };
         rows.forEach((r) => Object.keys(PR_LBL).forEach((k) => { const v = String(r[k] === undefined || r[k] === null ? '' : r[k]).trim(); if (v !== '' && isNaN(prNum(v))) throw new Error(`${PR_LBL[k]} untuk ${r.kode} harus angka (tertulis "${v}").`); }));
         const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows);
         const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, statusPo: prStatusPayload(rows.map((r) => r.kode)), hitung: hitung || undefined, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
@@ -6741,7 +6842,7 @@
       if (!r.butuhManual) { set('butuh', c.butuh, true); r.butuhAuto = true; }
       if (!r.ospoManual) { set('ospo', c.ospo, true); r.ospoAuto = true; }
       prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || '';
-      const mq = tr.querySelector('.pr-calcn'); if (mq) mq.textContent = `stok ${fmtDate(c.stokDate)}${c.inc ? ` · incoming ${prNumTxt(c.inc)}` : ''}${c.add ? ` · ADD/FOH/RS ${prNumTxt(c.add)}` : ''}`;
+      const mq = tr.querySelector('.pr-calcn'); if (mq) mq.textContent = `per ${fmtDate(c.at)} (stok ${fmtDate(c.stokDate)})${c.add ? ` · ADD/FOH/RS ${prNumTxt(c.add)}` : ''}`;
     };
     D.fillStok = fillStok;
     $('prMrpNote').textContent = MRP.loaded ? '' : 'Memuat data MRP (Plotting Harian & Proyeksi Stok) untuk Stok Awal dan Lampiran Perhitungan…';
@@ -6808,7 +6909,7 @@
     if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
     openDialog({ title: 'Tambah PR baru', ok: 'Lanjut', wide: false,
       body: `<p class="dlg-lead">Mulai dari mana?</p>
-        <label class="pr-src"><input type="radio" name="src" value="short" checked><span><b>Dari stok yang kurang</b><small>Pilih material dari kolom "Kurang" di Proyeksi Stok (dipisah RM dan PM), lalu daftar materialnya otomatis masuk ke formulir.</small></span></label>
+        <label class="pr-src"><input type="radio" name="src" value="short" checked><span><b>Dari stok yang kurang</b><small>Pilih material yang saldonya minus menurut Stok Terkini − Kebutuhan (dipisah RM dan PM), lalu daftar materialnya otomatis masuk ke formulir.</small></span></label>
         <label class="pr-src"><input type="radio" name="src" value="manual"><span><b>Manual</b><small>Formulir kosong, ketik kode material sendiri.</small></span></label>`,
       onSubmit: async (fd) => { setTimeout(() => (fd.src === 'manual' ? prEdit('') : prPickShort()), 0); return ''; } });
   });
@@ -6823,20 +6924,27 @@
     const seq = dlgSeq;
     if (!(await mrpReady())) { if (seq === dlgSeq) $('psLoad').textContent = 'Data MRP tidak bisa dimuat.'; return; }
     if (seq !== dlgSeq) return;
-    const J = computeProj(), act = new Map();
+    const B = stkBase(), act = new Map();
     (state.pr || []).filter((r) => r.status !== 'Batal' && !r.pos.length).forEach((r) => { if (!act.has(r.kode)) act.set(r.kode, r.kodePr); });
     const grp = (k) => { const t = String(k || '').toUpperCase(); return t.startsWith('RM') ? 'RM' : t.startsWith('PM') ? 'PM' : 'Lainnya'; };
-    const L = J.rows.filter((r) => r.short > 1e-9).map((r) => Object.assign(r, { g: grp(r.kat || (MRP.master.get(r.code) || {}).kat) })).sort((a, b) => a.firstShort - b.firstShort || b.short - a.short);
+    const L = [];
+    B.M.forEach((v, code) => {
+      if (isFg(code) || kfIsEk(code)) return;
+      const c = prCalc(code, 'all', []); if (!c) return;
+      const i = c.cols.findIndex((x) => x.sal < -1e-9); if (i < 0) return;
+      const m = MRP.master.get(code) || {};
+      L.push({ code, name: c.nama || m.name || code, kat: m.kat || '', uom: c.uom, firstShort: i, firstLbl: c.cols[i].lf || c.cols[i].l, short: -c.deep, g: grp(m.kat) });
+    });
+    L.sort((a, b) => a.firstShort - b.firstShort || b.short - a.short);
     prPickShort.rows = L; prPickShort.sel = new Set(); prPickShort.tab = L.some((r) => r.g === 'RM') ? 'RM' : 'PM'; prPickShort.q = '';
-    const W = J.weeks;
-    $('psLoad').innerHTML = `${L.length} material kurang di Proyeksi Stok (${esc(wLabel(W[0]))} – ${esc(wLabel(W[W.length - 1]))}, cara hitung ${P.pjCalc === 'mo' ? 'PC + CP' : 'MPS'}). Daftar ini hanya untuk mengisi kode material; angka di formulir dihitung seperti biasa.`;
+    $('psLoad').innerHTML = `${L.length} material saldonya minus (Stok terkini per ${esc(fmtDate(B.today))} − kebutuhan ${esc(B.cols[0].l)} s/d ${esc(B.cols[B.n - 1].lf || B.cols[B.n - 1].l)}, sebelum PO telat / tanpa jadwal). Daftar ini hanya untuk mengisi kode material; angka di formulir dihitung seperti biasa.`;
     const paint = () => {
       const tabs = ['RM', 'PM', 'Lainnya'].filter((g) => L.some((r) => r.g === g) || g !== 'Lainnya');
       const q = prPickShort.q.toLowerCase(), list = L.filter((r) => r.g === prPickShort.tab && (!q || (r.code + ' ' + r.name).toLowerCase().includes(q)));
       $('psBox').innerHTML = `<div class="ps-bar"><div class="pj-seg" role="group">${tabs.map((g) => `<button type="button" data-pstab="${g}" aria-pressed="${g === prPickShort.tab}">${g} <b>${L.filter((r) => r.g === g).length}</b></button>`).join('')}</div>
         <input type="search" id="psQ" value="${esc(prPickShort.q)}" placeholder="Cari kode / nama"><label class="tb-check"><input type="checkbox" id="psAll"${list.length && list.every((r) => prPickShort.sel.has(r.code)) ? ' checked' : ''}> Pilih semua ${prPickShort.tab}</label><span class="muted" id="psN">${prPickShort.sel.size} dipilih</span></div>
         <div class="table-wrap ps-wrap"><table class="po-table pl-mini"><thead><tr><th></th><th>Kode</th><th>Nama</th><th>Mulai kurang</th><th class="num">Kurang</th><th>Catatan</th></tr></thead><tbody>
-        ${list.map((r) => `<tr><td><input type="checkbox" data-psk="${esc(r.code)}"${prPickShort.sel.has(r.code) ? ' checked' : ''}></td><td class="mono">${esc(r.code)}</td><td>${esc(r.name)}</td><td>${r.firstShort >= 0 ? esc(wLabel(W[r.firstShort])) : ''}</td><td class="num"><b class="pl-bad">${fmtQ(r.short)}</b> <small class="muted">${esc(r.uom || '')}</small></td><td>${act.has(r.code) ? `<span class="badge b-wait" title="Sudah ada di PR aktif yang belum jadi PO">di ${esc(act.get(r.code))}</span>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada material kurang di kelompok ini.</td></tr>'}</tbody></table></div>`;
+        ${list.map((r) => `<tr><td><input type="checkbox" data-psk="${esc(r.code)}"${prPickShort.sel.has(r.code) ? ' checked' : ''}></td><td class="mono">${esc(r.code)}</td><td>${esc(r.name)}</td><td>${esc(r.firstLbl || '')}</td><td class="num"><b class="pl-bad">${fmtQ(r.short)}</b> <small class="muted">${esc(r.uom || '')}</small></td><td>${act.has(r.code) ? `<span class="badge b-wait" title="Sudah ada di PR aktif yang belum jadi PO">di ${esc(act.get(r.code))}</span>` : ''}</td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada material kurang di kelompok ini.</td></tr>'}</tbody></table></div>`;
       $('dlgOk').textContent = `Buat PR (${prPickShort.sel.size} material)`; $('dlgOk').disabled = !prPickShort.sel.size;
     };
     paint();
@@ -6927,74 +7035,178 @@
     for (let i = 0; i < 150 && MRP.loading; i++) await new Promise((r) => setTimeout(r, 200));
     return MRP.loaded && P.weeks && P.weeks.length;
   }
-  const prCalcCache = new Map();
-  function prCalcBase() {
-    const key = todayStr() + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.stockDate;
-    if (prCalcCache.has(key)) return prCalcCache.get(key);
-    const today = todayStr(), mon = today.slice(0, 7), W = P.weeks.slice().sort((a, b) => (a.start < b.start ? -1 : 1));
-    const dates = [...(P.stockHist || new Map()).keys()].sort();
-    const d0 = dates.find((d) => d.slice(0, 7) === mon) || dates.filter((d) => d <= today).pop() || P.stockDate || today;
-    let si = W.findIndex((w) => w.start <= d0 && w.end >= d0); if (si < 0) si = Math.max(0, W.findIndex((w) => w.end >= d0));
-    let ci = W.findIndex((w) => w.start <= today && w.end >= today); if (ci < 0) ci = W.findIndex((w) => w.end >= today); if (ci < 0) ci = W.length - 1;
-    let last = Math.max(si, ci); const has = new Set(); P.plan.forEach((p) => { if (p.kg > 0) has.add(p.bulan + '|' + p.week); }); P.konf.forEach((r) => { if (r.bulan) has.add(r.bulan + '|' + r.week); });
-    W.forEach((w, i) => { if (has.has(w.bulan + '|' + w.week) && i > last) last = i; });
-    const weeks = W.slice(si, last + 1);
-    const keep = P.pjCalc; P.pjCalc = 'plan';
-    let J; try { J = computeProj({ weeks, all: true }); } finally { P.pjCalc = keep; }
-    const o = { today, d0, weeks, J, cw: weeks.findIndex((w) => w.start <= today && w.end >= today) };
-    prCalcCache.clear(); prCalcCache.set(key, o);
+  /* ---------- Hitungan Stok Terkini (dipakai Formulir PR, Lampiran, daftar stok kurang, Proyeksi Stok mode "Stok terkini") ----------
+   * STOK TERKINI (hari ini) = Stok awal (upload stok terakhir ≤ hari ini, + koreksi − stok gantung)
+   *                          + Incoming dikonfirmasi datang (tgl stok … hari ini)
+   *                          − Pemakaian MO Plotting Harian bertanggal (tgl stok … hari ini)
+   *                          − ADD/FOH/RS (tgl stok … hari ini)
+   * KEBUTUHAN = MO Plotting Harian bulan berjalan bertanggal setelah hari ini (MO tanpa tanggal ikut di week-nya)
+   *           + Plan bulan penuh untuk bulan-bulan berikutnya (bila Plan bulan kosong: Σ plan week bulan itu)
+   * Produk rakitan (Banded / 2in1 / KIT) tidak dihitung. MO ekstrak tidak dihitung terpisah (sudah lewat MO FG-nya). */
+  const stkCache = new Map();
+  const addDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  function stkBase() {
+    const today = todayStr();
+    const key = today + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.planMon.size + '|' + P.stockDate + '|' + (P.kurang || []).length + '|' + (P.incK || []).length + '|' + P.adj.length;
+    if (stkCache.has(key)) return stkCache.get(key);
+    const cur = today.slice(0, 7), tm = addDay(today, 1);
+    const dates = [...(P.stockHist || new Map()).keys()].filter((d) => d <= today).sort();
+    const d0 = dates.pop() || P.stockDate || today;
+    // Kolom kebutuhan: week bulan berjalan yang belum selesai (mulai besok), lalu satu kolom per bulan berikutnya s/d MPS berakhir
+    const W = P.weeks.slice().sort((a, b) => (a.start < b.start ? -1 : 1));
+    const cols = [];
+    W.filter((w) => w.bulan === cur && w.end >= tm).forEach((w) => cols.push({ kind: 'w', bulan: w.bulan, week: w.week, d: w.start < tm ? tm : w.start, de: w.end, l: `${w.week} ${monShort(w.bulan)}${w.start < tm ? ' (sisa)' : ''}`, part: w.start < tm }));
+    const later = new Set(); P.planMon.forEach((o) => { if (o.bulan > cur && o.qty > 0) later.add(o.bulan); }); P.plan.forEach((x) => { if (x.bulan > cur && x.kg > 0) later.add(x.bulan); });
+    [...later].sort().forEach((b) => { const L = (P.monthWeeks && P.monthWeeks.get(b)) || []; if (!L.length) return; cols.push({ kind: 'm', bulan: b, d: L[0].start, de: L[L.length - 1].end, l: `${monShort(b)} ${b.slice(2, 4)}`, lf: monLabel(b) }); });
+    if (!cols.length) { const L = (P.monthWeeks && P.monthWeeks.get(cur)) || []; const de = L.length ? L[L.length - 1].end : today; cols.push({ kind: 'w', bulan: cur, week: '', d: tm, de: de < tm ? tm : de, l: 'Sisa bulan ini', part: true }); }
+    const n = cols.length, end = cols[n - 1].de;
+    const colOfDate = (d) => { if (!d) return -1; for (let i = 0; i < n; i++) if (d >= cols[i].d && d <= cols[i].de) return i; return d < cols[0].d ? -2 : -3; };
+    // Pemakaian material per material: past (sebelum/sama dengan hari ini) + per kolom; sumber per SKU
+    const M = new Map(), mk = (c) => { let o = M.get(c); if (!o) { o = { past: 0, w: new Array(n).fill(0), sku: new Map(), skuW: new Map(), mos: [] }; M.set(c, o); } return o; };
+    const pushNeed = (code, qty, bomId, at, ref) => {
+      const r = needOf(code, qty, bomId); if (!r) return false;
+      r.leaves.forEach((q, c) => {
+        const o = mk(c);
+        if (at < 0) { o.past += q; o.mos.push({ ref, sku: code, q, past: true }); }
+        else { o.w[at] += q; o.sku.set(code, (o.sku.get(code) || 0) + q); if (!o.skuW.has(code)) o.skuW.set(code, new Array(n).fill(0)); o.skuW.get(code)[at] += q; if (ref) o.mos.push({ ref, sku: code, q, i: at }); }
+      });
+      return true;
+    };
+    const info = { moPast: 0, moFut: 0, moNoDate: [], moSkip: 0, monFallback: [], monPlan: [], noBom: new Set() };
+    (P.konf || new Map()).forEach((r) => {
+      if (kfIsEk(r.code)) return;
+      if (planUnit(r.code) === 'pcs') { info.moSkip++; return; }   // Banded / 2in1 / KIT: diabaikan
+      const q = Number(r.kg) || 0; if (!(q > 0)) return;
+      const t = r.tgl || '';
+      if (t && t >= d0 && t <= today) { if (pushNeed(r.code, q, r.bom || undefined, -1, r.no)) info.moPast++; else info.noBom.add(r.code); return; }
+      if (t && t < d0) return;
+      // belum berjalan: hanya MO bulan berjalan (bulan berikutnya memakai Plan bulan)
+      let i = -1;
+      if (t) { if (t.slice(0, 7) > cur && r.bulan !== cur) return; i = colOfDate(t); if (i < 0 || cols[i].kind !== 'w') { const j = cols.findIndex((c) => c.kind === 'w' && c.week === r.week && c.bulan === r.bulan); i = j; } }
+      else { if (r.bulan !== cur) return; i = cols.findIndex((c) => c.kind === 'w' && c.week === r.week && c.bulan === r.bulan); if (i < 0) i = 0; info.moNoDate.push(r.no); }
+      if (i < 0) return;
+      if (pushNeed(r.code, q, r.bom || undefined, i, r.no)) info.moFut++; else info.noBom.add(r.code);
+    });
+    cols.forEach((c, i) => {
+      if (c.kind !== 'm') return;
+      const codes = new Set(); P.planMon.forEach((o) => { if (o.bulan === c.bulan && o.qty > 0) codes.add(o.code); }); P.plan.forEach((x) => { if (x.bulan === c.bulan && x.kg > 0) codes.add(x.code); });
+      codes.forEach((code) => {
+        if (planUnit(code) === 'pcs') return;
+        const pm = P.planMon.get(`${c.bulan}|${code}`); let q = pm ? pm.qty : 0;
+        if (!(q > 0)) { q = 0; P.plan.forEach((x) => { if (x.bulan === c.bulan && x.code === code) q += x.kg; }); if (q > 0) info.monFallback.push(`${code} ${monShort(c.bulan)}`); }
+        if (q > 0) { if (pushNeed(code, q, undefined, i, '')) info.monPlan.push(code); else info.noBom.add(code); }
+      });
+    });
+    const o = { today, tm, d0, cur, cols, n, end, colOfDate, M, info };
+    stkCache.clear(); stkCache.set(key, o);
     return o;
+  }
+  // PO outstanding per kode material (indeks dibangun ulang bila data PO berubah)
+  let poIdx = { rows: null, map: null };
+  function poRowsOf(kode) {
+    if (poIdx.rows !== state.rows) {
+      const map = new Map();
+      (state.rows || []).forEach((x) => { if (x.cancel || x.takeout || !(x.sisa > 1e-9)) return; if (!map.has(x.code)) map.set(x.code, []); map.get(x.code).push(x); });
+      poIdx = { rows: state.rows, map };
+    }
+    return poIdx.map.get(kode) || [];
   }
   // sched: [{d, q}] jadwal datang PR ini (Tgl Kirim / split)
   function prCalc(kode, hz, sched) {
     kode = String(kode || '').trim(); if (!kode) return null;
-    const B = prCalcBase(), { J, weeks, d0, today } = B, n = weeks.length;
-    const cw = B.cw < 0 ? (today < (weeks[0] || {}).start ? 0 : n - 1) : B.cw;
-    const jr = J.rows.find((r) => r.code === kode), m = MRP.master.get(kode) || {};
+    const B = stkBase(), { today, d0, cols: C0, n, end, colOfDate } = B;
+    const m = MRP.master.get(kode) || {};
     const sh = (P.stockHist || new Map()).get(d0), st = sh ? sh.get(kode) : null;
     const R3 = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
-    const wOf = (d) => { if (!d) return cw; const i = weeks.findIndex((w) => d >= w.start && d <= w.end); return i >= 0 ? i : d < weeks[0].start ? 0 : n - 1; };
-    const cols = weeks.map((w) => ({ l: `${w.week} ${monShort(w.bulan)}`, d: w.start, de: w.end, need: 0, inc: 0, po: 0, add: 0, sal: 0 }));
-    if (!n) return null;
-    if (jr) J.R.weeks.forEach((w, i) => { const k = weeks.indexOf(w); if (k >= 0) cols[k].need += Number(jr.need[i]) || 0; });
-    (P.incK || []).forEach((x) => { const d = x.datang || x.tgl; if (x.code === kode && d && d >= d0 && d <= today) cols[wOf(d)].inc += x.qty; });
-    (P.kurang || []).forEach((x) => { if (x.code === kode && x.tgl && x.tgl >= d0 && x.tgl <= weeks[n - 1].end) cols[wOf(x.tgl)].add += x.qty; });
-    // OS PO dipisah 4: lewat jadwal & belum dijadwalkan (dihitung di week berjalan), terjadwal s/d MPS terakhir (di week jadwalnya),
-    // terjadwal setelah MPS terakhir (tidak masuk kolom week; kolom tersendiri "Setelah MPS")
+    const mm = B.M.get(kode);
+    const cols = C0.map((c, i) => ({ l: c.l, lf: c.lf || '', kind: c.kind, d: c.d, de: c.de, need: mm ? mm.w[i] : 0, inc: 0, po: 0, poS: 0, poL: 0, poN: 0, add: 0, sal: 0 }));
+    // Stok terkini
+    const awal = R3(st ? st.qty : 0);
+    const koreksi = R3(P.adj.filter((a) => a.code === kode && a.date >= d0).reduce((t, a) => t + a.qty, 0));
+    const gantung = R3((P.gantung && P.gantung.get(kode)) || 0);
+    let incPast = 0, addPast = 0;
+    (P.incK || []).forEach((x) => { const d = x.datang || x.tgl; if (x.code === kode && d && d >= d0 && d <= today) incPast += x.qty; });
+    (P.kurang || []).forEach((x) => {
+      if (x.code !== kode || !x.tgl) return;
+      if (x.tgl >= d0 && x.tgl <= today) addPast += x.qty;
+      else if (x.tgl > today) { const i = colOfDate(x.tgl); if (i >= 0) cols[i].add += x.qty; }
+    });
+    const pakaiPast = R3(mm ? mm.past : 0);
+    const stok = R3(awal + koreksi - gantung + incPast - pakaiPast - addPast);
+    // OS PO
     let poLate = 0, poNone = 0, poAfter = 0; const after = [], lateL = [];
-    cols.forEach((c) => { c.poL = 0; c.poN = 0; c.poS = 0; });
-    (state.rows || []).filter((x) => x.code === kode && !x.cancel && !x.takeout && x.sisa > 1e-9).forEach((x) => {
+    poRowsOf(kode).forEach((x) => {
       let left = x.sisa;
       (x.sched || []).filter((s) => s.status !== 'Done' && s.date).sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((s) => {
         const q = Math.min(left, Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0))); if (!(q > 0)) return;
         left -= q;
-        if (s.date < today) { poLate += q; cols[cw].poL += q; lateL.push({ po: x.po, d: s.date, q: Math.round(q * 1000) / 1000 }); }
-        else if (s.date > weeks[n - 1].end) { poAfter += q; after.push({ po: x.po, d: s.date, q: Math.round(q * 1000) / 1000 }); }
-        else cols[wOf(s.date)].poS += q;
+        if (s.date < today) { poLate += q; lateL.push({ po: x.po, d: s.date, q: R3(q) }); }
+        else if (s.date > end) { poAfter += q; after.push({ po: x.po, d: s.date, q: R3(q) }); }
+        else { const i = colOfDate(s.date); cols[i >= 0 ? i : 0].poS += q; }
       });
-      if (left > 1e-9) { poNone += left; cols[cw].poN += left; }
+      if (left > 1e-9) poNone += left;
     });
-    // PO lewat jadwal & belum dijadwalkan: tidak masuk week mana pun (kolom tersendiri), saldo per week dihitung tanpa PO ini
-    cols.forEach((c) => { c.poL = 0; c.poN = 0; c.po = c.poS; });
-    const stok = R3(st ? st.qty : 0);
     let run = stok;
-    cols.forEach((c) => { c.need = R3(c.need); c.inc = R3(c.inc); c.po = R3(c.po); c.poL = R3(c.poL); c.poN = R3(c.poN); c.poS = R3(c.poS); c.add = R3(c.add); run += c.inc + c.po - c.need - c.add; c.sal = R3(run); });
+    cols.forEach((c) => { c.need = R3(c.need); c.poS = R3(c.poS); c.po = c.poS; c.add = R3(c.add); run += c.po - c.need - c.add; c.sal = R3(run); });
     const sum = (k) => R3(cols.reduce((t, c) => t + c[k], 0));
-    const out = { kode, nama: (jr && jr.name) || m.name || (st && st.name) || '', uom: (jr && jr.uom) || m.uom || (st && st.uom) || '', at: today, stokDate: d0, stok,
-      inc: sum('inc'), ospo: R3(sum('po') + poLate + poNone + poAfter), poLate: R3(poLate), poNone: R3(poNone), poIn: sum('poS'), poAfter: R3(poAfter), after: after.sort((a, b) => (a.d < b.d ? -1 : 1)), salEnd: R3(run + poLate + poNone + poAfter), split: 2, late: lateL, butuh: sum('need'), add: sum('add'), cols, last: cols[n - 1].l, note: jr ? '' : 'Tidak ada kebutuhan di plan MPS.' };
-    out.kurang = R3(out.stok + out.inc + out.ospo - out.butuh - out.add);
-    const neg = cols.find((c) => c.sal < -1e-9); out.minus = neg ? neg.l : ''; out.deep = Math.min(0, ...cols.map((c) => c.sal));
+    const out = { v: 3, kode, nama: m.name || (st && st.name) || '', uom: m.uom || (st && st.uom) || '', at: today, stokDate: d0,
+      awal, koreksi, gantung, incPast: R3(incPast), pakaiPast, addPast: R3(addPast), stok, inc: 0,
+      ospo: R3(sum('po') + poLate + poNone + poAfter), poLate: R3(poLate), poNone: R3(poNone), poIn: sum('poS'), poAfter: R3(poAfter), after: after.sort((a, b) => (a.d < b.d ? -1 : 1)), late: lateL,
+      salEnd: R3(run + poLate + poNone + poAfter), split: 2, butuh: sum('need'), add: sum('add'), cols, last: cols[n - 1].lf || cols[n - 1].l,
+      note: mm && (mm.past || mm.w.some((x) => x)) ? '' : 'Tidak ada pemakaian di MO Plotting Harian maupun Plan bulan.' };
+    out.kurang = R3(out.stok + out.ospo - out.butuh - out.add);
+    const neg = cols.find((c) => c.sal < -1e-9); out.minus = neg ? (neg.lf || neg.l) : ''; out.deep = Math.min(0, ...cols.map((c) => c.sal));
     out.minusNoLN = !!(neg && (poLate + poNone) > 1e-9 && out.deep + poLate + poNone >= -1e-9);
     const S = (sched || []).filter((x) => x.q > 0);
     if (S.length) {
       const add = cols.map(() => 0); let beyond = 0;
-      S.forEach((x) => { const d = x.d || today; if (d > cols[n - 1].de) { beyond += x.q; return; } add[wOf(d)] += x.q; });
+      S.forEach((x) => { const d = x.d || today; if (d > end) { beyond += x.q; return; } const i = colOfDate(d); add[i >= 0 ? i : 0] += x.q; });
       let cum = 0; out.pr = add; out.prSal = cols.map((c, i) => { cum += add[i]; return R3(c.sal + cum); });
       out.prQty = R3(S.reduce((t, x) => t + x.q, 0)); out.prBeyond = R3(beyond);
       const fa = add.findIndex((x) => x > 0); out.prFirst = fa >= 0 ? cols[fa].l : '';
       out.prDeepAfter = fa >= 0 ? Math.min(0, ...out.prSal.slice(fa)) : Math.min(0, ...out.prSal); out.prDeepBefore = fa > 0 ? Math.min(0, ...out.prSal.slice(0, fa)) : 0;
     }
     return out;
+  }
+  // Produk yang memakai material (BoM aktif tiap SKU, lewat ekstrak/bulk) + kebutuhannya di rentang Stok Terkini
+  const useMemo = { key: '', map: null };
+  function matUsers(kode) {
+    const key = P.skus.size + '|' + MRP.byProduct.size;
+    if (useMemo.key !== key) {
+      const map = new Map();
+      P.skus.forEach((k) => {
+        if (!k.aktif || k.jenis === 'Ekstrak' || planUnit(k.code) === 'pcs') return;
+        const r = needOf(k.code, 1000); if (!r) return;
+        const pcs = normU(r.bom.uom) === 'kg' ? 0 : r.bom.batch;   // pcs per 1.000 kg
+        r.leaves.forEach((q, c) => { if (!map.has(c)) map.set(c, []); map.get(c).push({ sku: k.code, name: k.name, bom: refOf(r.bom), perTon: q, perPcs: pcs ? q / pcs : 0 }); });
+      });
+      useMemo.key = key; useMemo.map = map;
+    }
+    return useMemo.map.get(String(kode || '').trim()) || [];
+  }
+  // Sell In (DO Delivered CSL Personal Care + Beauty) per kode per bulan
+  async function sellInMap() {
+    if (!window.CSL || !window.CSL.doOut) throw new Error('Data CSL tidak tersedia.');
+    const out = new Map(), errs = [];
+    for (const seg of ['pc', 'beauty']) {
+      try { const r = await window.CSL.doOut(seg); (r.lines || []).forEach(([k, d, q]) => { const key = k + '|' + d.slice(0, 7); out.set(key, (out.get(key) || 0) + q); }); }
+      catch (e) { errs.push(`${seg === 'pc' ? 'Personal Care' : 'Beauty'}: ${e.message}`); }
+    }
+    return { m: out, errs };
+  }
+  function prUseData(kode, SI) {
+    const B = stkBase(), mm = B.M.get(kode), L = matUsers(kode);
+    const cur = B.today.slice(0, 7), months = [3, 2, 1].map((k) => addMonth(cur, -k));
+    const tot = mm ? mm.w.reduce((t, x) => t + x, 0) : 0;
+    const rows = L.map((u) => {
+      const need = mm ? mm.sku.get(u.sku) || 0 : 0;
+      const sell = months.map((b) => (SI ? Math.round(SI.m.get(u.sku + '|' + b) || 0) : null));
+      const avg = SI ? sell.reduce((t, x) => t + x, 0) / 3 : null;
+      return { sku: u.sku, name: u.name, bom: u.bom, perTon: Math.round(u.perTon * 1e6) / 1e6, perPcs: u.perPcs, need: Math.round(need * 1000) / 1000, share: tot ? need / tot : 0, sell, avg: avg === null ? null : Math.round(avg) };
+    }).sort((a, b) => b.need - a.need || (b.avg || 0) - (a.avg || 0) || b.perTon - a.perTon || a.sku.localeCompare(b.sku));
+    // dibekukan di satu sel Google Sheet (maks ±49.000 karakter): ringkas & batasi 30 produk teratas
+    const top = rows.slice(0, 30).map((x) => Object.assign(x, { name: x.name.length > 48 ? x.name.slice(0, 47) + '…' : x.name, share: Math.round(x.share * 1000) / 1000, perPcs: undefined }));
+    return { months, rows: top, more: Math.max(0, rows.length - top.length), tot: Math.round(tot * 1000) / 1000, err: SI ? (SI.errs || []).join('; ') : 'Sell In tidak bisa dimuat.' };
   }
   const prSchedOf = (r) => { const L = r.sched || prSched(r.kirim); const bk = Number(prNum(r.buka)) || 0; return L ? L.map((x) => ({ d: x.d, q: Number(x.q) || 0 })) : bk ? [{ d: r.kirim || '', q: bk }] : []; };
   function setPrHitung(list) {
@@ -7016,7 +7228,10 @@
       // 2) Rumus sebagai kotak berurutan
       const osParts = d.split ? [['telat', d.poLate], ['tanpa jadwal', d.poNone], ['terjadwal', d.poIn], ['setelah MPS', d.poAfter]].filter((x) => nz(x[1])).map((x) => `${x[0]} ${prNumTxt(x[1])}`).join(' · ') : (nz(d.poLate) ? `telat ${prNumTxt(d.poLate)}` : '');
       const box = (op, lbl, sub, v, cls) => `<div class="lp-box${cls ? ' ' + cls : ''}"><span class="lp-lbl">${op ? `<b class="lp-op">${op}</b> ` : ''}${lbl}</span><b class="lp-v">${prNumTxt(v)}</b><span class="lp-sub">${sub}</span></div>`;
-      const eq = `<div class="lp-eq">${box('', 'Stok awal', esc(fmtDate(d.stokDate)), d.stok)}${box('+', 'Incoming', 'sudah datang', d.inc)}${box('+', 'OS PO', esc(osParts) || 'tidak ada', d.ospo)}${box('−', 'Kebutuhan', 's/d ' + esc(d.last), d.butuh)}${box('−', 'ADD/FOH/RS', '', d.add)}${box('=', ok ? 'Sisa' : 'Kekurangan', u, d.kurang, ok ? 'is-ok' : 'is-bad')}</div>`;
+      const v3 = d.v === 3;
+      const eq3 = v3 ? `<div class="lp-eq lp-eq3"><span class="lp-eqh">Stok terkini per ${esc(fmtDate(d.at))}</span>${box('', 'Stok awal', esc(fmtDate(d.stokDate)) + (nz(d.koreksi) || nz(d.gantung) ? ` · koreksi ${prNumTxt(d.koreksi)} · gantung ${prNumTxt(d.gantung)}` : ''), R3h(d.awal + (d.koreksi || 0) - (d.gantung || 0)))}${box('+', 'Incoming', 'sudah datang', d.incPast)}${box('−', 'Pemakaian MO', `${esc(fmtDate(d.stokDate))} – ${esc(fmtDate(d.at))}`, d.pakaiPast)}${box('−', 'ADD/FOH/RS', `s/d ${esc(fmtDate(d.at))}`, d.addPast)}${box('=', 'Stok terkini', u, d.stok, 'is-mid')}</div>
+        <div class="lp-eq">${box('', 'Stok terkini', esc(fmtDate(d.at)), d.stok)}${box('+', 'OS PO', esc(osParts) || 'tidak ada', d.ospo)}${box('−', 'Kebutuhan', 'besok s/d ' + esc(d.last), d.butuh)}${box('−', 'ADD/FOH/RS', 'setelah hari ini', d.add)}${box('=', ok ? 'Sisa' : 'Kekurangan', u, d.kurang, ok ? 'is-ok' : 'is-bad')}</div>` : '';
+      const eq = v3 ? eq3 : `<div class="lp-eq">${box('', 'Stok awal', esc(fmtDate(d.stokDate)), d.stok)}${box('+', 'Incoming', 'sudah datang', d.inc)}${box('+', 'OS PO', esc(osParts) || 'tidak ada', d.ospo)}${box('−', 'Kebutuhan', 's/d ' + esc(d.last), d.butuh)}${box('−', 'ADD/FOH/RS', '', d.add)}${box('=', ok ? 'Sisa' : 'Kekurangan', u, d.kurang, ok ? 'is-ok' : 'is-bad')}</div>`;
       // 3) Catatan singkat
       const v2 = d.split === 2, hasLN = v2 && (nz(d.poLate) || nz(d.poNone)), aft = !!(d.split && (nz(d.poAfter) || nz(d.prBeyond)));
       const notes = [
@@ -7047,13 +7262,38 @@
       const table = `<div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}${hasLN ? '<th class="num lp-x">PO telat /<br>tanpa jadwal</th>' : ''}${aft ? '<th class="num lp-x">Setelah<br>MPS</th>' : ''}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
       return `<div class="lp-card">${head}${eq}${notes.length ? `<ul class="lp-notes">${notes.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}${table}</div>`;
     }).join('');
-    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Kekurangan = Stok awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Kebutuhan dari Kebutuhan Material s/d MPS terakhir. Angka minus di tabel = saldo kurang pada week itu.</p>`;
+    const anyV3 = H.some((x) => x.data && x.data.v === 3);
+    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">${anyV3 ? 'Stok terkini = Stok awal + Incoming − Pemakaian MO (Plotting Harian) − ADD/FOH/RS sampai hari hitung. Kekurangan = Stok terkini + OS PO − Kebutuhan − ADD/FOH/RS sesudahnya. Kebutuhan bulan berjalan dari MO Plotting Harian per week; bulan berikutnya dari Plan bulan penuh (Banded/2in1/KIT tidak dihitung).' : 'Kekurangan = Stok awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Kebutuhan dari Kebutuhan Material s/d MPS terakhir.'} Angka minus di tabel = saldo kurang pada kolom itu.</p>`;
+    return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
+  }
+  /* ---------- Lampiran Penggunaan Material: produk pemakai (BoM aktif) + Sell In L3M, dibekukan bersama Lampiran Perhitungan ---------- */
+  function prUseHtml(g, print) {
+    const H = prHitungOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
+    const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
+    let months = null;
+    const blk = rows.map((r) => {
+      const h = H.find((x) => x.kode === String(r.kode).trim()), d = h && h.data, U = d && d.use;
+      const head = (chip) => `<div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc((d && d.nama) || r.nama)}</span>${chip}</div>`;
+      if (!U) return `<div class="lp-card">${head('<span class="lp-chip is-muted">Belum dihitung</span>')}<p class="lp-empty">Klik "Perbarui lampiran" untuk menghitung penggunaan material.</p></div>`;
+      months = months || U.months;
+      const u = esc(d.uom || ''), act = U.rows.filter((x) => x.need > 0).length;
+      if (!U.rows.length) return `<div class="lp-card">${head('<span class="lp-chip is-muted">Tidak dipakai di BoM aktif SKU mana pun</span>')}</div>`;
+      const ml = U.months.map((b) => `<th class="num">${monShort(b)} ${b.slice(2, 4)}</th>`).join('');
+      const tb = U.rows.map((x) => `<tr${x.need > 0 ? '' : ' class="lp-dim"'}><td><b>${esc(x.sku)}</b><small>${esc(x.name)}</small></td><td>${esc(x.bom)}</td><td class="num">${prNumTxt(x.perTon)}</td><td class="num">${x.need > 0 ? `<b>${prNumTxt(x.need)}</b><small>${nf.format(Math.round(x.share * 100))}%</small>` : '–'}</td>${x.sell ? x.sell.map((v) => `<td class="num">${v ? nf.format(v) : '–'}</td>`).join('') + `<td class="num"><b>${x.avg ? nf.format(x.avg) : '–'}</b></td>` : `<td class="num" colspan="4">–</td>`}</tr>`).join('');
+      return `<div class="lp-card">${head(`<span class="lp-chip is-neutral">${U.rows.length} produk · ${act} ada kebutuhan</span>`)}
+        <div class="pr-hit-w"><table class="pr-st-t lp-use"><thead><tr><th>Produk</th><th>BoM aktif</th><th class="num">Pemakaian<br><small>${u} / 1.000 kg</small></th><th class="num">Kebutuhan<br><small>${u}, s/d ${esc(d.last || '')}</small></th>${ml}<th class="num">Rata-rata<br><small>pcs/bln</small></th></tr></thead>
+        <tbody>${tb}</tbody><tfoot><tr><th colspan="3">Total</th><th class="num"><b>${prNumTxt(U.tot)}</b></th><th colspan="${U.months.length + 1}"></th></tr></tfoot></table></div>
+        ${U.more ? `<p class="lp-empty">+${U.more} produk lain (tanpa kebutuhan / Sell In lebih kecil) tidak ditampilkan.</p>` : ''}${U.err ? `<p class="lp-empty">Sell In: ${esc(U.err)}</p>` : ''}</div>`;
+    }).join('');
+    const ms = months ? months.map(monLabel) : [];
+    const title = `<div class="pr-lamp-h"><b>Lampiran Penggunaan Material</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Produk yang memakai material ini menurut BoM aktif tiap SKU (termasuk lewat ekstrak/bulk). Kebutuhan = bagian produk itu dalam kebutuhan Lampiran Perhitungan. Sell In = DO Delivered CSL Personal Care + Beauty${ms.length ? ` (${esc(ms[0])} – ${esc(ms[ms.length - 1])})` : ''}, dalam pcs, 3 bulan penuh terakhir. Baris abu-abu = tidak ada kebutuhan di rentang ini.</p>`;
     return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
   }
   async function prHitungPayload(rows) {
     if (!(await mrpReady())) return null;
+    let SI = null; try { SI = await sellInMap(); } catch (e) { SI = null; }
     const o = {};
-    rows.forEach((r) => { const k = String(r.kode || '').trim(); if (k && !o[k]) { const d = prCalc(k, 'all', prSchedOf(r)); if (d) o[k] = { hz: 'all', data: d }; } });
+    rows.forEach((r) => { const k = String(r.kode || '').trim(); if (k && !o[k]) { const d = prCalc(k, 'all', prSchedOf(r)); if (d) { d.use = prUseData(k, SI); while (JSON.stringify(d).length > 45000 && d.use.rows.length > 5) { d.use.more += Math.ceil(d.use.rows.length / 3); d.use.rows = d.use.rows.slice(0, Math.floor(d.use.rows.length * 2 / 3)); } o[k] = { hz: 'all', data: d }; } } });
     return o;
   }
   /* ---------- Lampiran Status PO: PO outstanding (gantung) per material, dibekukan saat PR disimpan ---------- */
@@ -7097,8 +7337,8 @@
   }
   // Panel Lampiran Perhitungan + Status PO (Formulir PR & Rekap PR)
   function prLampPanel(g, withInc) {
-    return `<div class="pr-st-tools">${withInc ? `<label class="tb-check"><input type="checkbox" id="prHtInc"${PRF.noHt ? '' : ' checked'}> Cetak Lampiran Perhitungan</label><label class="tb-check"><input type="checkbox" id="prStInc"${PRF.noSt ? '' : ' checked'}> Cetak Lampiran Status PO</label>` : ''}<button type="button" class="btn-link" data-prst-refresh="${esc(g.kodePr)}" title="Hitung & bekukan ulang Lampiran Perhitungan dan Status PO dengan data saat ini (Mode edit)">Perbarui lampiran</button></div>
-      ${state.noPrHitungScript ? '' : `<div class="pr-hit-sec">${prHitungHtml(g, false)}</div>`}<div class="pr-st-sec">${prStatusHtml(g, false)}</div>`;
+    return `<div class="pr-st-tools">${withInc ? `<label class="tb-check"><input type="checkbox" id="prHtInc"${PRF.noHt ? '' : ' checked'}> Cetak Lampiran Perhitungan</label><label class="tb-check"><input type="checkbox" id="prStInc"${PRF.noSt ? '' : ' checked'}> Cetak Lampiran Status PO</label><label class="tb-check"><input type="checkbox" id="prUseInc"${PRF.noUse ? '' : ' checked'}> Cetak Lampiran Penggunaan Material</label>` : ''}<button type="button" class="btn-link" data-prst-refresh="${esc(g.kodePr)}" title="Hitung & bekukan ulang Lampiran Perhitungan dan Status PO dengan data saat ini (Mode edit)">Perbarui lampiran</button></div>
+      ${state.noPrHitungScript ? '' : `<div class="pr-hit-sec">${prHitungHtml(g, false)}</div>`}<div class="pr-st-sec">${prStatusHtml(g, false)}</div>${state.noPrHitungScript ? '' : `<div class="pr-st-sec">${prUseHtml(g, false)}</div>`}`;
   }
   async function prRefreshLamp(kodePr, after) {
     const g = prGroups().find((x) => x.kodePr === kodePr); if (!g) return;
@@ -7266,7 +7506,7 @@
     $('prFormPo').innerHTML = g && !g.batal ? `No PO terbit dari PR ini: ${pos.length ? g.rows.filter((r) => r.status !== 'Batal' && r.pos.length).map((r) => `<span class="pr-pochip"><span class="mono">${esc(r.kode)}</span> ${prPoLinks(r)}</span>`).join(' ') : '<span class="muted">belum ada</span>'}` : '';
   }
   $('prKode').addEventListener('input', () => { PRF.kode = $('prKode').value.trim(); prRenderForm(); });
-  $('prFormStatus').addEventListener('change', (e) => { if (e.target.id === 'prStInc') PRF.noSt = !e.target.checked; if (e.target.id === 'prHtInc') PRF.noHt = !e.target.checked; });
+  $('prFormStatus').addEventListener('change', (e) => { if (e.target.id === 'prStInc') PRF.noSt = !e.target.checked; if (e.target.id === 'prHtInc') PRF.noHt = !e.target.checked; if (e.target.id === 'prUseInc') PRF.noUse = !e.target.checked; });
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-prst-refresh]'); if (b) { const inDlg = !!b.closest('#dlg'); prRefreshLamp(b.dataset.prstRefresh, () => { prRenderForm(); if (inDlg) prLampDialog(b.dataset.prstRefresh); }); return; }
   });
@@ -7278,7 +7518,7 @@
     $('prPrint').disabled = true; const lbl = $('prPrint').textContent; $('prPrint').textContent = 'Menyiapkan lampiran…';
     let lampHtml = '';
     try { lampHtml = await prLampPrintHtml(g.kodePr); } finally { $('prPrint').disabled = false; $('prPrint').textContent = lbl; }
-    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g, true)}</div>${!PRF.noHt && !state.noPrHitungScript ? prHitungHtml(g, true) : ''}${!PRF.noSt && !state.noPrStatusScript ? prStatusHtml(g, true) : ''}${lampHtml}`;
+    root.innerHTML = `<div class="pr-paper is-print">${prSheet(g, true)}</div>${!PRF.noHt && !state.noPrHitungScript ? prHitungHtml(g, true) : ''}${!PRF.noSt && !state.noPrStatusScript ? prStatusHtml(g, true) : ''}${!PRF.noUse && !state.noPrHitungScript ? prUseHtml(g, true) : ''}${lampHtml}`;
     document.body.classList.add('printing-pr');
     const t0 = document.title; document.title = g.kodePr.replace(/\//g, '-');   // nama file PDF bawaan
     const done = () => { document.body.classList.remove('printing-pr'); document.title = t0; window.removeEventListener('afterprint', done); };

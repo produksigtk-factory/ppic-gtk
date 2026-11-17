@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=87375ced">
+<link rel="stylesheet" href="style.css?v=5c37a9db">
 </head>
 <body>
 <div class="shell">
@@ -722,6 +722,7 @@
           <button type="button" class="pl-hz pl-hzbtn" id="kbHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="kbQ" placeholder="Cari kode atau nama material"></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="kbKat"><option value="">Semua kategori</option></select></label>
+          <label class="tb-field"><span class="sr">Dasar hitung</span><select id="kbBasis" title="Dasar perhitungan kebutuhan"><option value="now">Mulai besok: MO harian + Plan bulan</option><option value="plan">Plan per week (bulan dipilih)</option></select></label>
           <label class="tb-field"><span class="sr">Jenis kebutuhan</span><select id="kbType"><option value="buy">Material dibeli (RM/PM)</option><option value="made">Ekstrak/bulk (diproduksi)</option><option value="fg">FG untuk rakitan/bonus</option></select></label>
           <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="kbExport">Unduh Excel</button></div>
         </div>
@@ -741,7 +742,7 @@
         <div class="toolbar mrp-toolbar">
           <button type="button" class="pl-hz pl-hzbtn" id="pjHz" title="Klik untuk memilih bulan yang ditampilkan"></button>
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="pjQ" placeholder="Cari kode atau nama material"></label>
-          <div class="pj-seg" id="pjCalc" role="group" aria-label="Mode hitung"><button type="button" data-calc="plan" aria-pressed="true">Mode Plan</button><button type="button" data-calc="mo" aria-pressed="false">Mode PC + CP</button></div>
+          <div class="pj-seg" id="pjCalc" role="group" aria-label="Mode hitung"><button type="button" data-calc="now" aria-pressed="true" title="Stok terkini hari ini − kebutuhan mulai besok (MO Plotting Harian + Plan bulan); sama dengan Formulir PR">Stok terkini</button><button type="button" data-calc="plan" aria-pressed="false">Mode Plan</button><button type="button" data-calc="mo" aria-pressed="false">Mode PC + CP</button></div>
           <label class="tb-field"><span class="sr">Tampilkan</span><select id="pjMode"><option value="short">Hanya yang akan kurang</option><option value="all">Semua material terpakai</option><option value="master">Semua material (master)</option></select></label>
           <label class="tb-field"><span class="sr">Kategori</span><select id="pjKat"><option value="">Semua kategori</option></select></label>
           <div class="tb-actions"><button class="btn-link" id="kurTpl">Format ADD/FOH/RS</button><label class="btn btn-ghost btn-sm kf-up" for="kurFile">Upload ADD/FOH/RS<input type="file" id="kurFile" accept=".xls,.xlsx" hidden></label><button class="btn btn-ghost btn-sm" id="pjExport">Unduh Excel</button></div>
@@ -1384,7 +1385,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=da3b6cb3"></script>
-<script src="app.js?v=d529a716"></script>
+<script src="app.js?v=e2a975c6"></script>
 <script src="inv.js?v=3d78f2aa"></script>
 <script src="inc.js?v=ee0c44e8"></script>
 <script src="csl.js?v=1f71e4b7"></script>
