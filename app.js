@@ -7360,11 +7360,26 @@
         d.prSal ? tr('PR ini datang', (c, i) => `<td class="num">${f(d.pr[i])}</td>`, 'is-pr', [undefined, aft ? X(f(d.prBeyond)) : undefined]) + tr('Saldo bila PR datang', (c, i) => sc(d.prSal[i]), 'is-sal is-pr', [hasLN ? scX(R3h(salX + d.prSal[d.prSal.length - 1] - d.cols[d.cols.length - 1].sal)) : undefined, aft ? scX(R3h(d.salEnd + (d.prQty || 0))) : undefined]) : '',
       ].join('');
       const table = `<div class="pr-hit-w"><table class="pr-st-t pr-hit"><thead><tr><th>${u}</th>${d.cols.map((c) => `<th class="num">${esc(c.l)}</th>`).join('')}${hasLN ? '<th class="num lp-x">PO telat /<br>tanpa jadwal</th>' : ''}${aft ? '<th class="num lp-x">Setelah<br>MPS</th>' : ''}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+      if (print) {
+        // cetak: rumus satu baris + catatan + tabel (kartu ringkas)
+        const eqT = v3 ? `Stok terkini <b>${prNumTxt(d.stok)}</b> = stok ${esc(fmtDate(d.stokDate))} ${prNumTxt(R3h(d.awal + (d.koreksi || 0) - (d.gantung || 0)))}${nz(d.incPast) ? ` + incoming ${prNumTxt(d.incPast)}` : ''} − pemakaian MO ${prNumTxt(d.pakaiPast)}${nz(d.addPast) ? ` − ADD ${prNumTxt(d.addPast)}` : ''} · + OS PO ${prNumTxt(d.ospo)}${osParts ? ` (${osParts})` : ''} − Kebutuhan ${prNumTxt(d.butuh)}${nz(d.add) ? ` − ADD ${prNumTxt(d.add)}` : ''} = <b class="${ok ? 'pr-st-ok' : 'pr-st-late'}">${ok ? 'Sisa' : 'Kurang'} ${prNumTxt(Math.abs(d.kurang))} ${u}</b>`
+          : `Stok awal ${prNumTxt(d.stok)} + Incoming ${prNumTxt(d.inc)} + OS PO ${prNumTxt(d.ospo)} − Kebutuhan ${prNumTxt(d.butuh)} − ADD ${prNumTxt(d.add)} = <b>${ok ? 'Sisa' : 'Kurang'} ${prNumTxt(Math.abs(d.kurang))} ${u}</b>`;
+        return `<div class="lp-card lp-cmp">${head}<p class="lp-eqt">${eqT}</p>${notes.length ? `<p class="lp-nt">${notes.join(' ')}</p>` : ''}${table}</div>`;
+      }
       return `<div class="lp-card">${head}${eq}${notes.length ? `<ul class="lp-notes">${notes.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}${table}</div>`;
     }).join('');
+    // cetak: tabel ringkasan semua material di depan
+    let sum = '';
+    if (print) {
+      const D = rows.map((r) => { const h = H.find((x) => x.kode === String(r.kode).trim()); return { r, d: h && h.data }; }).filter((x) => x.d && x.d.cols && x.d.butuh !== undefined);
+      const C = (D.find((x) => x.d.v === 3) || D[0] || { d: { cols: [] } }).d.cols.map((c) => c.l);
+      if (D.length) sum = `<table class="pr-st-t lp-sum"><thead><tr><th>Kode</th><th>Nama</th><th class="num">Stok terkini</th><th class="num">OS PO</th>${C.map((l) => `<th class="num">${esc(l)}<small>keb. / saldo</small></th>`).join('')}<th class="num">Kekurangan</th><th>Mulai minus</th><th class="num">PR ini</th><th class="num">Saldo bila PR datang</th></tr></thead><tbody>
+        ${D.map(({ r, d }) => { const ok = !(d.kurang < -1e-9), pe = d.prSal ? Math.min(...d.prSal) : null; return `<tr><td><b>${esc(r.kode)}</b></td><td>${esc(d.nama || r.nama)} <small>${esc(d.uom || '')}</small></td><td class="num">${prNumTxt(d.stok)}</td><td class="num">${f(d.ospo)}</td>${C.map((l, i) => { const c = d.cols[i] || {}; return `<td class="num${c.sal < -1e-9 ? ' pr-neg' : ''}"><small>${nz(c.need) ? '−' + prNumTxt(c.need) : '–'}</small><b>${c.sal !== undefined ? prNumTxt(c.sal) : ''}</b></td>`; }).join('')}<td class="num ${ok ? 'pr-st-ok' : 'pr-st-late'}"><b>${ok ? '' : '−'}${prNumTxt(Math.abs(d.kurang))}</b></td><td>${esc(d.minus || '–')}</td><td class="num">${d.prQty ? prNumTxt(d.prQty) + (d.prFirst ? `<small>mulai ${esc(d.prFirst)}</small>` : '') : '–'}</td><td class="num${pe !== null && pe < -1e-9 ? ' pr-neg' : ''}">${pe === null ? '–' : `<b>${prNumTxt(d.prSal[d.prSal.length - 1])}</b>${pe < -1e-9 ? `<small>terdalam ${prNumTxt(pe)}</small>` : ''}`}</td></tr>`; }).join('')}</tbody></table>
+        <p class="lp-nt">Angka kecil = kebutuhan di kolom itu, angka tebal = saldo akhir kolom (sebelum PO telat / tanpa jadwal). Rincian per material di bawah.</p>`;
+    }
     const anyV3 = H.some((x) => x.data && x.data.v === 3);
     const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">${anyV3 ? 'Stok terkini = Stok awal + Incoming − Pemakaian MO (Plotting Harian) − ADD/FOH/RS sampai hari hitung. Kekurangan = Stok terkini + OS PO − Kebutuhan − ADD/FOH/RS sesudahnya. Kebutuhan bulan berjalan dari MO Plotting Harian per week; bulan berikutnya dari Plan bulan penuh (Banded/2in1/KIT tidak dihitung).' : 'Kekurangan = Stok awal + Incoming + OS PO − Kebutuhan − ADD/FOH/RS. Kebutuhan dari Kebutuhan Material s/d MPS terakhir.'} Angka minus di tabel = saldo kurang pada kolom itu.</p>`;
-    return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
+    return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page lp-print">${title}${sum}${blk}</section>` : `${title}${blk}`;
   }
   /* ---------- Lampiran Penggunaan Material: produk pemakai (BoM aktif) + Sell In L3M, dibekukan bersama Lampiran Perhitungan ---------- */
   function prUseHtml(g, print) {
@@ -7372,12 +7387,13 @@
     const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
     let months = null;
     const blk = rows.map((r) => {
-      const h = H.find((x) => x.kode === String(r.kode).trim()), d = h && h.data, U = d && d.use;
+      const h = H.find((x) => x.kode === String(r.kode).trim()), d = h && h.data; let U = d && d.use;
       const head = (chip) => `<div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc((d && d.nama) || r.nama)}</span>${chip}</div>`;
       if (!U) return `<div class="lp-card">${head('<span class="lp-chip is-muted">Belum dihitung</span>')}<p class="lp-empty">Klik "Perbarui lampiran" untuk menghitung penggunaan material.</p></div>`;
       months = months || U.months;
       const u = esc(d.uom || ''), act = U.rows.filter((x) => x.need > 0).length;
       U.rows = U.rows.filter((x) => x.need > 0 || (x.avg || 0) > 0);   // produk tanpa kebutuhan & tanpa Sell In tidak ditampilkan
+      let hidN = 0; if (print && U.rows.length > 8) { hidN = U.rows.length - 8; U = Object.assign({}, U, { rows: U.rows.slice(0, 8), more: (U.more || 0) + hidN }); }
       if (!U.rows.length) return `<div class="lp-card">${head('<span class="lp-chip is-muted">Tidak dipakai di BoM aktif SKU mana pun</span>')}</div>`;
       const ml = U.months.map((b) => `<th class="num">${monShort(b)} ${b.slice(2, 4)}</th>`).join('');
       const tb = U.rows.map((x) => `<tr${x.need > 0 ? '' : ' class="lp-dim"'}><td><b>${esc(x.sku)}</b><small>${esc(x.name)}</small></td><td>${esc(x.bom)}</td><td class="num">${prNumTxt(x.perTon)}</td><td class="num">${x.need > 0 ? `<b>${prNumTxt(x.need)}</b><small>${nf.format(Math.round(x.share * 100))}%</small>` : '–'}</td>${x.sell ? x.sell.map((v) => `<td class="num">${v ? nf.format(v) : '–'}</td>`).join('') + `<td class="num"><b>${x.avg ? nf.format(x.avg) : '–'}</b></td><td class="num">${x.setara ? `<b>${prNumTxt(x.setara)}</b>` : '–'}</td>` : `<td class="num" colspan="5">–</td>`}</tr>`).join('');
@@ -7389,7 +7405,7 @@
     }).join('');
     const ms = months ? months.map(monLabel) : [];
     const title = `<div class="pr-lamp-h"><b>Lampiran Penggunaan Material</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Produk yang memakai material ini menurut BoM aktif tiap SKU (termasuk lewat ekstrak/bulk). Kebutuhan = bagian produk itu dalam kebutuhan Lampiran Perhitungan. Sell In = DO Delivered CSL Personal Care + Beauty${ms.length ? ` (${esc(ms[0])} – ${esc(ms[ms.length - 1])})` : ''}, dalam pcs, 3 bulan penuh terakhir. Setara material = rata-rata Sell In × pemakaian material per pcs (BoM aktif), yaitu perkiraan material yang terpakai per bulan mengikuti kecepatan jual. Produk tanpa kebutuhan dan tanpa Sell In tidak ditampilkan. Baris abu-abu = tidak ada kebutuhan di rentang ini.</p>`;
-    return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page">${title}${blk}</section>` : `${title}${blk}`;
+    return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page lp-print lp-usep">${title}${blk}</section>` : `${title}${blk}`;
   }
   async function prHitungPayload(rows) {
     if (!(await mrpReady())) return null;

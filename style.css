@@ -2219,3 +2219,21 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .lp-use tr.lp-dim td { color: #8a959a; }
 .lp-use tfoot th { text-align: left; }
 #dlgBody .pl-mini td small { display: block; color: #6b7a72; font-size: 11px; }
+
+/* ---------- Lampiran PR versi cetak: ringkas (beberapa material per halaman) ---------- */
+.lp-print .lp-card { padding: 5px 8px; margin: 0 0 6px; }
+.lp-print .lp-head { margin-bottom: 2px; }
+.lp-eqt { margin: 2px 0 3px; font-size: 10.5px; line-height: 1.35; }
+.lp-nt { margin: 0 0 3px; font-size: 9.5px; color: #444; line-height: 1.35; }
+.lp-print .pr-hit { font-size: 9.5px; }
+.lp-print .pr-hit th, .lp-print .pr-hit td { padding: 2px 5px; }
+.lp-print .lp-how { font-size: 10px; margin: 0 0 6px; }
+.lp-sum { width: 100%; font-size: 9.5px; margin: 0 0 6px; border-collapse: collapse; }
+.lp-sum th, .lp-sum td { padding: 3px 5px; border-bottom: 1px solid #ddd; vertical-align: top; }
+.lp-sum th small, .lp-sum td small { display: block; font-weight: 400; color: #666; font-size: 8.5px; }
+.lp-sum td.num b { display: block; }
+.lp-sum td.pr-neg b { color: #a1231b; }
+.lp-usep .lp-card { break-inside: auto; page-break-inside: auto; }
+.lp-usep .lp-use { font-size: 9.5px; }
+.lp-usep .lp-use th, .lp-usep .lp-use td { padding: 2px 5px; }
+.lp-usep .lp-use tr { break-inside: avoid; page-break-inside: avoid; }
