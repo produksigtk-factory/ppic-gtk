@@ -2253,3 +2253,12 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .snap-box summary::-webkit-details-marker { display: none; }
 .inv-sumh { margin: 12px 0 4px; font-size: 13.5px; } .inv-sumh + .inv-sumc { margin-top: 0; border-top: 0; padding-top: 0; }
 #incTab { align-items: center; }
+
+/* Upload LIST_MO: pilihan jenis upload */
+.kf-mode{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line,#d8dde3);border-radius:8px;margin:8px 0;cursor:pointer}
+.kf-mode:has(input:checked){border-color:var(--accent,#2f6fdf);background:color-mix(in srgb,var(--accent,#2f6fdf) 7%,transparent)}
+.kf-mode input{margin-top:3px}
+.kf-mode span{display:flex;flex-direction:column;gap:2px}
+.kf-mode small{color:var(--muted,#667);line-height:1.4}
+.kf-manof{display:block;font-size:11px;color:var(--muted,#667)}
+.kfr-ek td{background:color-mix(in srgb,var(--muted,#888) 6%,transparent)}
