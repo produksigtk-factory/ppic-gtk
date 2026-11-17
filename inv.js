@@ -614,12 +614,11 @@
     $('invChartTitle').innerHTML = esc(I._title) + (I.chart ? ' <button type="button" class="btn-link" data-inv-chart="">kembali</button>' : '');
     if (!I.snaps.length) { box.innerHTML = '<p class="muted">Belum ada snapshot.</p>'; return; }
     const snaps = pickedSnaps(), all = I.snaps.map((m) => m.snap), dim = dimOf();
-    const M = movement(snaps);
+    // ringkasan & waterfall: 2 snapshot terakhir yang dipilih (tanggal terakhir vs tanggal sebelumnya); grafik garis/batang tetap semua snapshot dipilih
+    const s2 = snaps.slice(-2), M = movement(s2);
     const W = Math.round(box.clientWidth || 900);
-    const C = I.chart || I.ct === 'line' ? buildLine(W, snaps) : I.ct === 'bar' ? buildBar(W, snaps) : buildWater(W, snaps, M);
-    // ringkasan selalu membandingkan 2 snapshot terakhir yang dipilih (tanggal terakhir vs tanggal sebelumnya); grafik tetap semua snapshot dipilih
-    const MS = snaps.length > 2 ? movement(snaps.slice(-2)) : M;
-    I._chart = C; I._sum = sumLines(MS); I._snaps = snaps;
+    const C = I.chart || I.ct === 'line' ? buildLine(W, snaps) : I.ct === 'bar' ? buildBar(W, snaps) : buildWater(W, s2, M);
+    I._chart = C; I._sum = sumLines(M); I._snaps = snaps; I._sumAB = M ? `${fSnap(M.A)} → ${fSnap(M.B)}` : '';
     const dimSeg = I.ct !== 'line' && !I.chart ? `<div class="pj-seg" id="invBdim" role="group" aria-label="Kelompokkan per">${BDIM[I.kel].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === dim}">${t}</button>`).join('')}</div>` : '';
     const snapPick = `<details class="inv-pick" id="invSnapPick"${I.snapOpen ? ' open' : ''}><summary>Snapshot (${snaps.length}/${all.length})</summary><div class="inv-pa"><button type="button" class="btn-link" data-bsnap-all="1">Semua</button><button type="button" class="btn-link" data-bsnap-all="3">3 terakhir</button><button type="button" class="btn-link" data-bsnap-all="2">2 terakhir</button></div><div class="inv-pl">${all.slice().reverse().map((sn) => `<label><input type="checkbox" data-bsnap="${esc(sn)}"${snaps.includes(sn) ? ' checked' : ''}> ${esc(fSnap(sn))}</label>`).join('')}</div></details>`;
     let catPick = '';
@@ -632,7 +631,7 @@
     const note = I.ct === 'bar' && snaps.length > 1 ? `<span class="muted">Angka kanan = selisih ${esc(fDate(snaps[0].slice(0, 10)))} → ${esc(fDate(snaps[snaps.length - 1].slice(0, 10)))}</span>` : I.ct === 'wf' && M ? `<span class="muted">${esc(fDate(M.A.slice(0, 10)))} → ${esc(fDate(M.B.slice(0, 10)))}; maks. 10 ${esc(dimLbl(dim).toLowerCase())} dengan perubahan terbesar</span>` : '<span class="muted">Arahkan kursor ke grafik untuk rincian.</span>';
     box.innerHTML = `<div class="inv-bctl">${dimSeg}${snapPick}${catPick}</div><div class="inv-legend">${lg}${note}</div>
       ${C.empty && I.ct === 'bar' ? '<p class="muted">Pilih minimal satu kategori.</p>' : `<div class="inv-cbox"><svg viewBox="0 0 ${C.W} ${C.H}" width="${C.W}" height="${C.H}" role="img" aria-label="${esc(I._title)}">${C.body}</svg><div class="cslc-tip" id="invTip" hidden></div></div>`}
-      ${M ? `<ul class="inv-suml inv-sumc">${I._sum.map((l) => `<li class="${l.tone ? 'is-' + l.tone : ''}">${esc(l.t)}</li>`).join('')}</ul>` : '<p class="muted inv-sumn">Pilih minimal 2 snapshot untuk melihat ringkasan pergerakan.</p>'}`;
+      ${M ? `<p class="inv-sumh"><b>Ringkasan pergerakan</b> <span class="muted">${esc(I._sumAB)}</span></p><ul class="inv-suml inv-sumc">${I._sum.map((l) => `<li class="${l.tone ? 'is-' + l.tone : ''}">${esc(l.t)}</li>`).join('')}</ul>` : '<p class="muted inv-sumn">Pilih minimal 2 snapshot untuk melihat ringkasan pergerakan.</p>'}`;
     const svg = box.querySelector('svg'), tip = $('invTip');
     if (svg) {
       const place = (e, w) => { const r = box.querySelector('.inv-cbox').getBoundingClientRect(); tip.style.left = Math.min(e.clientX - r.left + 12, r.width - w) + 'px'; tip.style.top = (e.clientY - r.top + 12) + 'px'; tip.hidden = false; };
@@ -657,7 +656,7 @@
     const C = I._chart; if (!C || C.empty) return null;
     const W = 1600, PAD = 48, cw = W - PAD * 2;
     const snaps = I._snaps || [];
-    const C2 = I.chart || I.ct === 'line' ? buildLine(cw, snaps) : I.ct === 'bar' ? buildBar(cw, snaps) : buildWater(cw, snaps, movement(snaps));
+    const C2 = I.chart || I.ct === 'line' ? buildLine(cw, snaps) : I.ct === 'bar' ? buildBar(cw, snaps) : buildWater(cw, snaps.slice(-2), movement(snaps.slice(-2)));
     const sc = cw / C2.W;
     const sub = [`Stok ${KEL_LBL[I.kel]}`, snaps.length ? `${fSnap(snaps[0])}${snaps.length > 1 ? ' → ' + fSnap(snaps[snaps.length - 1]) : ''}` : '', `harga ${PM_LBL[I.pm]}`, I.ms === 'v' ? 'Value (Rp)' : 'Qty'].filter(Boolean).join(' · ');
     const wrap = (t, n) => { const w = t.split(' '), out = ['']; w.forEach((x) => { if ((out[out.length - 1] + ' ' + x).length > n && out[out.length - 1]) out.push(x); else out[out.length - 1] = (out[out.length - 1] + ' ' + x).trim(); }); return out; };
@@ -670,7 +669,7 @@
     s += `<g transform="translate(${PAD},${y}) scale(${sc})">${C2.body.replace(/<rect class="inv-hit"[^>]*\/>/g, '')}</g>`; y += C2.H * sc + 36;
     const lines = I._sum || [];
     if (lines.length) {
-      s += `<line x1="${PAD}" x2="${W - PAD}" y1="${y - 16}" y2="${y - 16}" stroke="#e1e6eb"/><text x="${PAD}" y="${y + 6}" style="font-size:20px;font-weight:700;fill:#1f2933">Ringkasan</text>`; y += 36;
+      s += `<line x1="${PAD}" x2="${W - PAD}" y1="${y - 16}" y2="${y - 16}" stroke="#e1e6eb"/><text x="${PAD}" y="${y + 6}" style="font-size:20px;font-weight:700;fill:#1f2933">Ringkasan pergerakan ${esc(I._sumAB || '')}</text>`; y += 36;
       lines.forEach((l) => {
         const col = l.tone === 'up' ? C_UP : l.tone === 'dn' ? C_DN : '#1f2933';
         wrap(l.t, 150).forEach((ln, i) => { s += `${i === 0 ? `<circle cx="${PAD + 6}" cy="${y - 6}" r="4" fill="${col}"/>` : ''}<text x="${PAD + 20}" y="${y}" style="font-size:17px;fill:${col}">${esc(ln)}</text>`; y += 25; });

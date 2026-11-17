@@ -2251,3 +2251,4 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .snap-box .inc-stack i + i { box-shadow: none; border-left: 2px solid #fff; }
 .snap-box summary { display: block; list-style: none; }
 .snap-box summary::-webkit-details-marker { display: none; }
+.inv-sumh { margin: 12px 0 4px; font-size: 13.5px; } .inv-sumh + .inv-sumc { margin-top: 0; border-top: 0; padding-top: 0; }
