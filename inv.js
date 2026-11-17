@@ -617,7 +617,9 @@
     const M = movement(snaps);
     const W = Math.round(box.clientWidth || 900);
     const C = I.chart || I.ct === 'line' ? buildLine(W, snaps) : I.ct === 'bar' ? buildBar(W, snaps) : buildWater(W, snaps, M);
-    I._chart = C; I._sum = sumLines(M); I._snaps = snaps;
+    // ringkasan selalu membandingkan 2 snapshot terakhir yang dipilih (tanggal terakhir vs tanggal sebelumnya); grafik tetap semua snapshot dipilih
+    const MS = snaps.length > 2 ? movement(snaps.slice(-2)) : M;
+    I._chart = C; I._sum = sumLines(MS); I._snaps = snaps;
     const dimSeg = I.ct !== 'line' && !I.chart ? `<div class="pj-seg" id="invBdim" role="group" aria-label="Kelompokkan per">${BDIM[I.kel].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === dim}">${t}</button>`).join('')}</div>` : '';
     const snapPick = `<details class="inv-pick" id="invSnapPick"${I.snapOpen ? ' open' : ''}><summary>Snapshot (${snaps.length}/${all.length})</summary><div class="inv-pa"><button type="button" class="btn-link" data-bsnap-all="1">Semua</button><button type="button" class="btn-link" data-bsnap-all="3">3 terakhir</button><button type="button" class="btn-link" data-bsnap-all="2">2 terakhir</button></div><div class="inv-pl">${all.slice().reverse().map((sn) => `<label><input type="checkbox" data-bsnap="${esc(sn)}"${snaps.includes(sn) ? ' checked' : ''}> ${esc(fSnap(sn))}</label>`).join('')}</div></details>`;
     let catPick = '';
