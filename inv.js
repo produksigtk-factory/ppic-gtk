@@ -649,8 +649,9 @@
   }
 
   /* Unduh JPG: judul + subjudul + legenda + grafik + ringkasan, siap tempel ke PowerPoint */
-  function exportJpg() {
-    const C = I._chart; if (!C || C.empty) { toast('Belum ada grafik untuk diunduh.'); return; }
+  // Gambar grafik + ringkasan → canvas (dipakai Unduh JPG dan Salin gambar)
+  function chartCanvas() {
+    const C = I._chart; if (!C || C.empty) return null;
     const W = 1600, PAD = 48, cw = W - PAD * 2;
     const snaps = I._snaps || [];
     const C2 = I.chart || I.ct === 'line' ? buildLine(cw, snaps) : I.ct === 'bar' ? buildBar(cw, snaps) : buildWater(cw, snaps, movement(snaps));
@@ -678,19 +679,30 @@
     const css = `text{font-family:Inter,'Segoe UI',Arial,sans-serif}.cslc-grid{stroke:#e7ebf0;stroke-width:1}.cslc-ax{fill:#6b7684;font-size:11px}.inv-bl{fill:#1f2933;font-size:12px}.inv-bv{fill:#6b7684;font-size:11px}.inv-bd{font-size:12px;font-weight:600}.inv-bd.inv-up{fill:${C_UP}}.inv-bd.inv-dn{fill:${C_DN}}.inv-bd.muted{fill:#6b7684}`;
     const H = Math.ceil(y);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>${css}</style><rect width="${W}" height="${H}" fill="#fff"/>${s}</svg>`;
-    const img = new Image();
-    img.onload = () => {
-      const cv = document.createElement('canvas'), k = 2; cv.width = W * k; cv.height = H * k;
-      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.scale(k, k); cx.drawImage(img, 0, 0);
-      cv.toBlob((b) => {
-        const a = document.createElement('a'); a.href = URL.createObjectURL(b);
-        const tag = (snaps.length ? snaps[0].slice(5, 10) + (snaps.length > 1 ? '_' + snaps[snaps.length - 1].slice(5, 10) : '') : '').replace(/-/g, '');
-        a.download = `Inventory_${I.kel === 'FG' ? 'FG' : 'Material'}_${I.ct === 'bar' ? 'batang' : I.ct === 'wf' ? 'waterfall' : 'garis'}_${tag}.jpg`;
-        document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-      }, 'image/jpeg', 0.95);
-    };
-    img.onerror = () => toast('Gagal membuat gambar.');
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    const tag = (snaps.length ? snaps[0].slice(5, 10) + (snaps.length > 1 ? '_' + snaps[snaps.length - 1].slice(5, 10) : '') : '').replace(/-/g, '');
+    const name = `Inventory_${I.kel === 'FG' ? 'FG' : 'Material'}_${I.ct === 'bar' ? 'batang' : I.ct === 'wf' ? 'waterfall' : 'garis'}_${tag}.jpg`;
+    const cv = new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas'), k = 2; c.width = W * k; c.height = H * k;
+        const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height); cx.scale(k, k); cx.drawImage(img, 0, 0);
+        res(c);
+      };
+      img.onerror = () => rej(new Error('Gagal membuat gambar.'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+    return { cv, name };
+  }
+  function exportJpg() {
+    const X = chartCanvas(); if (!X) { toast('Belum ada grafik untuk diunduh.'); return; }
+    X.cv.then((cv) => cv.toBlob((b) => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = X.name;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }, 'image/jpeg', 0.95)).catch((e) => toast(e.message));
+  }
+  function copyImg() {
+    const X = chartCanvas(); if (!X) { toast('Belum ada grafik untuk disalin.'); return; }
+    window.copyCanvasImage(X.cv);
   }
 
   /* ---------- Excel ---------- */
@@ -888,6 +900,7 @@
       const sa = e.target.closest('[data-bsnap-all]'); if (sa) { const all = I.snaps.map((m) => m.snap), v = sa.dataset.bsnapAll; I.bsnaps = v === '1' ? all : all.slice(-Number(v)); I.snapOpen = true; renderChart(); }
     });
     $('invJpg').addEventListener('click', exportJpg);
+    $('invCopy').addEventListener('click', copyImg);
     $('invCt').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === I.ct) return; I.ct = b.dataset.v; savePref(); renderChart(); });
     $('invMs').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; I.ms = b.dataset.v; savePref(); renderChart(); });
     $('invBrand').addEventListener('change', () => { I.brand = $('invBrand').value; I.jenis = ''; render(); });

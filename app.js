@@ -7654,6 +7654,14 @@
   });
   function renderPrViews() { if (state.routeKey === 'pr/rekap') renderPrRekap(); if (state.routeKey === 'pr/form') prEnter(); }
 
+  // Salin gambar (canvas) ke clipboard sebagai PNG. cvP: Promise<canvas>. Dipanggil langsung dari klik (izin clipboard).
+  window.copyCanvasImage = (cvP) => {
+    const blobP = Promise.resolve(cvP).then((cv) => new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Gagal membuat gambar.'))), 'image/png')));
+    if (!navigator.clipboard || !window.ClipboardItem) { toast('Browser ini belum bisa menyalin gambar. Pakai Unduh JPG.'); return; }
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blobP })])
+      .then(() => toast('Gambar tersalin. Tempel (Ctrl+V) di PowerPoint, email, atau WhatsApp.'))
+      .catch((e) => toast('Gagal menyalin gambar: ' + (e && e.message ? e.message : e) + '. Pakai Unduh JPG.'));
+  };
   window.PPIC_UI = { openDialog, toast, esc, fmtDate, todayStr, ymd, fld, workdaysSince };
   route();
   loadData();

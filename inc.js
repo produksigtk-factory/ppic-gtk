@@ -266,8 +266,8 @@
       ${showF ? `<td class="num">${fPct(ratio(x.inc, x.fct))}</td>` : ''}<td class="num">${fPct(ratio(x.inc, x.so))}</td><td class="num">${fPct(ratio(x.inc, x.do))}</td></tr>`;
     const wait = !I.csl.pc && !I.csl.err ? '<p class="check">Memuat SO / DO dari CSL…</p>' : I.csl.err ? `<p class="check err">SO / DO belum terbaca: ${esc(I.csl.err)}</p>` : '';
     return `<div class="toolbar"><label class="tb-field tb-narrow"><span class="sr">Tahun</span><select id="incYear">${years.map((y) => `<option${y === I.year ? ' selected' : ''}>${y}</option>`).join('')}</select></label></div>${wait}
-      <section class="inv-card" id="incChart1"><div class="inv-ch"><h3>Materials incoming ${I.kel ? KEL[I.kel] : 'Personal Care + Beauty'} ${I.year}</h3><button type="button" class="btn btn-sm" data-inc-jpg="incChart1">Unduh JPG</button></div>${barChart(D, showF)}</section>
-      <section class="inv-card" id="incChart2"><div class="inv-ch"><h3>Value incoming RM vs PM ${I.year}</h3><button type="button" class="btn btn-sm" data-inc-jpg="incChart2">Unduh JPG</button></div>${lineChart(D)}</section>
+      <section class="inv-card" id="incChart1"><div class="inv-ch"><h3>Materials incoming ${I.kel ? KEL[I.kel] : 'Personal Care + Beauty'} ${I.year}</h3><span class="inc-imgb"><button type="button" class="btn btn-sm btn-ghost" data-inc-copy="incChart1" title="Salin gambar grafik, lalu tempel (Ctrl+V) di PowerPoint / email / WhatsApp">Salin gambar</button><button type="button" class="btn btn-sm" data-inc-jpg="incChart1">Unduh JPG</button></span></div>${barChart(D, showF)}</section>
+      <section class="inv-card" id="incChart2"><div class="inv-ch"><h3>Value incoming RM vs PM ${I.year}</h3><span class="inc-imgb"><button type="button" class="btn btn-sm btn-ghost" data-inc-copy="incChart2" title="Salin gambar grafik, lalu tempel (Ctrl+V) di PowerPoint / email / WhatsApp">Salin gambar</button><button type="button" class="btn btn-sm" data-inc-jpg="incChart2">Unduh JPG</button></span></div>${lineChart(D)}</section>
       <section class="inv-card"><h3>Rekap per bulan</h3><div class="table-wrap"><table class="po-table inv-t">${head([['Bulan'], ['Incoming', 'num'], ['RM', 'num'], ['PM', 'num']].concat(showF ? [['Forecast', 'num']] : [], [['SO', 'num'], ['DO', 'num']], showF ? [['% thd FCT', 'num']] : [], [['% thd SO', 'num'], ['% thd DO', 'num']]))}
         <tbody>${D.map((x) => rowH(x)).join('')}${D.length ? rowH(T, 'Total') : ''}</tbody></table></div>
         <p class="hint">Incoming = value penerimaan Received (Jan–Jun 2026 dari file report, Juli dst. dari Odoo + manual). SO dan DO dari ${I.kel === 'PC' ? 'CSL Personal Care' : I.kel === 'BEAUTY' ? 'CSL Beauty' : 'CSL Personal Care + CSL Beauty'}; DO = semua DO terkirim di bulan itu (DO + OS). Forecast dari CSL Personal Care.</p></section>`;
@@ -439,9 +439,15 @@
     add('PER BULAN', [['BULAN', 'INCOMING', 'RM', 'PM', 'FORECAST', 'SO', 'DO', '% THD FCT', '% THD SO', '% THD DO']].concat(D.map((x) => [x.m, x.inc, x.rm, x.pm, x.fct, x.so, x.do, ratio(x.inc, x.fct) || '', ratio(x.inc, x.so) || '', ratio(x.inc, x.do) || ''])));
     XLSX.writeFile(wb, `Incoming_RMPM_${I.kel || 'Semua'}_${I.tab === 'grafik' ? I.year : I.m}.xlsx`);
   }
-  async function toJpg(id) {
-    const card = $(id); if (!card) return;
-    const svg = card.querySelector('svg'); if (!svg) return;
+  function toJpg(id, copy) {
+    const P2 = incCanvas(id); if (!P2) return Promise.resolve();
+    if (copy) { window.copyCanvasImage(P2.then((x) => x.cv)); return Promise.resolve(); }
+    return P2.then(({ cv, title }) => { const a = document.createElement('a'); a.href = cv.toDataURL('image/jpeg', 0.95); a.download = `${title.replace(/[^\w ]+/g, '').replace(/\s+/g, '_')}.jpg`; a.click(); });
+  }
+  function incCanvas(id) {
+    const card = $(id); if (!card) return null;
+    const svg = card.querySelector('svg'); if (!svg) return null;
+    return (async () => {
     const title = card.querySelector('h3').textContent, leg = [...card.querySelectorAll('.inc-leg span')].map((s) => [s.querySelector('i').style.background, s.textContent]);
     const vb = svg.viewBox.baseVal, sc = 2, W = vb.width, H = vb.height + 70;
     const clone = svg.cloneNode(true);
@@ -456,7 +462,8 @@
     g.fillStyle = '#0f4d2c'; g.font = 'bold 18px Arial'; g.fillText(title, 14, 28);
     let lx = 14; g.font = '13px Arial'; leg.forEach(([c, t]) => { g.fillStyle = c; g.fillRect(lx, 42, 12, 12); g.fillStyle = '#333'; g.fillText(t, lx + 17, 53); lx += g.measureText(t).width + 40; });
     g.drawImage(img, 0, 66, vb.width, vb.height);
-    const a = document.createElement('a'); a.href = cv.toDataURL('image/jpeg', 0.95); a.download = `${title.replace(/[^\w ]+/g, '').replace(/\s+/g, '_')}.jpg`; a.click();
+    return { cv, title };
+    })();
   }
 
   /* ---------- Event ---------- */
@@ -479,6 +486,7 @@
       const dl = e.target.closest('[data-inc-del]'); if (dl) { deleteManual(dl.dataset.incDel); return; }
       const re = e.target.closest('[data-inc-redit]'); if (re) { const k = re.dataset.incRedit, box = document.querySelector(`[data-inc-rbox="${CSS.escape(k)}"]`); box.innerHTML = `<input type="text" class="inc-reason" data-inc-reason="${esc(k)}" value="${esc(I.reason.get(`${I.m}|${I.kel || 'ALL'}|${k}`) || '')}" placeholder="Alasan incoming besar… (Enter untuk simpan)">`; box.querySelector('input').focus(); return; }
       const j = e.target.closest('[data-inc-jpg]'); if (j) { toJpg(j.dataset.incJpg).catch((er) => toast('Gagal membuat JPG: ' + er.message)); }
+      const cp = e.target.closest('[data-inc-copy]'); if (cp) toJpg(cp.dataset.incCopy, true);
     });
     $('view-rep-inc').addEventListener('change', async (e) => {
       if (e.target.id === 'incYear') { I.year = e.target.value; render(); return; }

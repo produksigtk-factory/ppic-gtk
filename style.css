@@ -2237,3 +2237,4 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .lp-usep .lp-use { font-size: 9.5px; }
 .lp-usep .lp-use th, .lp-usep .lp-use td { padding: 2px 5px; }
 .lp-usep .lp-use tr { break-inside: avoid; page-break-inside: avoid; }
+.inc-imgb { display: inline-flex; gap: 6px; }
