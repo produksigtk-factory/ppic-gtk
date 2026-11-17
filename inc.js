@@ -268,7 +268,7 @@
     return `<div class="toolbar"><label class="tb-field tb-narrow"><span class="sr">Tahun</span><select id="incYear">${years.map((y) => `<option${y === I.year ? ' selected' : ''}>${y}</option>`).join('')}</select></label></div>${wait}
       <section class="inv-card" id="incChart1"><div class="inv-ch"><h3>Materials incoming ${I.kel ? KEL[I.kel] : 'Personal Care + Beauty'} ${I.year}</h3><span class="inc-imgb"><button type="button" class="btn btn-sm btn-ghost" data-inc-copy="incChart1" title="Salin gambar grafik, lalu tempel (Ctrl+V) di PowerPoint / email / WhatsApp">Salin gambar</button><button type="button" class="btn btn-sm" data-inc-jpg="incChart1">Unduh JPG</button></span></div>${barChart(D, showF)}</section>
       <section class="inv-card" id="incChart2"><div class="inv-ch"><h3>Value incoming RM vs PM ${I.year}</h3><span class="inc-imgb"><button type="button" class="btn btn-sm btn-ghost" data-inc-copy="incChart2" title="Salin gambar grafik, lalu tempel (Ctrl+V) di PowerPoint / email / WhatsApp">Salin gambar</button><button type="button" class="btn btn-sm" data-inc-jpg="incChart2">Unduh JPG</button></span></div>${lineChart(D)}</section>
-      <section class="inv-card"><h3>Rekap per bulan</h3><div class="table-wrap"><table class="po-table inv-t">${head([['Bulan'], ['Incoming', 'num'], ['RM', 'num'], ['PM', 'num']].concat(showF ? [['Forecast', 'num']] : [], [['SO', 'num'], ['DO', 'num']], showF ? [['% thd FCT', 'num']] : [], [['% thd SO', 'num'], ['% thd DO', 'num']]))}
+      <section class="inv-card" id="incRekap"><div class="inv-ch"><h3>Rekap per bulan ${I.kel ? KEL[I.kel] : 'Personal Care + Beauty'} ${I.year}</h3><span class="inc-imgb"><button type="button" class="btn btn-sm btn-ghost" data-inc-tcopy="incRekap" title="Salin tabel sebagai gambar, lalu tempel (Ctrl+V) di PowerPoint / email / WhatsApp">Salin gambar</button><button type="button" class="btn btn-sm" data-inc-tjpg="incRekap">Unduh JPG</button></span></div><div class="table-wrap"><table class="po-table inv-t">${head([['Bulan'], ['Incoming', 'num'], ['RM', 'num'], ['PM', 'num']].concat(showF ? [['Forecast', 'num']] : [], [['SO', 'num'], ['DO', 'num']], showF ? [['% thd FCT', 'num']] : [], [['% thd SO', 'num'], ['% thd DO', 'num']]))}
         <tbody>${D.map((x) => rowH(x)).join('')}${D.length ? rowH(T, 'Total') : ''}</tbody></table></div>
         <p class="hint">Incoming = value penerimaan Received (Jan–Jun 2026 dari file report, Juli dst. dari Odoo + manual). SO dan DO dari ${I.kel === 'PC' ? 'CSL Personal Care' : I.kel === 'BEAUTY' ? 'CSL Beauty' : 'CSL Personal Care + CSL Beauty'}; DO = semua DO terkirim di bulan itu (DO + OS). Forecast dari CSL Personal Care.</p></section>`;
   }
@@ -498,6 +498,15 @@
       const re = e.target.closest('[data-inc-redit]'); if (re) { const k = re.dataset.incRedit, box = document.querySelector(`[data-inc-rbox="${CSS.escape(k)}"]`); box.innerHTML = `<input type="text" class="inc-reason" data-inc-reason="${esc(k)}" value="${esc(I.reason.get(`${I.m}|${I.kel || 'ALL'}|${k}`) || '')}" placeholder="Alasan incoming besar… (Enter untuk simpan)">`; box.querySelector('input').focus(); return; }
       const j = e.target.closest('[data-inc-jpg]'); if (j) { toJpg(j.dataset.incJpg).catch((er) => toast('Gagal membuat JPG: ' + er.message)); }
       const cp = e.target.closest('[data-inc-copy]'); if (cp) toJpg(cp.dataset.incCopy, true);
+      // kartu tabel (Rekap per bulan) → gambar
+      const tc = e.target.closest('[data-inc-tcopy], [data-inc-tjpg]');
+      if (tc) {
+        const card = $(tc.dataset.incTcopy || tc.dataset.incTjpg); if (!card) return;
+        const c = card.cloneNode(true); c.querySelectorAll('.inc-imgb').forEach((x) => x.remove());
+        const ttl = card.querySelector('h3').textContent, P2 = window.domToCanvas([c], { title: 'Incoming RMPM', width: 1300 });
+        if (tc.dataset.incTcopy) window.copyCanvasImage(P2);
+        else { toast('Menyiapkan gambar…'); P2.then((cv) => { const a = document.createElement('a'); a.href = cv.toDataURL('image/jpeg', 0.95); a.download = `${ttl.replace(/[^\w ]+/g, '').replace(/\s+/g, '_')}.jpg`; a.click(); }).catch((er) => toast(er.message)); }
+      }
     });
     $('view-rep-inc').addEventListener('change', async (e) => {
       if (e.target.id === 'incYear') { I.year = e.target.value; render(); return; }
