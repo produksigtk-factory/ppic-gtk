@@ -5482,7 +5482,10 @@
     $('phTall').textContent = P.phTall ? 'Ringkas papan' : 'Perbesar papan';
     $('phDays').innerHTML = days.map((d) => { const L = inWk.filter((r) => r.tgl === d); return `<div class="ph-day${d === todayStr() ? ' is-today' : ''}" data-day="${d}"><div class="ph-dh"><b>${esc(dayLbl(d))}</b><small>${L.length} MO · ${tot(L)}</small></div><div class="ph-list">${L.map(chip).join('') || '<p class="ph-empty">–</p>'}</div></div>`; }).join('');
     phPaintUn();
-    // Kebutuhan & saldo per hari
+    // Kebutuhan & saldo per hari (atau bulan berikutnya dari Plan bulan)
+    document.querySelectorAll('#phView [data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === (P.phView || 'day'))));
+    $('phBasis').hidden = $('phInclUn').closest('label').hidden = P.phView === 'next';
+    if (P.phView === 'next') { renderHarianNext(); return; }
     const H = harianCalc(wk, basis); P.ph = H;
     const show = $('phShow').value;
     let rows = H.rows;
@@ -5499,6 +5502,35 @@
       return `<td class="num m-start${o ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${i}"${o ? ' title="Klik untuk rincian"' : ''}>${o ? fmtQ(o) : ''}${i === 0 && P.phInclUn && r.un ? `<small class="ph-unin">−${fmtQ(r.un)} blm dijadwalkan</small>` : ''}${r.inc[i] ? `<small class="ph-in">+${fmtQ(r.inc[i])}</small>` : ''}</td><td class="num ${s2 !== null && s2 < -1e-9 ? 'pl-neg' : ''}">${s2 === null ? '–' : fmtQ(s2)}</td>`; };
     $('phRows').innerHTML = rows.slice(0, 1500).map((r) => `<tr>${matCell(r.code, r.name, (r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '') + phPoTag(r))}<td class="num ph-open">${r.open === null ? '–' : fmtQ(r.open)}</td>${days.map((d, i) => cell(r, i)).join('')}<td class="num m-start ph-unc${r.un ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${days.length}"${r.un ? ' title="Klik untuk rincian"' : ''}>${r.un ? fmtQ(r.un) : ''}</td><td class="num ph-end${r.end !== null && r.end < -1e-9 ? ' pl-neg' : ''}">${r.end === null ? '–' : fmtQ(r.end)}</td></tr>`).join('')
       || `<tr class="empty"><td colspan="${4 + days.length * 2}">${show === 'short' ? 'Tidak ada material yang kurang di week ini.' : 'Tidak ada kebutuhan material di week ini.'}</td></tr>`;
+  }
+  /* Plotting Harian · bulan berikutnya: saldo akhir bulan berjalan (MO harian) lalu Plan bulan tiap bulan berikutnya — sama dengan Lampiran PR */
+  function renderHarianNext() {
+    P.ph = null;
+    const B = stkBase(), mi = B.cols.map((c, i) => i).filter((i) => B.cols[i].kind === 'm'), lastW = B.cols.map((c) => c.kind).lastIndexOf('w');
+    const show = $('phShow').value, qm = $('phMQ').value.trim().toLowerCase();
+    if (!mi.length) {
+      $('phInfo').innerHTML = 'Belum ada Plan bulan untuk bulan-bulan berikutnya. Isi kolom Plan bulan di Rencana Produksi.';
+      $('phHead').innerHTML = ''; $('phRows').innerHTML = ''; P.phNext = null; return;
+    }
+    const rows = [];
+    B.M.forEach((o, code) => {
+      if (isFg(code) || kfIsEk(code) || !mi.some((i) => o.w[i] > 1e-9)) return;
+      const d = prCalc(code, 'all', []); if (!d) return;
+      const open = lastW >= 0 ? d.cols[lastW].sal : d.stok;
+      const fi = mi.find((i) => d.cols[i].sal < -1e-9);
+      rows.push({ code, name: d.nama || code, uom: d.uom, d, open, short: fi === undefined ? -1 : fi, deep: Math.min(0, ...mi.map((i) => d.cols[i].sal)), ln: d.poLate + d.poNone });
+    });
+    let L = rows.filter((r) => !qm || (r.code + ' ' + r.name).toLowerCase().includes(qm));
+    if (show === 'short') L = L.filter((r) => r.short >= 0);
+    L.sort((a, b) => (a.short < 0) - (b.short < 0) || a.short - b.short || a.deep - b.deep || a.code.localeCompare(b.code, 'id', { numeric: true }));
+    P.phNext = { B, mi, rows: L };
+    const nS = rows.filter((r) => r.short >= 0).length;
+    $('phInfo').innerHTML = `${nf.format(L.length)} material · <b>${nS}</b> akan kurang · saldo awal = saldo akhir ${esc(monLabel(B.cur))} (stok terkini − MO Plotting Harian + PO terjadwal), lalu Plan bulan × BoM aktif (Banded/2in1/KIT tidak dihitung) — sama dengan Lampiran PR & Proyeksi Stok mode Stok terkini`;
+    $('phHead').innerHTML = `<tr><th class="pl-sticky pl-c1" rowspan="2">Material</th><th class="num ph-open" rowspan="2" title="Saldo setelah semua MO Plotting Harian bulan berjalan dan PO terjadwal s/d akhir bulan">Saldo akhir<br>${esc(monShort(B.cur))} ${B.cur.slice(2, 4)}</th>${mi.map((i) => `<th class="num m-start" colspan="3">${esc(B.cols[i].lf)} <small>(Plan bulan)</small></th>`).join('')}<th class="num m-start" rowspan="2" title="PO yang jadwalnya sudah lewat atau belum dijadwalkan; tidak menambah saldo">PO telat /<br>tanpa jadwal</th><th rowspan="2">Mulai kurang</th></tr>
+      <tr>${mi.map(() => '<th class="num m-start ph-sub">Kebutuhan</th><th class="num ph-sub">PO</th><th class="num ph-sub">Saldo</th>').join('')}</tr>`;
+    const f0 = (v) => (Math.abs(v) > 1e-9 ? fmtQ(v) : '');
+    $('phRows').innerHTML = L.slice(0, 1500).map((r) => `<tr data-next="${esc(r.code)}">${matCell(r.code, r.name, r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '')}<td class="num ph-open${r.open < -1e-9 ? ' pl-neg' : ''}">${fmtQ(r.open)}</td>${mi.map((i) => { const c = r.d.cols[i]; return `<td class="num m-start${c.need ? ' ph-out' : ''}" data-nx="${esc(r.code)}" title="Klik untuk rincian per SKU">${f0(c.need + c.add)}</td><td class="num">${f0(c.po) ? `<span class="ph-in">+${f0(c.po)}</span>` : ''}</td><td class="num${c.sal < -1e-9 ? ' pl-neg' : ''}"><b>${fmtQ(c.sal)}</b></td>`; }).join('')}<td class="num m-start">${f0(r.ln)}</td><td>${r.open < -1e-9 ? `<span class="badge b-late" title="Saldo sudah minus sebelum bulan berikutnya">${esc(monLabel(B.cur))}</span>` : r.short >= 0 ? `<span class="badge b-late">${esc(r.d.cols[r.short].lf)}</span>` : '<span class="badge b-done">Aman</span>'}</td></tr>`).join('')
+      || `<tr class="empty"><td colspan="${4 + mi.length * 3}">${show === 'short' ? 'Tidak ada material yang kurang di bulan berikutnya.' : 'Tidak ada kebutuhan dari Plan bulan.'}</td></tr>`;
   }
   // PO atas material (dari Monitoring PO): penanda di kolom material + rincian saat material diketuk
   const phPoOpen = (po) => (po ? po.list.filter((x) => x.sisa > 1e-9) : []);
@@ -5586,7 +5618,8 @@
       onSubmit: async () => '',
     });
   }
-  $('phRows').addEventListener('click', (e) => { const td = e.target.closest('td.ph-out'); if (td) phOutDialog(td.dataset.c, Number(td.dataset.i)); });
+  $('phRows').addEventListener('click', (e) => { const nx = e.target.closest('td[data-nx]'); if (nx) { openNowDetail(nx.dataset.nx); return; } const td = e.target.closest('td.ph-out'); if (td) phOutDialog(td.dataset.c, Number(td.dataset.i)); });
+  $('phView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === (P.phView || 'day')) return; P.phView = b.dataset.v; renderHarian(); });
   function phDateDialog(no) {
     const r = kfGet(no); if (!r) return;
     openDialog({
@@ -5661,6 +5694,14 @@
     toast(d.dataset.day ? `${no} → ${dayLbl(d.dataset.day)}` : `${no} dikembalikan ke Belum diplot`);
   });
   $('phExport').addEventListener('click', () => {
+    if (P.phView === 'next') {
+      const N = P.phNext; if (!N || !N.rows.length) return;
+      const data = N.rows.map((r) => { const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, [`SALDO AKHIR ${monLabel(N.B.cur).toUpperCase()}`]: round4(r.open) };
+        N.mi.forEach((i) => { const c = r.d.cols[i], k = c.lf.toUpperCase(); o[k + ' KEBUTUHAN'] = round4(c.need + c.add); o[k + ' PO'] = round4(c.po); o[k + ' SALDO'] = round4(c.sal); });
+        o['PO TELAT/TANPA JADWAL'] = round4(r.ln); o['MULAI KURANG'] = r.short >= 0 ? r.d.cols[r.short].lf : ''; return o; });
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Bulan berikutnya');
+      XLSX.writeFile(wb, `Kebutuhan_Plan_Bulan_${todayStr()}.xlsx`); return;
+    }
     const H = P.ph; if (!H || !H.rows.length) return;
     const data = H.rows.map((r) => { const o = { KODE: r.code, NAMA: r.name, UoM: r.uom, 'SALDO AWAL': round4(r.open) };
       H.days.forEach((d, i) => { const k = dayLbl(d).toUpperCase(); o[k + ' KEBUTUHAN'] = round4(r.need[i]); o[k + ' INCOMING'] = round4(r.inc[i]); o[k + ' ADD/FOH/RS'] = round4(r.out[i]); o[k + ' SALDO'] = round4(r.sal[i]); });
