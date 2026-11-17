@@ -5491,6 +5491,7 @@
     let rows = H.rows;
     const qm = $('phMQ').value.trim().toLowerCase();
     if (qm) rows = rows.filter((r) => (r.code + ' ' + r.name).toLowerCase().includes(qm));
+    rows = rows.filter(phGrpOk);
     if (show === 'short') rows = rows.filter((r) => r.short >= 0);
     rows.sort((a, b) => (a.short < 0) - (b.short < 0) || a.short - b.short || a.code.localeCompare(b.code, 'id', { numeric: true }));
     $('phInfo').innerHTML = H.j === undefined ? 'Week ini di luar data week (PEMBAGIAN_WEEK).'
@@ -5503,6 +5504,9 @@
     $('phRows').innerHTML = rows.slice(0, 1500).map((r) => `<tr>${matCell(r.code, r.name, (r.uom ? `<span class="pj-uom">${esc(r.uom)}</span>` : '') + phPoTag(r))}<td class="num ph-open">${r.open === null ? '–' : fmtQ(r.open)}</td>${days.map((d, i) => cell(r, i)).join('')}<td class="num m-start ph-unc${r.un ? ' ph-out' : ''}" data-c="${esc(r.code)}" data-i="${days.length}"${r.un ? ' title="Klik untuk rincian"' : ''}>${r.un ? fmtQ(r.un) : ''}</td><td class="num ph-end${r.end !== null && r.end < -1e-9 ? ' pl-neg' : ''}">${r.end === null ? '–' : fmtQ(r.end)}</td></tr>`).join('')
       || `<tr class="empty"><td colspan="${4 + days.length * 2}">${show === 'short' ? 'Tidak ada material yang kurang di week ini.' : 'Tidak ada kebutuhan material di week ini.'}</td></tr>`;
   }
+  // Filter RM / PM (kategori material di Daftar Material: "RM (…)", "PM (…)")
+  const phGrp = (code) => { const t = String((MRP.master.get(code) || {}).kat || '').trim().toUpperCase(); return t.startsWith('RM') ? 'RM' : t.startsWith('PM') ? 'PM' : 'X'; };
+  const phGrpOk = (r) => { const g = $('phGrp').value; return !g || phGrp(r.code) === g; };
   /* Plotting Harian · bulan berikutnya: saldo akhir bulan berjalan (MO harian) lalu Plan bulan tiap bulan berikutnya — sama dengan Lampiran PR */
   function renderHarianNext() {
     P.ph = null;
@@ -5520,11 +5524,11 @@
       const fi = mi.find((i) => d.cols[i].sal < -1e-9);
       rows.push({ code, name: d.nama || code, uom: d.uom, d, open, short: fi === undefined ? -1 : fi, deep: Math.min(0, ...mi.map((i) => d.cols[i].sal)), ln: d.poLate + d.poNone });
     });
-    let L = rows.filter((r) => !qm || (r.code + ' ' + r.name).toLowerCase().includes(qm));
+    let L = rows.filter((r) => (!qm || (r.code + ' ' + r.name).toLowerCase().includes(qm)) && phGrpOk(r));
     if (show === 'short') L = L.filter((r) => r.short >= 0);
     L.sort((a, b) => (a.short < 0) - (b.short < 0) || a.short - b.short || a.deep - b.deep || a.code.localeCompare(b.code, 'id', { numeric: true }));
     P.phNext = { B, mi, rows: L };
-    const nS = rows.filter((r) => r.short >= 0).length;
+    const nS = rows.filter((r) => phGrpOk(r) && (r.short >= 0 || r.open < -1e-9)).length;
     $('phInfo').innerHTML = `${nf.format(L.length)} material · <b>${nS}</b> akan kurang · saldo awal = saldo akhir ${esc(monLabel(B.cur))} (stok terkini − MO Plotting Harian + PO terjadwal), lalu Plan bulan × BoM aktif (Banded/2in1/KIT tidak dihitung) — sama dengan Lampiran PR & Proyeksi Stok mode Stok terkini`;
     $('phHead').innerHTML = `<tr><th class="pl-sticky pl-c1" rowspan="2">Material</th><th class="num ph-open" rowspan="2" title="Saldo setelah semua MO Plotting Harian bulan berjalan dan PO terjadwal s/d akhir bulan">Saldo akhir<br>${esc(monShort(B.cur))} ${B.cur.slice(2, 4)}</th>${mi.map((i) => `<th class="num m-start" colspan="3">${esc(B.cols[i].lf)} <small>(Plan bulan)</small></th>`).join('')}<th class="num m-start" rowspan="2" title="PO yang jadwalnya sudah lewat atau belum dijadwalkan; tidak menambah saldo">PO telat /<br>tanpa jadwal</th><th rowspan="2">Mulai kurang</th></tr>
       <tr>${mi.map(() => '<th class="num m-start ph-sub">Kebutuhan</th><th class="num ph-sub">PO</th><th class="num ph-sub">Saldo</th>').join('')}</tr>`;
@@ -5619,6 +5623,7 @@
     });
   }
   $('phRows').addEventListener('click', (e) => { const nx = e.target.closest('td[data-nx]'); if (nx) { openNowDetail(nx.dataset.nx); return; } const td = e.target.closest('td.ph-out'); if (td) phOutDialog(td.dataset.c, Number(td.dataset.i)); });
+  $('phGrp').addEventListener('change', renderHarian);
   $('phView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === (P.phView || 'day')) return; P.phView = b.dataset.v; renderHarian(); });
   function phDateDialog(no) {
     const r = kfGet(no); if (!r) return;
