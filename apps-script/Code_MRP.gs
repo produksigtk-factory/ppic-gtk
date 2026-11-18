@@ -35,6 +35,7 @@ const MRP_CONFIG = {
   RAKITAN_SHEET: 'BOM_RAKITAN',
   PAKAI_SHEET: 'BOM_RAKITAN_PAKAI',
   KURANG_SHEET: 'PENGURANGAN_MANUAL',
+  SUBS_SHEET: 'MATERIAL_PENGGANTI',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -62,6 +63,8 @@ const MRP_HEAD = {
   // Konfirmasi incoming: jadwal kirim PO (Monitoring PO) yang dikonfirmasi datang → Incoming di Proyeksi Stok. Kunci = NO PO + KODE + JADWAL KE.
   // BULAN/WEEK DATANG = perkiraan week barang datang yang dipilih saat konfirmasi (kosong = ikut tanggal jadwal PO)
   KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG', 'TANGGAL DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9, 10] },
+  // Material pengganti (PM): hanya untuk perhitungan PR. Kebutuhan, stok, dan OS PO LAMA + BARU digabung; PR diusulkan untuk BARU.
+  MATERIAL_PENGGANTI: { head: ['LAMA', 'BARU', 'PAKAI STOK LAMA', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6] },
   PC_CP_MO: { head: ['JENIS', 'NO MO', 'KODE SKU', 'KODE MATERIAL', 'NAMA MATERIAL', 'QTY', 'UoM', 'FILE', 'DIUBAH'], text: [1, 2, 3, 4, 5, 7, 8, 9] },
 };
 
@@ -95,7 +98,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, planMon, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, planMon, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz), subs: readSubs_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -194,6 +197,7 @@ function doPost(e) {
     else if (action === 'addBoms') res = addBoms_(body.boms || [], body.file || '', now, ss, body.master || []);
     else if (action === 'addAdj') res = addAdj_(ss, body, now);
     else if (action === 'addInc') res = addInc_(ss, body, now);
+    else if (action === 'saveSubs') res = saveSubs_(ss, body.rows || [], now);
     else if (action === 'delRow') res = delRow_(ss, body.kind, body.id, now);
     else return json_({ ok: false, error: 'Aksi tidak dikenal: ' + action });
     return json_(Object.assign({ ok: true, time: now }, res || {}));
@@ -297,6 +301,27 @@ function replacePlan_(ss, months, rows, file, now) {
   if (all.length) sh.getRange(2, 1, all.length, 7).setValues(all);
   log_(ss, now, 'Upload rencana', `${file || 'file'} · bulan ${[...mset].join(', ')} · ${fresh.length} sel`);
   return { saved: fresh.length };
+}
+
+/* ---------- Material pengganti (tab MATERIAL_PENGGANTI) ---------- */
+// [lama, baru, pakaiStokLama Y/N, aktif Y/N, catatan, diubah]
+function readSubs_(ss, tz) {
+  return rows_(ss.getSheetByName(MRP_CONFIG.SUBS_SHEET), 6)
+    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]) || 'Y', s_(r[3]) || 'Y', s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd HH:mm')]);
+}
+// rows: daftar lengkap [lama, baru, pakai, aktif, catatan] — isi tab diganti seluruhnya; baris yang tidak berubah tetap memakai waktu lamanya
+function saveSubs_(ss, rows, now) {
+  const sh = sheet_(ss, MRP_CONFIG.SUBS_SHEET), tz = ss.getSpreadsheetTimeZone();
+  const old = new Map(readSubs_(ss, tz).map(r => [r[0], r]));
+  const seen = new Set();
+  const out = rows.map(r => [s_(r[0]), s_(r[1]), s_(r[2]) === 'N' ? 'N' : 'Y', s_(r[3]) === 'N' ? 'N' : 'Y', s_(r[4])])
+    .filter(r => r[0] && r[1] && r[0] !== r[1] && !seen.has(r[0]) && seen.add(r[0]))
+    .map(r => { const o = old.get(r[0]); const same = o && o.slice(1, 5).join('|') === r.slice(1, 5).join('|'); return r.concat([same ? o[5] : now]); });
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 6).clearContent();
+  if (out.length) sh.getRange(2, 1, out.length, 6).setValues(out);
+  log_(ss, now, 'Material pengganti', `${out.length} pasangan: ${out.map(r => r[0] + '→' + r[1] + (r[3] === 'N' ? ' (nonaktif)' : '')).join(', ')}`.slice(0, 500));
+  return { subs: readSubs_(ss, tz) };
 }
 
 /* ---------- Plan satu bulan (tab PLAN_BULAN) ---------- */

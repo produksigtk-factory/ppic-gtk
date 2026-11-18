@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=717ce8dd">
+<link rel="stylesheet" href="style.css?v=16dcaf25">
 </head>
 <body>
 <div class="shell">
@@ -50,6 +50,7 @@
         <div class="submenu">
           <a class="menu-item sub" href="#/pr/rekap" data-route="pr/rekap">Rekap PR</a>
           <a class="menu-item sub" href="#/pr/form" data-route="pr/form">Formulir PR</a>
+          <a class="menu-item sub" href="#/pr/pengganti" data-route="pr/pengganti">Material Pengganti</a>
         </div>
       </div>
       <div class="menu-group" data-group="po">
@@ -1308,6 +1309,14 @@
 
       <!-- ================= BANTUAN: GLOSARIUM ================= -->
       <!-- ================= PURCHASE REQUEST: REKAP ================= -->
+      <section id="view-pr-subs" class="view" hidden>
+        <div class="toolbar">
+          <p class="muted sub-info" id="subInfo"></p>
+          <div class="tb-actions"><button class="btn btn-sm" id="subAdd" hidden>Tambah pasangan</button></div>
+        </div>
+        <div class="table-wrap"><table class="po-table sub-t"><thead><tr><th>Material lama</th><th>Material baru (dibeli)</th><th>Stok lama</th><th class="num">Stok terkini lama</th><th class="num">Stok terkini baru</th><th>SKU yang BoM aktifnya masih pakai lama</th><th>Catatan</th><th>Status</th><th></th></tr></thead><tbody id="subRows"></tbody></table></div>
+        <p class="hint">Hanya untuk perhitungan PR material PM. Saat menghitung PR material baru: kebutuhan, stok terkini, dan OS PO material lama ikut digabung (stok lama dipakai lebih dulu), lalu kekurangannya dibeli sebagai material baru. Material lama tidak muncul di "Tambah PR dari stok kurang", dan bila diketik di Formulir PR muncul peringatan dengan tombol ganti. Pemotongan stok MO, Proyeksi Stok, dan Plotting Harian tetap per material sesuai BoM Odoo; selisih pemakaian di lapangan direkap lewat ADD. Data tersimpan di tab MATERIAL_PENGGANTI (Google Sheet MRP).</p>
+      </section>
       <section id="view-pr-rekap" class="view" hidden>
         <div class="toolbar">
           <label class="tb-search"><span class="sr">Cari</span><input type="search" id="prQ" placeholder="Cari Kode PR, kode/nama material, No PO"></label>
@@ -1387,7 +1396,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=da3b6cb3"></script>
-<script src="app.js?v=5346f94a"></script>
+<script src="app.js?v=0d040afc"></script>
 <script src="inv.js?v=88cf7dfb"></script>
 <script src="inc.js?v=523eed8b"></script>
 <script src="csl.js?v=1f71e4b7"></script>
