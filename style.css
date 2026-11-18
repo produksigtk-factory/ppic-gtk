@@ -2280,3 +2280,5 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .sub-skul .sub-sku{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden}
 .sub-skul .sub-sku small{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .sub-skul .sub-sku input{flex:none}
+
+.ph-subtag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;font-size:11px;line-height:18px;background:color-mix(in srgb,var(--warn,#a15c00) 12%,transparent);color:var(--warn,#a15c00);white-space:nowrap}
