@@ -5577,6 +5577,7 @@
     rows = rows.filter(phGrpOk);
     if (show === 'short') rows = rows.filter((r) => r.short >= 0);
     rows.sort((a, b) => (a.short < 0) - (b.short < 0) || a.short - b.short || a.code.localeCompare(b.code, 'id', { numeric: true }));
+    P.phVis = rows;
     $('phInfo').innerHTML = H.j === undefined ? 'Week ini di luar data week (PEMBAGIAN_WEEK).'
       : H.before ? `<span class="pl-bad">Week ini sebelum tanggal stok (${fmtDate(P.stockDate)}), saldo harian tidak bisa dihitung.</span>`
       : `${nf.format(rows.length)} material · basis ${basis === 'cons' ? 'PC + CP' : `MO Plotting Harian (stok ${esc(fmtDate(H.d0 || P.stockDate))} − pemakaian MO bertanggal; plan per week tidak dihitung; Banded/2in1/KIT tidak dihitung — sama dengan Formulir PR & Proyeksi Stok mode Stok terkini)`} · saldo harian ${P.phInclUn ? 'termasuk' : 'tanpa'} MO yang belum bertanggal`;
@@ -5780,6 +5781,26 @@
     const r = kfGet(no); if (!r || (r.tgl || '') === d.dataset.day) return;
     phSetDate(no, d.dataset.day);
     toast(d.dataset.day ? `${no} → ${dayLbl(d.dataset.day)}` : `${no} dikembalikan ke Belum diplot`);
+  });
+  // Unduh Excel tabel "Kebutuhan material & saldo stok per hari" — sesuai yang tampil (filter RM/PM, yang akan kurang, pencarian)
+  $('phTblExport').addEventListener('click', () => {
+    const grpTxt = ({ RM: 'RM', PM: 'PM', X: 'Lainnya' })[$('phGrp').value] || 'RM & PM';
+    const wb = XLSX.utils.book_new();
+    if (P.phView === 'next') {
+      const N = P.phNext; if (!N || !N.rows.length) { toast('Tidak ada material untuk diunduh.'); return; }
+      const data = N.rows.map((r) => { const o = { KODE: r.code, NAMA: r.name, GOLONGAN: phGrp(r.code), UoM: r.uom, [`SALDO AKHIR ${monLabel(N.B.cur).toUpperCase()}`]: round4(r.open) };
+        N.mi.forEach((i) => { const c = r.d.cols[i], k = c.lf.toUpperCase(); o[k + ' KEBUTUHAN'] = round4(c.need + c.add); o[k + ' PO'] = round4(c.po); o[k + ' SALDO'] = round4(c.sal); });
+        o['PO TELAT/TANPA JADWAL'] = round4(r.ln); o['MULAI KURANG'] = r.short >= 0 ? r.d.cols[r.short].lf : ''; return o; });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Bulan berikutnya');
+      XLSX.writeFile(wb, `Kebutuhan_Saldo_Bulan_Berikutnya_${grpTxt.replace(/\W+/g, '')}_${todayStr()}.xlsx`); return;
+    }
+    const H = P.ph, rows = P.phVis || []; if (!H || !rows.length) { toast('Tidak ada material untuk diunduh.'); return; }
+    const data = rows.map((r) => { const o = { KODE: r.code, NAMA: r.name, GOLONGAN: phGrp(r.code), UoM: r.uom, 'SALDO AWAL': round4(r.open) };
+      H.days.forEach((d, i) => { const k = dayLbl(d).toUpperCase(); o[k + ' KEBUTUHAN'] = round4(r.need[i]); o[k + ' INCOMING'] = round4(r.inc[i]); o[k + ' ADD/FOH/RS'] = round4(r.out[i]); o[k + ' SALDO'] = round4(r.sal[i]); });
+      o['BELUM DIJADWALKAN'] = round4(r.un); o['SALDO AKHIR WEEK'] = round4(r.end); o['MULAI KURANG'] = r.short < 0 ? '' : H.days[r.short] ? dayLbl(H.days[r.short]) : 'Akhir week';
+      return o; });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Saldo per hari');
+    const wk = phWeek(); XLSX.writeFile(wb, `Kebutuhan_Saldo_Harian_${wk.bulan}_${wk.week}_${grpTxt.replace(/\W+/g, '')}.xlsx`);
   });
   $('phExport').addEventListener('click', () => {
     if (P.phView === 'next') {
