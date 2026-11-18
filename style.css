@@ -2273,3 +2273,10 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .sub-info{margin:0;flex:1}
 .lp-subt{font-weight:400;color:var(--muted,#667)}
 .lp-old{display:block;color:var(--warn,#a15c00)}
+
+.sub-skuw{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.sub-skul{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px 12px;max-height:240px;overflow:auto;border:1px solid var(--line,#d8dde3);border-radius:8px;padding:8px}
+.sub-sku small{color:var(--muted,#667)}
+.sub-skul .sub-sku{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden}
+.sub-skul .sub-sku small{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.sub-skul .sub-sku input{flex:none}

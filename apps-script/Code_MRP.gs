@@ -64,7 +64,7 @@ const MRP_HEAD = {
   // BULAN/WEEK DATANG = perkiraan week barang datang yang dipilih saat konfirmasi (kosong = ikut tanggal jadwal PO)
   KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG', 'TANGGAL DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9, 10] },
   // Material pengganti (RM / PM): hanya untuk perhitungan PR. Kebutuhan, stok, dan OS PO LAMA + BARU digabung; PR diusulkan untuk BARU.
-  MATERIAL_PENGGANTI: { head: ['LAMA', 'BARU', 'PAKAI STOK LAMA', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6] },
+  MATERIAL_PENGGANTI: { head: ['LAMA', 'BARU', 'PAKAI STOK LAMA', 'AKTIF', 'CATATAN', 'DIUBAH', 'SKU'], text: [1, 2, 3, 4, 5, 6, 7] },
   PC_CP_MO: { head: ['JENIS', 'NO MO', 'KODE SKU', 'KODE MATERIAL', 'NAMA MATERIAL', 'QTY', 'UoM', 'FILE', 'DIUBAH'], text: [1, 2, 3, 4, 5, 7, 8, 9] },
 };
 
@@ -304,22 +304,25 @@ function replacePlan_(ss, months, rows, file, now) {
 }
 
 /* ---------- Material pengganti (tab MATERIAL_PENGGANTI) ---------- */
-// [lama, baru, pakaiStokLama Y/N, aktif Y/N, catatan, diubah]
+// [lama, baru, pakaiStokLama Y/N, aktif Y/N, catatan, diubah, sku "A;B" (kosong = semua SKU berganti)]
 function readSubs_(ss, tz) {
-  return rows_(ss.getSheetByName(MRP_CONFIG.SUBS_SHEET), 6)
-    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]) || 'Y', s_(r[3]) || 'Y', s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd HH:mm')]);
+  const sh = ss.getSheetByName(MRP_CONFIG.SUBS_SHEET);
+  return rows_(sh, sh ? Math.min(7, sh.getMaxColumns()) : 7)
+    .map(r => [s_(r[0]), s_(r[1]), s_(r[2]) || 'Y', s_(r[3]) || 'Y', s_(r[4]), d_(r[5], tz, 'yyyy-MM-dd HH:mm'), s_(r[6])]);
 }
-// rows: daftar lengkap [lama, baru, pakai, aktif, catatan] — isi tab diganti seluruhnya; baris yang tidak berubah tetap memakai waktu lamanya
+// rows: daftar lengkap [lama, baru, pakai, aktif, catatan, sku] — isi tab diganti seluruhnya; baris yang tidak berubah tetap memakai waktu lamanya
 function saveSubs_(ss, rows, now) {
   const sh = sheet_(ss, MRP_CONFIG.SUBS_SHEET), tz = ss.getSpreadsheetTimeZone();
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
+  sh.getRange(1, 7).setValue('SKU').setFontWeight('bold');
   const old = new Map(readSubs_(ss, tz).map(r => [r[0], r]));
   const seen = new Set();
-  const out = rows.map(r => [s_(r[0]), s_(r[1]), s_(r[2]) === 'N' ? 'N' : 'Y', s_(r[3]) === 'N' ? 'N' : 'Y', s_(r[4])])
+  const out = rows.map(r => [s_(r[0]), s_(r[1]), s_(r[2]) === 'N' ? 'N' : 'Y', s_(r[3]) === 'N' ? 'N' : 'Y', s_(r[4]), s_(r[5])])
     .filter(r => r[0] && r[1] && r[0] !== r[1] && !seen.has(r[0]) && seen.add(r[0]))
-    .map(r => { const o = old.get(r[0]); const same = o && o.slice(1, 5).join('|') === r.slice(1, 5).join('|'); return r.concat([same ? o[5] : now]); });
+    .map(r => { const o = old.get(r[0]); const same = o && [o[1], o[2], o[3], o[4], o[6]].join('|') === r.slice(1, 6).join('|'); return [r[0], r[1], r[2], r[3], r[4], same ? o[5] : now, r[5]]; });
   const last = sh.getLastRow();
-  if (last > 1) sh.getRange(2, 1, last - 1, 6).clearContent();
-  if (out.length) sh.getRange(2, 1, out.length, 6).setValues(out);
+  if (last > 1) sh.getRange(2, 1, last - 1, 7).clearContent();
+  if (out.length) sh.getRange(2, 1, out.length, 7).setValues(out);
   log_(ss, now, 'Material pengganti', `${out.length} pasangan: ${out.map(r => r[0] + '→' + r[1] + (r[3] === 'N' ? ' (nonaktif)' : '')).join(', ')}`.slice(0, 500));
   return { subs: readSubs_(ss, tz) };
 }
