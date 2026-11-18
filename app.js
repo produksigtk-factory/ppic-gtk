@@ -7218,7 +7218,7 @@
    *   OS PO      = sisa semua PO gantung (lewat jadwal maupun akan datang) = Lampiran Status PO
    *   Kebutuhan  = kebutuhan material (Mode Plan: MO menggantikan plan) dari week tanggal stok s/d week MPS terakhir
    *   ADD/FOH/RS = pengurangan manual pada periode yang sama */
-  /* ---------- Material pengganti (PM): hanya untuk perhitungan PR ----------
+  /* ---------- Material pengganti (RM / PM): hanya untuk perhitungan PR ----------
    * Pasangan LAMA → BARU. Di perhitungan PR material BARU, kebutuhan + stok + OS PO material LAMA digabung
    * (stok lama dipakai lebih dulu), kekurangannya dibeli sebagai BARU. Material LAMA tidak diusulkan PR.
    * Pemotongan stok MO, Proyeksi Stok, dan Plotting Harian tidak terpengaruh (tetap per material sesuai BoM Odoo). */
@@ -7234,7 +7234,7 @@
     const o = subOldsOf(k);
     return o.length ? `<span class="pr-subw-i">Termasuk stok &amp; kebutuhan ${esc(o.map((x) => x.lama).join(', '))} (lama)</span>` : '';
   }
-  const isPm = (c) => /^pm/i.test(String(((MRP.master && MRP.master.get(c)) || {}).kat || '').trim());
+  const rmpmOf = (c) => { const t = String(((MRP.master && MRP.master.get(c)) || {}).kat || '').trim().toUpperCase(); return t.startsWith('RM') ? 'RM' : t.startsWith('PM') ? 'PM' : ''; };
   async function renderSubs() {
     const box = $('subRows'); if (!box) return;
     const ed = state.edit.on || P.edit;
@@ -7261,19 +7261,20 @@
   }
   function subDialog(i) {
     const L = P.subs || [], x = i >= 0 ? L[i] : { lama: '', baru: '', pakai: true, aktif: true, cat: '' };
-    const opts = [...MRP.master.values()].filter((m) => isPm(m.code)).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
+    const opts = [...MRP.master.values()].filter((m) => rmpmOf(m.code)).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
     openDialog({
       title: i >= 0 ? `Ubah pasangan ${x.lama} → ${x.baru}` : 'Tambah material pengganti', ok: 'Simpan',
       body: `<div class="form-grid"><label class="field"><span>Kode material lama *</span><input name="lama" value="${esc(x.lama)}" list="subMat" required autocomplete="off"><small class="muted" id="subNmL">${esc(((MRP.master.get(x.lama) || {}).name) || '')}</small></label>
         <label class="field"><span>Kode material baru *</span><input name="baru" value="${esc(x.baru)}" list="subMat" required autocomplete="off"><small class="muted" id="subNmB">${esc(((MRP.master.get(x.baru) || {}).name) || '')}</small></label>
         <label class="field"><span>Stok lama</span><select name="pakai"><option value="Y"${x.pakai ? ' selected' : ''}>Ya, habiskan dulu (ikut mengurangi kekurangan)</option><option value="N"${x.pakai ? '' : ' selected'}>Tidak dipakai (stok & PO lama diabaikan)</option></select></label>
         <label class="field full"><span>Catatan</span><input name="cat" value="${esc(x.cat)}"></label></div><datalist id="subMat">${opts}</datalist>
-        <p class="hint">Hanya material PM. Berlaku untuk perhitungan PR saja: kebutuhan, stok, dan OS PO material lama digabung ke material baru; material lama tidak diusulkan PR. Proyeksi Stok dan pemotongan stok MO tidak berubah.</p>`,
+        <p class="hint">Material RM atau PM (lama dan baru harus golongan sama). Berlaku untuk perhitungan PR saja: kebutuhan, stok, dan OS PO material lama digabung ke material baru; material lama tidak diusulkan PR. Proyeksi Stok dan pemotongan stok MO tidak berubah.</p>`,
       onSubmit: async (fd) => {
         const lama = String(fd.lama || '').trim(), baru = String(fd.baru || '').trim();
         if (!lama || !baru) throw new Error('Kode lama dan baru wajib diisi.');
         if (lama === baru) throw new Error('Kode lama dan baru tidak boleh sama.');
-        [lama, baru].forEach((c) => { if (!MRP.master.has(c)) throw new Error(`Kode ${c} tidak ada di Daftar Material.`); if (!isPm(c)) throw new Error(`${c} bukan material PM (kategori ${(MRP.master.get(c) || {}).kat || '–'}). Material pengganti hanya untuk PM.`); });
+        [lama, baru].forEach((c) => { if (!MRP.master.has(c)) throw new Error(`Kode ${c} tidak ada di Daftar Material.`); if (!rmpmOf(c)) throw new Error(`${c} bukan material RM / PM (kategori ${(MRP.master.get(c) || {}).kat || '–'}).`); });
+        if (rmpmOf(lama) !== rmpmOf(baru)) throw new Error(`${lama} (${rmpmOf(lama)}) dan ${baru} (${rmpmOf(baru)}) beda golongan. Pasangan harus RM → RM atau PM → PM.`);
         const others = L.filter((_, j) => j !== i);
         if (others.some((y) => y.lama === lama)) throw new Error(`${lama} sudah punya pengganti. Satu material lama hanya boleh punya satu pengganti.`);
         if (others.some((y) => y.aktif && y.lama === baru)) throw new Error(`${baru} sendiri sudah diganti material lain (rantai A → B → C belum didukung).`);

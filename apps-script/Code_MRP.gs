@@ -63,7 +63,7 @@ const MRP_HEAD = {
   // Konfirmasi incoming: jadwal kirim PO (Monitoring PO) yang dikonfirmasi datang → Incoming di Proyeksi Stok. Kunci = NO PO + KODE + JADWAL KE.
   // BULAN/WEEK DATANG = perkiraan week barang datang yang dipilih saat konfirmasi (kosong = ikut tanggal jadwal PO)
   KONFIRMASI_INCOMING: { head: ['NO PO', 'KODE', 'JADWAL KE', 'QTY', 'TGL JADWAL SAAT KONFIRMASI', 'CATATAN', 'DIUBAH', 'BULAN DATANG', 'WEEK DATANG', 'TANGGAL DATANG'], text: [1, 2, 3, 5, 6, 7, 8, 9, 10] },
-  // Material pengganti (PM): hanya untuk perhitungan PR. Kebutuhan, stok, dan OS PO LAMA + BARU digabung; PR diusulkan untuk BARU.
+  // Material pengganti (RM / PM): hanya untuk perhitungan PR. Kebutuhan, stok, dan OS PO LAMA + BARU digabung; PR diusulkan untuk BARU.
   MATERIAL_PENGGANTI: { head: ['LAMA', 'BARU', 'PAKAI STOK LAMA', 'AKTIF', 'CATATAN', 'DIUBAH'], text: [1, 2, 3, 4, 5, 6] },
   PC_CP_MO: { head: ['JENIS', 'NO MO', 'KODE SKU', 'KODE MATERIAL', 'NAMA MATERIAL', 'QTY', 'UoM', 'FILE', 'DIUBAH'], text: [1, 2, 3, 4, 5, 7, 8, 9] },
 };

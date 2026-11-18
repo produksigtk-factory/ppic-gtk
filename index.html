@@ -1315,7 +1315,7 @@
           <div class="tb-actions"><button class="btn btn-sm" id="subAdd" hidden>Tambah pasangan</button></div>
         </div>
         <div class="table-wrap"><table class="po-table sub-t"><thead><tr><th>Material lama</th><th>Material baru (dibeli)</th><th>Stok lama</th><th class="num">Stok terkini lama</th><th class="num">Stok terkini baru</th><th>SKU yang BoM aktifnya masih pakai lama</th><th>Catatan</th><th>Status</th><th></th></tr></thead><tbody id="subRows"></tbody></table></div>
-        <p class="hint">Hanya untuk perhitungan PR material PM. Saat menghitung PR material baru: kebutuhan, stok terkini, dan OS PO material lama ikut digabung (stok lama dipakai lebih dulu), lalu kekurangannya dibeli sebagai material baru. Material lama tidak muncul di "Tambah PR dari stok kurang", dan bila diketik di Formulir PR muncul peringatan dengan tombol ganti. Pemotongan stok MO, Proyeksi Stok, dan Plotting Harian tetap per material sesuai BoM Odoo; selisih pemakaian di lapangan direkap lewat ADD. Data tersimpan di tab MATERIAL_PENGGANTI (Google Sheet MRP).</p>
+        <p class="hint">Hanya untuk perhitungan PR material RM dan PM (pasangan harus RM → RM atau PM → PM). Saat menghitung PR material baru: kebutuhan, stok terkini, dan OS PO material lama ikut digabung (stok lama dipakai lebih dulu), lalu kekurangannya dibeli sebagai material baru. Material lama tidak muncul di "Tambah PR dari stok kurang", dan bila diketik di Formulir PR muncul peringatan dengan tombol ganti. Pemotongan stok MO, Proyeksi Stok, dan Plotting Harian tetap per material sesuai BoM Odoo; selisih pemakaian di lapangan direkap lewat ADD. Data tersimpan di tab MATERIAL_PENGGANTI (Google Sheet MRP).</p>
       </section>
       <section id="view-pr-rekap" class="view" hidden>
         <div class="toolbar">
@@ -1396,7 +1396,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=da3b6cb3"></script>
-<script src="app.js?v=0d040afc"></script>
+<script src="app.js?v=f56db652"></script>
 <script src="inv.js?v=88cf7dfb"></script>
 <script src="inc.js?v=523eed8b"></script>
 <script src="csl.js?v=1f71e4b7"></script>
