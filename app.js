@@ -842,7 +842,9 @@
     const sRows = r.sched.length ? r.sched.map((s) => {
       const late = s.status !== 'Done' && s.date && s.date < r.today;
       const kfS = P.incKMap ? P.incKMap.get(r.po + '|' + r.code + '|' + s.n) : null;
+      const arrS = P.incK ? incArrOf(r.po, r.code, s.n) : [];
       const pill = s.status === 'Done' ? '<span class="pill pill-done">Sudah datang</span>'
+        : arrS.length && (Number(s.qty) || 0) - (Number(s.rec) || 0) > 0 ? '<span class="pill pill-inc" title="Sudah datang sebagian; sisanya Incoming di tanggal jadwal">Datang sebagian</span>'
         : kfS && !kfS.datang && (Number(s.qty) || 0) - (Number(s.rec) || 0) > 0 ? '<span class="pill pill-inc" title="Dikonfirmasi incoming di Proyeksi Stok">Incoming</span>'
         : late ? `<span class="pill pill-late">Lewat ${daysBetween(s.date, r.today)} hari</span>`
         : s.date ? '<span class="pill pill-wait">Menunggu</span>' : '<span class="pill">Belum ada tanggal</span>';
@@ -852,7 +854,12 @@
       // Konfirmasi incoming (Proyeksi Stok MRP): hanya jadwal yang belum Done, ada sisa, dan tanggalnya belum lewat
       const sisa = (Number(s.qty) || 0) - (Number(s.rec) || 0), kf = P.incKMap ? P.incKMap.get(r.po + '|' + r.code + '|' + s.n) : null;
       const kAttr = `data-inck="${esc(r.po)}|${esc(r.code)}|${s.n}" data-inck-date="${esc(s.date || '')}" data-inck-sisa="${sisa}"`;
+      const gapO = P.incK && !r.cancel ? incOdooGap(r.po, r.code, s) : 0;
+      const gapTxt = gapO ? `<small class="pl-bad" title="Diterima dari upload Odoo lebih besar dari total kedatangan yang dikonfirmasi di website. Stok terkini belum bertambah untuk selisih ini sampai dikonfirmasi atau ada upload stok baru.">Diterima Odoo +${fmtNum(gapO)} belum dikonfirmasi</small>${ed ? `<button type="button" class="btn-link" data-incodoo="${esc(r.po)}|${esc(r.code)}|${s.n}|${gapO}">Catat sebagai kedatangan</button>` : ''}` : '';
       const inc = r.cancel ? '<span class="muted">–</span>'
+        : arrS.length ? arrS.map((a) => `<button type="button" class="pj-kbtn is-on" data-inck="${esc(r.po)}|${esc(r.code)}|${esc(a.ke)}" data-inck-date="${esc(s.date || '')}" data-inck-sisa="${sisa}">✓ ${fmtNum(a.qty)}</button><small class="muted">datang ${fmtDate(a.datang)}</small>`).join('')
+          + (s.status !== 'Done' && sisa > 0 ? `<small class="muted">sisa ${fmtNum(sisa)} incoming ${s.date ? fmtDate(s.date) : ''}</small><button type="button" class="btn-link" data-incarr="${esc(r.po)}|${esc(r.code)}|${s.n}">+ Kedatangan berikutnya</button>` : '') + gapTxt
+        : gapTxt ? (s.status !== 'Done' && sisa > 0 ? `<button type="button" class="pj-kbtn" ${kAttr}>Konfirmasi</button>` : '') + gapTxt
         : kf ? `<button type="button" class="pj-kbtn is-on" ${kAttr}>✓ ${fmtNum(kf.qty)}</button>${kf.datang ? `<small class="muted">datang ${fmtDate(kf.datang)}</small>` : s.status === 'Done' || !(sisa > 0) ? '<small class="muted">sudah diterima</small>' : kf.week ? `<small class="muted">datang ${esc(kf.week)} ${esc(monShort(kf.bulan))}</small>` : ''}`
         : s.status !== 'Done' && sisa > 0 ? `<button type="button" class="pj-kbtn" ${kAttr}>Konfirmasi</button>` : '<span class="muted">–</span>';
       return `<tr><td class="c-n">${s.n}</td><td class="c-date">${fmtDate(s.date)}</td>
@@ -3488,19 +3495,24 @@
         const kk = r0.po + '|' + code + '|' + x.n;
         let kf = P.incKMap ? P.incKMap.get(kk) : null;
         if (kf) W.matched.add(kk);
-        if (kf && kf.datang) {
+        // kedatangan yang sudah dikonfirmasi (konfirmasi utama "sudah datang" + kedatangan berikutnya ke "n#2", "n#3", …)
+        const arr = incArrOf(r0.po, code, x.n);
+        arr.forEach((a) => {
+          W.matched.add(r0.po + '|' + code + '|' + a.ke);
           // sudah datang (Diterima diisi dari konfirmasi): tetap menambah stok sampai stok baru di-upload dengan tanggal ≥ tanggal datang
-          const o = get(code), inStock = P.stockDate && P.stockDate >= kf.datang;
-          let ti; const wd = weekOfDate(kf.datang); if (wd) ti = R.idx.get(wd.bulan + '|' + wd.week);
+          const o = get(code), inStock = P.stockDate && P.stockDate >= a.datang;
+          let ti; const wd = weekOfDate(a.datang); if (wd) ti = R.idx.get(wd.bulan + '|' + wd.week);
           if (ti === undefined || (cw !== undefined && ti < cw)) ti = cw;
-          const rv = Object.assign({ kind: 'recv', date: x.date, datang: kf.datang, ke: x.n, konf: kf.qty, inStock }, base);
-          if (!inStock && ti !== undefined) { o.inc[ti] += kf.qty; rv.incI = ti; }
+          const rv = Object.assign({ kind: 'recv', date: x.date, datang: a.datang, ke: a.ke, konf: a.qty, inStock }, base);
+          if (!inStock && ti !== undefined) { o.inc[ti] += a.qty; rv.incI = ti; }
           o.recv = o.recv || []; o.recv.push(rv);
-          kf = null;   // sisa jadwal (bila sebagian) diperlakukan sebagai PO biasa
-        }
+        });
         const sisa = (Number(x.qty) || 0) - (Number(x.rec) || 0);
+        // sudah datang sebagian: sisa jadwal tetap Incoming di tanggal jadwal yang sama (week berjalan bila sudah lewat)
+        if (kf && kf.datang) kf = null;
+        if (arr.length && !kf && x.status !== 'Done' && sisa > 1e-9) kf = { qty: sisa, note: 'Sisa setelah kedatangan sebagian', bulan: '', week: '', auto: true };
         if (x.status === 'Done' || !(sisa > 1e-9)) { if (kf) { W.kDone++; get(code).kFlags.push(Object.assign({ t: 'Jadwal sudah Done / sudah diterima', date: x.date, ke: x.n, konf: kf.qty }, base)); } return; }
-        const o = get(code), it = Object.assign({ date: x.date, qty: Number(x.qty) || 0, rec: Number(x.rec) || 0, sisa, ke: x.n, konf: kf ? kf.qty : 0, kNote: kf ? kf.note : '' }, base);
+        const o = get(code), it = Object.assign({ date: x.date, qty: Number(x.qty) || 0, rec: Number(x.rec) || 0, sisa, ke: x.n, konf: kf ? kf.qty : 0, kNote: kf ? kf.note : '', kAuto: !!(kf && kf.auto) }, base);
         if (!x.date || x.date < today) { o.late += sisa; it.kind = 'late'; }
         else {
           const w = weekOfDate(x.date), i = w ? R.idx.get(w.bulan + '|' + w.week) : undefined;
@@ -5239,13 +5251,97 @@
     if (x.kind === 'none') return '<span class="muted">belum dijadwalkan</span>';
     const k = `data-inck="${esc(x.po)}|${esc(code)}|${esc(x.ke)}" data-inck-date="${esc(x.date || '')}" data-inck-sisa="${x.sisa}"`;
     const wl = P.proj && x.incI !== undefined ? P.proj.weeks[x.incI] : null;
+    if (x.kAuto) return `<span class="pj-kbtn is-on is-auto" title="Sudah datang sebagian; sisanya tetap Incoming di tanggal jadwal">Sisa ${fq(x.konf)} incoming</span>${wl ? `<small class="muted">datang ${esc(wLabel(wl))}${x.moved ? ' (week berjalan)' : ''}</small>` : ''} <button type="button" class="btn-link" data-incarr="${esc(x.po)}|${esc(code)}|${esc(x.ke)}">+ Kedatangan berikutnya</button>`;
     if (x.konf) return `<button type="button" class="pj-kbtn is-on" ${k} title="${esc(x.kNote || '')}">✓ ${fq(x.konf)}${x.eff !== undefined && x.eff < x.konf - 1e-9 ? ` <small>(dihitung ${fq(x.eff)})</small>` : ''}</button>`
       + (wl ? `<small class="muted">datang ${esc(wLabel(wl))}${x.moved ? ' (dipindah ke week berjalan)' : ''}</small>` : '') + (x.kFlag ? `<small class="pl-bad">${esc(x.kFlag)}</small>` : '');
     return `<button type="button" class="pj-kbtn" ${k}>Konfirmasi</button>`;
   }
+  /* ---------- Beberapa kedatangan dalam satu jadwal ----------
+   * Konfirmasi utama memakai kunci jadwal "n"; kedatangan berikutnya "n#2", "n#3", … (selalu berstatus sudah datang). */
+  function incArrOf(po, code, n) {
+    const b = String(n);
+    return (P.incK || []).filter((k) => k.po === po && k.code === code && k.datang && (k.ke === b || k.ke.startsWith(b + '#'))).sort((a, c) => a.datang.localeCompare(c.datang) || a.ke.localeCompare(c.ke, 'id', { numeric: true }));
+  }
+  // Diterima di Odoo melebihi total kedatangan yang dikonfirmasi website (stok terkini belum bertambah untuk selisihnya)
+  function incOdooGap(po, code, s) {
+    if (!P.stockDate || !s.date || s.date < P.stockDate) return 0;
+    const g = (Number(s.rec) || 0) - incArrOf(po, code, s.n).reduce((t, a) => t + a.qty, 0);
+    return g > 1e-6 ? round4(g) : 0;
+  }
+  // Selisih Diterima Odoo dicatat sebagai kedatangan (tanpa mengubah kolom Diterima — sudah terisi dari Odoo)
+  function incOdooDialog(po, code, n, gap) {
+    if (!P.hasIncK) { toast('Apps Script MRP perlu diperbarui (versi dengan konfirmasi incoming).'); return; }
+    needEdit(() => {
+      const pr = state.rows.find((x) => x.po === po && x.code === code && x.sched && x.sched.some((y) => String(y.n) === String(n)));
+      const sc = pr ? pr.sched.find((y) => String(y.n) === String(n)) : null, today = todayStr();
+      const arr = incArrOf(po, code, n), main = P.incKMap.get(po + '|' + code + '|' + n);
+      const ke = !main ? String(n) : `${n}#${arr.reduce((t, a) => Math.max(t, Number(a.ke.split('#')[1]) || 1), 1) + 1}`;
+      openDialog({
+        title: `Catat kedatangan dari Diterima Odoo · ${po}`, ok: 'Catat',
+        body: `<p class="dlg-lead"><b>${esc(code)}</b> ${esc(pr ? pr.name : '')} · jadwal ke-${esc(n)}${sc && sc.date ? ' · ' + fmtDate(sc.date) : ''}. Diterima di Odoo ${fmtNum(sc ? sc.rec : 0)}, yang sudah dikonfirmasi di website ${fmtNum(arr.reduce((t, a) => t + a.qty, 0))}.</p>
+          <div class="form-grid">${fld('qty', 'Qty datang *', String(gap), { type: 'number', step: 'any', required: true })}${fld('datang', 'Tanggal datang *', sc && sc.date && sc.date <= today ? sc.date : today, { type: 'date', required: true })}</div>
+          <p class="hint">Kolom Diterima di Monitoring PO tidak diubah (sudah terisi dari Odoo). Stok terkini bertambah sebesar qty ini sampai ada upload stok dengan tanggal ≥ tanggal datang.</p>`,
+        onSubmit: async (fd) => {
+          const qty = Number(fd.qty), dt = String(fd.datang || '');
+          if (!(qty > 0) || qty > gap + 1e-9) throw new Error(`Qty harus lebih dari 0 dan maksimal ${fmtNum(gap)}.`);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dt) || dt > today) throw new Error('Tanggal datang wajib diisi dan tidak boleh setelah hari ini.');
+          if (main && !main.datang) await mrpApi('setIncK', { po, kode: code, ke: String(n), qty: 0 });   // konfirmasi rencana lama digantikan kedatangan ini
+          const res = await mrpApi('setIncK', { po, kode: code, ke: main && !main.datang ? String(n) : ke, qty, tgl: sc ? sc.date || '' : '', note: 'Dari Diterima Odoo', bulan: '', week: '', datang: dt });
+          setIncK(res.incK || []);
+          setTimeout(() => { if (state.routeKey === 'po/monitoring') render(); if (PLAN_KEYS.has(state.routeKey)) renderPlanView(state.routeKey); }, 0);
+          return 'Kedatangan dicatat.';
+        },
+      });
+    });
+  }
+  function incArrDialog(po, code, n, ke, after) {
+    if (!P.hasIncK) { toast('Apps Script MRP perlu diperbarui (versi dengan konfirmasi incoming).'); return; }
+    needEdit(() => {
+      const pr = state.rows.find((x) => x.po === po && x.code === code && x.sched && x.sched.some((y) => String(y.n) === String(n)));
+      const sc = pr ? pr.sched.find((y) => String(y.n) === String(n)) : null;
+      if (!sc) { toast('Jadwal PO tidak ditemukan. Muat ulang data lalu coba lagi.'); return; }
+      const k = ke ? P.incKMap.get(po + '|' + code + '|' + ke) : null, m = MRP.master.get(code) || {}, today = todayStr();
+      const sisa = round4((Number(sc.qty) || 0) - (Number(sc.rec) || 0)), maxQ = round4(sisa + (k ? k.qty : 0));
+      const arr = incArrOf(po, code, n);
+      const nextKe = ke || `${n}#${arr.reduce((t, a) => Math.max(t, Number(a.ke.split('#')[1]) || 1), 1) + 1}`;
+      openDialog({
+        title: `${k ? 'Ubah kedatangan' : 'Kedatangan berikutnya'} · ${po}`, ok: 'Simpan kedatangan',
+        body: `<p class="dlg-lead"><b>${esc(code)}</b> ${esc(m.name || pr.name || '')} · jadwal ke-${esc(n)} · ${sc.date ? fmtDate(sc.date) : 'tanpa tanggal'} · qty jadwal ${fq(sc.qty)} · sudah diterima ${fq(sc.rec || 0)} · sisa <b>${fq(sisa)} ${esc(m.uom || pr.uom || '')}</b></p>
+          ${arr.length ? `<p class="hint">Kedatangan tercatat: ${arr.map((a) => `${fmtDate(a.datang)} ${fq(a.qty)}${a.ke === ke ? ' (yang diubah)' : ''}`).join(' · ')}</p>` : ''}
+          <div class="form-grid">${fld('qty', `Qty datang (${esc(m.uom || pr.uom || '')}) *`, k ? String(k.qty) : String(sisa), { type: 'number', step: 'any', required: true })}
+          ${fld('datang', 'Tanggal datang *', k ? k.datang : today, { type: 'date', required: true })}
+          ${fld('note', 'Catatan', k ? k.note : '', { wide: true })}</div>
+          ${!state.edit.on ? `<div class="form-grid">${fld('popin', 'PIN Monitoring PO (untuk mengisi Diterima)', '', { type: 'password', required: true })}</div>` : ''}
+          ${k ? '<label class="chk"><input type="checkbox" name="hapus" value="1"> Hapus kedatangan ini (Diterima di Monitoring PO dikurangi lagi)</label>' : ''}
+          <p class="hint">Kolom Diterima di Monitoring PO bertambah sebesar qty ini; jadwal otomatis Done bila total diterima ≥ qty jadwal. Stok terkini bertambah sampai ada upload stok dengan tanggal ≥ tanggal datang. Sisa jadwal tetap Incoming di tanggal jadwal yang sama.</p>`,
+        onSubmit: async (fd) => {
+          const del = fd.hapus === '1', qty = del ? 0 : Number(fd.qty), dt = String(fd.datang || '');
+          if (!del && !(qty > 0)) throw new Error('Isi qty lebih dari 0, atau centang "Hapus kedatangan ini".');
+          if (qty > maxQ + 1e-9) throw new Error(`Qty melebihi sisa jadwal (${fq(maxQ)}).`);
+          if (!del && (!/^\d{4}-\d{2}-\d{2}$/.test(dt) || dt > today)) throw new Error('Tanggal datang wajib diisi dan tidak boleh setelah hari ini.');
+          const recDelta = qty - (k ? k.qty : 0);
+          if (Math.abs(recDelta) > 1e-9) {
+            const pinOld = state.edit.pin;
+            if (!state.edit.on) { state.edit.pin = String(fd.popin || '').trim(); if (!state.edit.pin) throw new Error('Isi PIN Monitoring PO untuk mengisi kolom Diterima.'); }
+            try {
+              const rec = Math.max(0, round4((Number(sc.rec) || 0) + recDelta)), q = Number(sc.qty) || 0;
+              const status = rec >= q - 1e-9 ? 'Done' : (sc.status === 'Done' ? 'Waiting for Shipment' : sc.status || 'Confirmed');
+              const r2 = await api('saveSched', { key: { po, code, n: Number(n) }, data: { po, code, name: pr.name, date: sc.date, status, qty: q, rec } });
+              applyServerUpdate(r2);
+            } finally { if (!state.edit.on) state.edit.pin = pinOld; }
+          }
+          const res = await mrpApi('setIncK', { po, kode: code, ke: nextKe, qty, tgl: sc.date || '', note: (fd.note || '').trim(), bulan: '', week: '', datang: del ? '' : dt });
+          setIncK(res.incK || []);
+          setTimeout(() => { if (PLAN_KEYS.has(state.routeKey)) renderPlanView(state.routeKey); if (state.routeKey === 'po/monitoring') render(); if (after) after(); }, 0);
+          return del ? 'Kedatangan dihapus.' : 'Kedatangan tersimpan & Diterima di Monitoring PO diperbarui.';
+        },
+      });
+    });
+  }
   // Dialog isi qty konfirmasi satu jadwal; after() dipanggil setelah tersimpan (mis. buka lagi rincian)
   function incKDialog(po, code, ke, date, sisa, after) {
     if (!P.hasIncK) { toast('Apps Script MRP perlu diperbarui (versi dengan konfirmasi incoming).'); return; }
+    if (String(ke).includes('#')) { const [n] = String(ke).split('#'); incArrDialog(po, code, n, ke, after); return; }
     needEdit(() => {
       const k = P.incKMap.get(po + '|' + code + '|' + ke), m = MRP.master.get(code) || {}, today = todayStr();
       const pr = state.rows.find((x) => x.po === po && x.code === code && x.sched && x.sched.some((y) => String(y.n) === String(ke)));
@@ -5316,6 +5412,10 @@
       incKDialog(po, code, ke, b.dataset.inckDate, Number(b.dataset.inckSisa) || 0, back);
       return;
     }
+    const o = e.target.closest('[data-incodoo]');
+    if (o) { e.preventDefault(); e.stopPropagation(); const [po, code, n, q] = o.dataset.incodoo.split('|'); incOdooDialog(po, code, n, Number(q)); return; }
+    const a = e.target.closest('[data-incarr]');
+    if (a) { e.preventDefault(); e.stopPropagation(); const [po, code, n] = a.dataset.incarr.split('|'); incArrDialog(po, code, n, null, a.closest('#dlgBody') ? (P.incKBack || null) : null); return; }
     const d = e.target.closest('[data-inck-del]');
     if (d) { const [po, code, ke] = d.dataset.inckDel.split('|'); incKDelete(po, code, ke, d.closest('#dlgBody') ? P.incKBack : null); }
   }, true);
@@ -5342,7 +5442,7 @@
       : x.kind === 'out' ? `<span class="muted">${P.pjAfter && x.date > P.pjAfter.end ? 'PO ' + esc(P.pjAfter.label) + ' dst' : 'di luar rentang'}</span>` : esc(wLabel(weeks[x.i])));
     const uomBad = L.filter((x) => x.uom && r.uom && normU(x.uom) !== normU(r.uom));
     const F = r.po ? r.po.kFlags : [], RV = r.po && r.po.recv ? r.po.recv : [];
-    const recvHtml = RV.length ? `<h3 class="pj-h">Sudah datang (dikonfirmasi) <small class="muted">menambah stok sampai stok baru di-upload</small></h3><ul class="pj-list">${RV.map((x) => `<li><b>${esc(x.po)}</b> jadwal ke-${esc(x.ke)} · ${esc(x.supplier)} · datang ${fmtDate(x.datang)} · <b>+${fq(x.konf)}</b> ${x.inStock ? '<span class="muted">(sudah termasuk stok per ' + fmtDate(P.stockDate) + ', tidak dihitung lagi)</span>' : (x.incI !== undefined && P.proj ? '→ Incoming ' + esc(wLabel(P.proj.weeks[x.incI])) : '')} <button type="button" class="pj-kbtn is-on" data-inck="${esc(x.po)}|${esc(r.code)}|${esc(x.ke)}" data-inck-date="${esc(x.date || '')}" data-inck-sisa="0">Ubah</button></li>`).join('')}</ul>` : '';
+    const recvHtml = RV.length ? `<h3 class="pj-h">Sudah datang (dikonfirmasi) <small class="muted">menambah stok sampai stok baru di-upload</small></h3><ul class="pj-list">${RV.map((x) => `<li><b>${esc(x.po)}</b> jadwal ke-${esc(String(x.ke).replace('#', ' · kedatangan ke-'))} · ${esc(x.supplier)} · datang ${fmtDate(x.datang)} · <b>+${fq(x.konf)}</b> ${x.inStock ? '<span class="muted">(sudah termasuk stok per ' + fmtDate(P.stockDate) + ', tidak dihitung lagi)</span>' : (x.incI !== undefined && P.proj ? '→ Incoming ' + esc(wLabel(P.proj.weeks[x.incI])) : '')} <button type="button" class="pj-kbtn is-on" data-inck="${esc(x.po)}|${esc(r.code)}|${esc(x.ke)}" data-inck-date="${esc(x.date || '')}" data-inck-sisa="0">Ubah</button></li>`).join('')}</ul>` : '';
     return recvHtml + `<h3 class="pj-h">PO (${L.length}) <small class="muted">hanya jadwal yang dikonfirmasi menambah saldo (Incoming)</small></h3>` + (L.length ? `<div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Tgl jadwal</th><th>Masuk ke</th><th class="num">Qty</th><th class="num">Diterima</th><th class="num">Sisa</th><th>UoM</th><th>Konfirmasi incoming</th></tr></thead><tbody>
       ${L.map((x) => `<tr><td><button type="button" class="btn-link pj-golink" data-gopo="${esc(x.po)}" data-gocode="${esc(r.code)}" title="Buka ${esc(x.po)} di Monitoring PO"><b>${esc(x.po)}</b></button></td><td>${esc(x.supplier)}</td><td>${x.date ? fmtDate(x.date) : '<span class="muted">–</span>'}</td><td>${ket(x)}</td>
         <td class="num">${x.kind === 'none' ? `${fq(x.qty)} <small class="muted">order, ${fq(x.sch)} terjadwal</small>` : fq(x.qty)}</td><td class="num">${x.rec ? fq(x.rec) : ''}</td><td class="num"><b>${fq(x.sisa)}</b></td>
