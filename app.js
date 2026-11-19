@@ -7511,13 +7511,16 @@
     poRowsOf(kode).forEach((x) => {
       const key = x.po + '|' + x.code; if (seen.has(key)) return; seen.add(key);
       const sc = (x.sched || []).filter((s) => s.status !== 'Done' && (Number(s.qty) || 0) - (Number(s.rec) || 0) > 1e-9);
-      if (sc.length) sc.forEach((s) => po.push({ po: x.po, d: s.date || '', q: R3((Number(s.qty) || 0) - (Number(s.rec) || 0)) }));
-      else po.push({ po: x.po, d: '', q: R3(x.sisa) });
+      const info = { po: x.po, sup: x.supplier || '', tglPo: x.date || '', qtyPo: x.qty, uomPo: x.uom || '' };
+      if (sc.length) sc.forEach((s) => po.push(Object.assign({ d: s.date || '', q: R3((Number(s.qty) || 0) - (Number(s.rec) || 0)) }, info)));
+      else po.push(Object.assign({ d: '', q: R3(x.sisa) }, info));
     });
     const ospo = R3(po.reduce((t, x) => t + x.q, 0));
     // pemakaian bulan berjalan dari MO (Plotting Harian): sudah jalan + terjadwal bulan ini
     const pc = prCalc(kode, 'all', []);
     const moNow = pc ? R3(pc.pakaiPast + pc.cols.filter((c) => c.kind === 'w').reduce((t, c) => t + c.need, 0)) : 0;
+    const wIdx = new Set(B.cols.map((c, i) => (c.kind === 'w' ? i : -1)).filter((i) => i >= 0)), mo0 = B.M.get(kode);
+    const moList = mo0 ? mo0.mos.filter((x) => x.past || wIdx.has(x.i)).map((x) => { const r = kfGet(x.ref) || {}; return { no: x.ref, sku: x.sku, name: (P.skus.get(x.sku) || MRP.master.get(x.sku) || {}).name || '', tgl: r.tgl || '', wk: r.week ? `${r.week} ${monShort(r.bulan || today)}` : '', qtyMo: Number(r.qty) || 0, uomMo: r.uom || '', q: R3(x.q), past: !!x.past }; }).sort((a, b) => (a.tgl || '9').localeCompare(b.tgl || '9') || a.no.localeCompare(b.no)) : [];
     // proyeksi saldo per bulan (PO tanpa tanggal / telat dianggap datang di bulan pertama)
     const N = Math.max(hz, 36), proj = []; let s = stok;
     for (let i = 0; i < N; i++) {
@@ -7540,7 +7543,7 @@
     const kurang = R3(stok + ospo - total), doi = use > 1e-9 ? Math.round(((stok + ospo) / use) * 10) / 10 : null;
     const moq = ltMoq(kode), saranRaw = kurang < 0 ? -kurang : 0;
     const saran = saranRaw > 0 ? Math.ceil(Math.max(saranRaw, moq || 0)) : 0;
-    return { kode, nama: m.name || '', uom: m.uom || '', kat: m.kat || '', lt, start, hz, avgMs, months: proj.slice(0, hz).map((x) => x.b), rows, use, total, stokDate: sd, stok, po, ospo, moNow, moOver: use > 1e-9 ? Math.round(((moNow - use) / use) * 1000) / 10 : null, proj: proj.slice(0, Math.max(hz, 12)), safety, habis, batas, days, status, kurang, doi, moq, saranRaw: R3(saranRaw), saran, cat: def.cat || '' };
+    return { moList, stokFrom: B.d0, kode, nama: m.name || '', uom: m.uom || '', kat: m.kat || '', lt, start, hz, avgMs, months: proj.slice(0, hz).map((x) => x.b), rows, use, total, stokDate: sd, stok, po, ospo, moNow, moOver: use > 1e-9 ? Math.round(((moNow - use) / use) * 1000) / 10 : null, proj: proj.slice(0, Math.max(hz, 12)), safety, habis, batas, days, status, kurang, doi, moq, saranRaw: R3(saranRaw), saran, cat: def.cat || '' };
   }
   const LT_ST = { red: ['Segera buka PO', 'lt-red'], yellow: ['Siapkan PO', 'lt-yel'], green: ['Aman', 'lt-grn'] };
   const ltStatusHtml = (d) => `<span class="lt-st ${LT_ST[d.status][1]}">${LT_ST[d.status][0]}</span>`;
@@ -7558,18 +7561,24 @@
     const D = L.map((x, i) => ({ x, i, d: x.aktif ? ltCalc(x.kode, { SO: SO.m }) : null }));
     const ord = { red: 0, yellow: 1, green: 2 };
     D.sort((a, b) => (!a.d) - (!b.d) || (a.d && b.d ? ord[a.d.status] - ord[b.d.status] || (a.d.batas || '9').localeCompare(b.d.batas || '9') : 0));
-    P.ltView = D;
+    P.ltView = D; P.ltSO = SO;
+    ltPaint();
+  }
+  function ltPaint() {
+    const box = $('ltRows'), D = P.ltView || [], SO = P.ltSO || {}, ed = state.edit.on || P.edit;
+    const ql = ($('ltQ').value || '').trim().toLowerCase();
+    const V = D.filter(({ x, d }) => !ql || (x.kode + ' ' + ((d && d.nama) || (MRP.master.get(x.kode) || {}).name || '') + ' ' + x.cat).toLowerCase().includes(ql));
     const q = (v, u) => `${prNumTxt(v) || 0}${u ? ` <small class="muted">${esc(u)}</small>` : ''}`;
-    box.innerHTML = D.map(({ x, i, d }) => {
+    box.innerHTML = V.map(({ x, i, d }) => {
       const act = ed ? `<button type="button" class="btn-link" data-lted="${i}">Ubah</button> <button type="button" class="btn-link" data-lton="${i}">${x.aktif ? 'Nonaktifkan' : 'Aktifkan'}</button> <button type="button" class="btn-link danger" data-ltdel="${i}">Hapus</button>` : '';
       if (!d) return `<tr class="lp-dim"><td><b class="mono">${esc(x.kode)}</b><small class="sub-nm">${esc((MRP.master.get(x.kode) || {}).name || '')}</small></td><td class="num">${x.lt} bln</td><td colspan="9" class="muted">Nonaktif</td><td></td><td class="kf-act">${act}</td></tr>`;
       const over = d.moOver === null ? '' : d.moOver > 0.5 ? `<small class="pl-bad">+${d.moOver}% dari rata-rata</small>` : d.moOver < -0.5 ? `<small class="muted">${d.moOver}% dari rata-rata</small>` : '<small class="muted">sesuai rata-rata</small>';
       return `<tr data-lti="${i}"><td><b class="mono">${esc(d.kode)}</b><small class="sub-nm">${esc(d.nama)}</small></td><td class="num">${d.lt} bln</td>
-        <td class="num">${q(d.use, d.uom)}</td><td class="num">${q(d.moNow)}${over}</td><td class="num">${q(d.stok)}<small class="muted">${d.stokDate ? fmtDate(d.stokDate) : ''}</small></td><td class="num">${q(d.ospo)}</td>
+        <td class="num"><button type="button" class="lt-num" data-ltx="use" data-lti="${i}" title="Rincian per SKU">${q(d.use, d.uom)}</button></td><td class="num"><button type="button" class="lt-num" data-ltx="mo" data-lti="${i}" title="Rincian MO">${q(d.moNow)}</button>${over}</td><td class="num">${q(d.stok)}<small class="muted">${d.stokDate ? fmtDate(d.stokDate) : ''}</small></td><td class="num"><button type="button" class="lt-num" data-ltx="po" data-lti="${i}" title="Rincian PO">${q(d.ospo)}</button></td>
         <td class="num">${d.doi === null ? '–' : d.doi + ' bln'}</td><td>${d.habis ? fmtDate(d.habis) : '<span class="muted">&gt; 3 thn</span>'}</td><td><b>${d.batas ? fmtDate(d.batas) : '–'}</b>${d.days !== null ? `<small class="muted">${d.days < 0 ? `lewat ${-d.days} hari` : `${d.days} hari lagi`}</small>` : ''}</td>
         <td>${ltStatusHtml(d)}</td><td class="num">${d.saran ? `<b>${prNumTxt(d.saran)}</b>${d.moq ? `<small class="muted">MoQ ${prNumTxt(d.moq)}</small>` : ''}` : '<span class="muted">–</span>'}</td>
         <td><button type="button" class="btn-link" data-ltdet="${i}">Rincian</button></td><td class="kf-act">${act}</td></tr>`;
-    }).join('');
+    }).join('') || '<tr class="empty"><td colspan="13">Tidak ada material yang cocok dengan pencarian.</td></tr>';
     const nR = D.filter((y) => y.d && y.d.status === 'red').length, nY = D.filter((y) => y.d && y.d.status === 'yellow').length;
     $('ltInfo').innerHTML = `${D.filter((y) => y.d).length} material aktif · <span class="lt-st lt-red">${nR} segera buka PO</span> <span class="lt-st lt-yel">${nY} siapkan PO</span> · rata-rata SO ${monShort(D.find((y) => y.d) ? D.find((y) => y.d).d.avgMs[0] : todayStr())}–${monShort(D.find((y) => y.d) ? D.find((y) => y.d).d.avgMs[5] : todayStr())} (SO s/d ${SO.lastSo ? fmtDate(SO.lastSo) : '–'})${SO.errs && SO.errs.length ? ` · <span class="pl-bad">${esc(SO.errs.join('; '))}</span>` : ''}${!P.hasLt ? ' · <span class="pl-bad">Apps Script MRP perlu diperbarui.</span>' : ''}`;
   }
@@ -7592,6 +7601,27 @@
       ${d.proj.map((x) => `<tr class="${x.sal < d.safety ? 'lt-low' : ''}"><td>${monLabel(x.b)}</td><td class="num">${n(x.open - x.inc)}</td><td class="num">${x.inc ? n(x.inc) : '–'}</td><td class="num">${n(x.use)}</td><td class="num"><b>${n(x.sal)}</b></td></tr>`).join('')}
       </tbody></table></div>
       ${d.po.length ? `<p class="hint">OS PO: ${d.po.map((x) => `${esc(x.po)} ${n(x.q)}${x.d ? ' · ' + fmtDate(x.d) : ' · tanpa jadwal'}`).join('; ')}</p>` : ''}`;
+  }
+  function ltMiniHtml(kind, d) {
+    const n = (v) => prNumTxt(v) || 0;
+    if (kind === 'use') {
+      const R = d.rows.filter((r) => r.avgPcs > 0);
+      return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. Pemakaian per bulan = Σ (rata-rata SO ${monShort(d.avgMs[0])}–${monShort(d.avgMs[5])} per SKU × material per pcs). SO dari CSL Personal Care + Beauty, qty SO dikurangi batal, bulan menurut tanggal SO.</p>
+        <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>SKU</th><th>Nama</th>${d.avgMs.map((b) => `<th class="num">SO ${monShort(b)}</th>`).join('')}<th class="num">Avg (pcs)</th><th class="num">Material / pcs</th><th class="num">Pemakaian / bln</th></tr></thead><tbody>
+        ${R.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}</td>${r.so.map((v) => `<td class="num">${v ? n(v) : '–'}</td>`).join('')}<td class="num">${n(r.avgPcs)}</td><td class="num">${String(Math.round(r.perPcs * 1e7) / 1e7).replace('.', ',')}</td><td class="num"><b>${n(r.needM)}</b></td></tr>`).join('') || `<tr class="empty"><td colspan="${d.avgMs.length + 5}">Tidak ada SO untuk SKU pemakai material ini.</td></tr>`}
+        <tr class="lt-tot"><td colspan="${d.avgMs.length + 4}">Total pemakaian per bulan</td><td class="num"><b>${n(d.use)} ${esc(d.uom)}</b></td></tr></tbody></table></div>
+        ${d.rows.length > R.length ? `<p class="hint">SKU pemakai tanpa SO di periode ini: ${esc(d.rows.filter((r) => !(r.avgPcs > 0)).map((r) => r.sku).join(', '))}.</p>` : ''}`;
+    }
+    if (kind === 'mo') {
+      return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. MO bulan berjalan dari Konfirmasi Produksi / Plotting Harian: yang sudah jalan sejak upload stok ${fmtDate(d.stokFrom)} + yang terjadwal sampai akhir bulan, dikali BoM MO. Dibandingkan dengan pemakaian per bulan dari rata-rata SO (${n(d.use)}).</p>
+        <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>No MO</th><th>SKU</th><th>Nama</th><th>Tanggal / week</th><th class="num">Qty MO</th><th class="num">Pemakaian ${esc(d.kode)}</th><th>Status</th></tr></thead><tbody>
+        ${d.moList.map((x) => `<tr><td class="mono">${esc(x.no)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.name)}</td><td>${x.tgl ? fmtDate(x.tgl) : esc(x.wk || '–')}</td><td class="num">${n(x.qtyMo)} <small class="muted">${esc(x.uomMo)}</small></td><td class="num"><b>${n(x.q)}</b></td><td>${x.past ? 'Sudah jalan' : 'Terjadwal'}</td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada MO bulan ini yang memakai material ini.</td></tr>'}
+        <tr class="lt-tot"><td colspan="5">Total MO bulan berjalan</td><td class="num"><b>${n(d.moNow)} ${esc(d.uom)}</b></td><td>${d.moOver === null ? '' : `${d.moOver > 0 ? '+' : ''}${d.moOver}% dari rata-rata`}</td></tr></tbody></table></div>`;
+    }
+    return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. OS PO = sisa qty jadwal PO yang belum Done (Monitoring PO). PO tanpa jadwal atau yang jadwalnya sudah lewat dihitung datang di bulan pertama proyeksi.</p>
+      <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>No PO</th><th>Supplier</th><th>Tgl PO</th><th class="num">Qty PO</th><th>Jadwal datang</th><th class="num">Sisa</th></tr></thead><tbody>
+      ${d.po.map((x) => `<tr><td class="mono">${esc(x.po)}</td><td>${esc(x.sup || '')}</td><td>${x.tglPo ? fmtDate(x.tglPo) : '–'}</td><td class="num">${x.qtyPo ? n(x.qtyPo) : '–'} <small class="muted">${esc(x.uomPo || '')}</small></td><td>${x.d ? fmtDate(x.d) + (x.d < todayStr() ? ' <small class="pl-bad">telat</small>' : '') : '<span class="muted">tanpa jadwal</span>'}</td><td class="num"><b>${n(x.q)}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada PO gantung.</td></tr>'}
+      <tr class="lt-tot"><td colspan="5">Total OS PO</td><td class="num"><b>${n(d.ospo)} ${esc(d.uom)}</b></td></tr></tbody></table></div>`;
   }
   async function saveLt(list, msg) {
     const res = await mrpApi('saveLt', { rows: list.map((x) => [x.kode, x.lt, x.cat || '', x.aktif ? 'Y' : 'N']) });
@@ -7623,7 +7653,10 @@
   if ($('ltAdd')) {
     $('ltAdd').addEventListener('click', () => needEdit(() => ltDialog(-1)));
     $('ltReload').addEventListener('click', async () => { LTSO.m = null; renderLtMat(); });
+    $('ltQ').addEventListener('input', () => { if (P.ltView) ltPaint(); });
     $('ltRows').addEventListener('click', (e) => {
+      const xb = e.target.closest('[data-ltx]');
+      if (xb) { const v = (P.ltView || []).find((y) => y.i === Number(xb.dataset.lti)); if (v && v.d) openDialog({ title: `${({ use: 'Pemakaian / bulan', mo: 'MO bulan berjalan', po: 'OS PO' })[xb.dataset.ltx]} · ${v.d.kode} ${v.d.nama}`, ok: 'Tutup', cancel: false, wide: true, body: ltMiniHtml(xb.dataset.ltx, v.d), onSubmit: async () => '' }); return; }
       const b = e.target.closest('[data-lted],[data-lton],[data-ltdel],[data-ltdet]'); if (!b) return;
       const L = P.lt || [];
       if (b.dataset.ltdet !== undefined) { const v = (P.ltView || []).find((y) => y.i === Number(b.dataset.ltdet)); if (v && v.d) openDialog({ title: `Rincian ${v.d.kode} · ${v.d.nama}`, ok: 'Tutup', cancel: false, wide: true, body: ltDetailHtml(v.d), onSubmit: async () => '' }); return; }

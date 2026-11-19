@@ -2301,3 +2301,6 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 @media (max-width:700px){.lt-sum dl{grid-template-columns:max-content auto}}
 .lt-main td:nth-child(1){min-width:200px}
 .lt-main td:nth-child(8),.lt-main td:nth-child(9) b{white-space:nowrap}
+
+.lt-num{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;text-align:right}
+.lt-num:hover{color:var(--accent,#2f6fdf)}
