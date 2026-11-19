@@ -5691,7 +5691,7 @@
   // Filter RM / PM (kategori material di Daftar Material: "RM (…)", "PM (…)")
   const phGrp = (code) => { const t = String((MRP.master.get(code) || {}).kat || '').trim().toUpperCase(); return t.startsWith('RM') ? 'RM' : t.startsWith('PM') ? 'PM' : 'X'; };
   // Label material lama yang punya Material Pengganti (angka tetap per BoM; penggantian hanya di perhitungan PR)
-  const phSubTag = (c) => { const x = (P.subs || []).find((y) => y.aktif && y.lama === c); return x ? `<span class="ph-subtag" title="Material Pengganti: di perhitungan PR, kebutuhan ${x.skus.length ? 'SKU ' + esc(x.skus.join(', ')) : 'semua SKU'} dibeli sebagai ${esc(x.baru)}. Angka di Plotting Harian tetap mengikuti BoM.">diganti → ${esc(x.baru)}${x.skus.length ? ' (SKU tertentu)' : ''}</span>` : ''; };
+  const phSubTag = (c) => (P.subs || []).filter((y) => y.aktif && y.lama === c).map((x) => `<span class="ph-subtag" title="Material Pengganti: di perhitungan PR, kebutuhan ${x.skus.length ? 'SKU ' + esc(x.skus.join(', ')) : 'semua SKU'} dibeli sebagai ${esc(x.baru)}. Angka di Plotting Harian tetap mengikuti BoM.">diganti → ${esc(x.baru)}${x.skus.length ? ' (SKU tertentu)' : ''}</span>`).join('');
   const phGrpOk = (r) => { const g = $('phGrp').value; return !g || phGrp(r.code) === g; };
   /* Plotting Harian · bulan berikutnya: saldo akhir bulan berjalan (MO harian) lalu Plan bulan tiap bulan berikutnya — sama dengan Lampiran PR */
   function renderHarianNext() {
@@ -7350,14 +7350,19 @@
   }
   // subNewOf: hanya bila SEMUA SKU berganti (material lama tidak lagi diusulkan PR); subPartOf: berganti untuk SKU tertentu saja
   function subNewOf(k) { const t = String(k || '').trim(), x = (P.subs || []).find((s) => s.aktif && s.lama === t && !s.skus.length); return x ? x.baru : ''; }
-  function subPartOf(k) { const t = String(k || '').trim(); return (P.subs || []).find((s) => s.aktif && s.lama === t && s.skus.length) || null; }
+  // berganti untuk SKU tertentu — bisa beberapa pasangan (mis. 14241 → 14337 untuk SKU A, 14241 → 14344 untuk SKU B); digabung jadi satu
+  function subPartOf(k) {
+    const t = String(k || '').trim(), L = (P.subs || []).filter((s) => s.aktif && s.lama === t && s.skus.length);
+    if (!L.length) return null;
+    return { baru: [...new Set(L.map((x) => x.baru))].join(', '), skus: [...new Set(L.flatMap((x) => x.skus))], list: L };
+  }
   function subOldsOf(k) { const t = String(k || '').trim(); return (P.subs || []).filter((s) => s.aktif && s.baru === t); }
   function prSubWarn(kode, i) {
     const k = String(kode || '').trim(); if (!k) return '';
     const n = subNewOf(k);
     if (n) { const nm = (MRP.master && MRP.master.get(n)) || {}; return `<span class="pr-subw-t">⚠ ${esc(k)} sudah diganti ${esc(n)}${nm.name ? ' ' + esc(nm.name) : ''}</span> <button type="button" class="btn-link" data-subgo="${esc(n)}">Ganti ke ${esc(n)}</button>`; }
     const pt = subPartOf(k);
-    if (pt) return `<span class="pr-subw-t">⚠ Untuk ${esc(pt.skus.join(', '))} sudah diganti ${esc(pt.baru)}; kebutuhan di sini hanya SKU lain</span> <button type="button" class="btn-link" data-subgo="${esc(pt.baru)}">Ganti ke ${esc(pt.baru)}</button>`;
+    if (pt) return `<span class="pr-subw-t">⚠ ${pt.list.map((x) => `Untuk ${esc(x.skus.join(', '))} sudah diganti ${esc(x.baru)}`).join('; ')}; kebutuhan di sini hanya SKU lain</span> ${pt.list.map((x) => `<button type="button" class="btn-link" data-subgo="${esc(x.baru)}">Ganti ke ${esc(x.baru)}</button>`).join(' ')}`;
     const o = subOldsOf(k);
     return o.length ? `<span class="pr-subw-i">Termasuk stok &amp; kebutuhan ${esc(o.map((x) => x.lama + (x.skus.length ? ` (SKU ${x.skus.join(', ')})` : '')).join(', '))} (lama)</span>` : '';
   }
@@ -7398,7 +7403,8 @@
       }
       return [...set].sort();
     };
-    const skuBox = (lama, sel) => { const C = skuCands(lama); return C.length ? C.map((k) => `<label class="tb-check sub-sku"><input type="checkbox" name="sku_${esc(k)}" data-subsku="${esc(k)}"${sel.includes(k) ? ' checked' : ''}> <b>${esc(k)}</b> <small>${esc(((P.skus.get(k) || {}).name) || ((MRP.master.get(k) || {}).name) || '')}</small></label>`).join('') : '<span class="muted">Isi kode lama dulu / tidak ada SKU yang memakai material ini.</span>'; };
+    const skuBox = (lama, sel) => { const C = skuCands(lama); const taken = (k) => L.find((y, j) => j !== i && y.lama === lama && y.skus.includes(k));
+      return C.length ? C.map((k) => { const t = taken(k); return `<label class="tb-check sub-sku${t ? ' is-taken' : ''}"${t ? ` title="Sudah diganti ke ${esc(t.baru)} di pasangan lain"` : ''}><input type="checkbox" name="sku_${esc(k)}" data-subsku="${esc(k)}"${sel.includes(k) ? ' checked' : ''}${t ? ' disabled' : ''}> <b>${esc(k)}</b> <small>${t ? `→ ${esc(t.baru)}` : esc(((P.skus.get(k) || {}).name) || ((MRP.master.get(k) || {}).name) || '')}</small></label>`; }).join('') : '<span class="muted">Isi kode lama dulu / tidak ada SKU yang memakai material ini.</span>'; };
     const opts = [...MRP.master.values()].filter((m) => rmpmOf(m.code)).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
     openDialog({
       title: i >= 0 ? `Ubah pasangan ${x.lama} → ${x.baru}` : 'Tambah material pengganti', ok: 'Simpan',
@@ -7419,7 +7425,12 @@
         [lama, baru].forEach((c) => { if (!MRP.master.has(c)) throw new Error(`Kode ${c} tidak ada di Daftar Material.`); if (!rmpmOf(c)) throw new Error(`${c} bukan material RM / PM (kategori ${(MRP.master.get(c) || {}).kat || '–'}).`); });
         if (rmpmOf(lama) !== rmpmOf(baru)) throw new Error(`${lama} (${rmpmOf(lama)}) dan ${baru} (${rmpmOf(baru)}) beda golongan. Pasangan harus RM → RM atau PM → PM.`);
         const others = L.filter((_, j) => j !== i);
-        if (others.some((y) => y.lama === lama)) throw new Error(`${lama} sudah punya pengganti. Satu material lama hanya boleh punya satu pengganti.`);
+        const skusSel = fd.skumode === 'pick' ? [...$('dlgBody').querySelectorAll('[data-subsku]:checked')].map((c) => c.dataset.subsku) : [];
+        const same = others.filter((y) => y.lama === lama);
+        if (same.some((y) => y.baru === baru)) throw new Error(`Pasangan ${lama} → ${baru} sudah ada. Ubah pasangan itu saja.`);
+        if (same.length && (!skusSel.length || same.some((y) => !y.skus.length))) throw new Error(`${lama} sudah punya pengganti lain (${same.map((y) => y.baru).join(', ')}). Bila satu material lama punya beberapa pengganti, setiap pasangan harus memakai "Hanya SKU yang dicentang".`);
+        const dup = skusSel.filter((k) => same.some((y) => y.skus.includes(k)));
+        if (dup.length) throw new Error(`SKU ${dup.join(', ')} sudah diganti ke ${same.filter((y) => y.skus.some((k) => dup.includes(k))).map((y) => y.baru).join(', ')} di pasangan lain. Satu SKU hanya boleh punya satu pengganti untuk ${lama}.`);
         if (others.some((y) => y.aktif && y.lama === baru)) throw new Error(`${baru} sendiri sudah diganti material lain (rantai A → B → C belum didukung).`);
         if (others.some((y) => y.aktif && y.baru === lama)) throw new Error(`${lama} adalah pengganti material lain (rantai A → B → C belum didukung).`);
         const skus = fd.skumode === 'pick' ? [...$('dlgBody').querySelectorAll('[data-subsku]:checked')].map((c) => c.dataset.subsku) : [];
@@ -7545,7 +7556,14 @@
     const anyNeed = mms.length || partO.some((x) => B.M.get(x.lama));
     const mm = anyNeed ? { past: mmS.reduce((t, o) => t + o.past, 0), w: C0.map((_, i) => mms.reduce((t, o) => t + o.w[i], 0) - (part ? skuNeed(kode, part.skus, i) : 0) + partO.reduce((t, x) => t + skuNeed(x.lama, x.skus, i), 0)) } : null;
     // berganti untuk SKU tertentu: stok lama yang dipakai = sisa setelah kebutuhan SKU yang tidak berganti (stok + OS PO − kebutuhan itu)
-    const lumps = partO.filter((x) => x.pakai).map((x) => { const r = prCalc(x.lama, hz, [], { pool: true }); return { kode: x.lama, q: r ? Math.max(0, r.kurang) : 0 }; });
+    // bila material lama yang sama punya beberapa pengganti (SKU berbeda), sisa stok lama dibagi sebanding kebutuhan SKU yang berganti
+    const swNeed = (x) => C0.reduce((t, _, i) => t + skuNeed(x.lama, x.skus, i), 0);
+    const lumps = partO.filter((x) => x.pakai).map((x) => {
+      const r = prCalc(x.lama, hz, [], { pool: true }), rem = r ? Math.max(0, r.kurang) : 0;
+      const sib = (P.subs || []).filter((y) => y.aktif && y.pakai && y.lama === x.lama && y.skus.length);
+      const tot = sib.reduce((t, y) => t + swNeed(y), 0), share = sib.length < 2 ? 1 : tot > 1e-9 ? swNeed(x) / tot : 1 / sib.length;
+      return { kode: x.lama, q: rem * share, share };
+    });
     const lump = lumps.reduce((t, x) => t + x.q, 0);
     const cols = C0.map((c, i) => ({ l: c.l, lf: c.lf || '', kind: c.kind, d: c.d, de: c.de, need: mm ? mm.w[i] : 0, inc: 0, po: 0, poS: 0, poL: 0, poN: 0, add: 0, sal: 0 }));
     // Stok terkini
@@ -7586,7 +7604,7 @@
     if (pool.length) {
       // rincian per material untuk lampiran (dihitung sendiri-sendiri, tanpa penggabungan)
       const one = (c, pakai, skus) => { const x = prCalc(c, hz, []); const mx = MRP.master.get(c) || {}; const o = { kode: c, nama: (mx.name || (x && x.nama) || '').slice(0, 60), pakai, stok: x ? x.stok : 0, butuh: x ? R3(x.butuh + x.add) : 0, ospo: x ? x.ospo : 0 };
-        if (skus && skus.length) { o.skus = skus; o.butuh = R3(C0.reduce((t, _, i) => t + skuNeed(c, skus, i), 0)); const l = lumps.find((y) => y.kode === c); o.sisa = l ? R3(l.q) : 0; }
+        if (skus && skus.length) { o.skus = skus; o.butuh = R3(C0.reduce((t, _, i) => t + skuNeed(c, skus, i), 0)); const l = lumps.find((y) => y.kode === c); o.sisa = l ? R3(l.q) : 0; if (l && l.share < 1) o.share = Math.round(l.share * 1000) / 10; }
         return o; };
       out.subs = pool.map((x) => one(x.lama, x.pakai, x.skus)); out.subSelf = one(kode, true); if (lump) out.subLump = R3(lump);
     }
@@ -7669,7 +7687,7 @@
       if (!d || !d.cols || d.butuh === undefined) return `<div class="lp-card"><div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc(r.nama)}</span><span class="lp-chip is-muted">Belum dihitung</span></div><p class="lp-empty">Perhitungan belum dibekukan. Klik "Perbarui lampiran".</p></div>`;
       const u = esc(d.uom || ''), ok = !(d.kurang < -1e-9);
       // 1) Kepala: kode, nama, hasil
-      const subTxt = (d.subs && d.subs.length ? `Material pengganti: angka di bawah sudah termasuk ${d.subs.map((x) => `<b>${esc(x.kode)}</b> ${esc(x.nama)} (lama${x.skus ? `, hanya SKU ${esc(x.skus.join(', '))}` : ''}${x.pakai ? '' : ', stok lama tidak dipakai'})`).join(', ')}. Rincian: ${[d.subSelf].concat(d.subs).map((x) => x.skus ? `${esc(x.kode)} kebutuhan SKU yang berganti ${prNumTxt(x.butuh) || 0}${x.pakai ? ` · sisa stok + OS PO lama setelah SKU lain ${prNumTxt(x.sisa) || 0}` : ''}` : `${esc(x.kode)} stok ${prNumTxt(x.stok) || 0} · kebutuhan ${prNumTxt(x.butuh) || 0} · OS PO ${prNumTxt(x.ospo) || 0}`).join('; ')}. Stok lama dipakai lebih dulu; kekurangan dibeli sebagai ${esc(r.kode)}.` : '')
+      const subTxt = (d.subs && d.subs.length ? `Material pengganti: angka di bawah sudah termasuk ${d.subs.map((x) => `<b>${esc(x.kode)}</b> ${esc(x.nama)} (lama${x.skus ? `, hanya SKU ${esc(x.skus.join(', '))}` : ''}${x.pakai ? '' : ', stok lama tidak dipakai'})`).join(', ')}. Rincian: ${[d.subSelf].concat(d.subs).map((x) => x.skus ? `${esc(x.kode)} kebutuhan SKU yang berganti ${prNumTxt(x.butuh) || 0}${x.pakai ? ` · sisa stok + OS PO lama setelah SKU lain ${prNumTxt(x.sisa) || 0}${x.share ? ` (bagian ${x.share}% — material lama ini juga punya pengganti lain)` : ''}` : ''}` : `${esc(x.kode)} stok ${prNumTxt(x.stok) || 0} · kebutuhan ${prNumTxt(x.butuh) || 0} · OS PO ${prNumTxt(x.ospo) || 0}`).join('; ')}. Stok lama dipakai lebih dulu; kekurangan dibeli sebagai ${esc(r.kode)}.` : '')
         + (d.subPart ? ` Kebutuhan SKU ${esc(d.subPart.skus.join(', '))} (${prNumTxt(d.subPart.butuh) || 0}) sudah dialihkan ke ${esc(d.subPart.baru)}; angka di sini hanya untuk SKU yang tetap memakai ${esc(r.kode)}.` : '');
       const head = `<div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc(d.nama || r.nama)}${d.subs && d.subs.length ? ` <small class="lp-subt">+ ${esc(d.subs.map((x) => x.kode).join(', '))} (lama)</small>` : ''}</span><span class="lp-chip ${ok ? 'is-ok' : 'is-bad'}">${ok ? 'Cukup' : 'Kurang'} ${prNumTxt(Math.abs(d.kurang))} ${u}</span></div>`;
       // 2) Rumus sebagai kotak berurutan

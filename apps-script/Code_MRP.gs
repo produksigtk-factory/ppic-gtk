@@ -315,11 +315,12 @@ function saveSubs_(ss, rows, now) {
   const sh = sheet_(ss, MRP_CONFIG.SUBS_SHEET), tz = ss.getSpreadsheetTimeZone();
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange(1, 7).setValue('SKU').setFontWeight('bold');
-  const old = new Map(readSubs_(ss, tz).map(r => [r[0], r]));
+  // kunci pasangan = LAMA|BARU (satu material lama boleh punya beberapa pengganti untuk SKU yang berbeda)
+  const old = new Map(readSubs_(ss, tz).map(r => [r[0] + '|' + r[1], r]));
   const seen = new Set();
   const out = rows.map(r => [s_(r[0]), s_(r[1]), s_(r[2]) === 'N' ? 'N' : 'Y', s_(r[3]) === 'N' ? 'N' : 'Y', s_(r[4]), s_(r[5])])
-    .filter(r => r[0] && r[1] && r[0] !== r[1] && !seen.has(r[0]) && seen.add(r[0]))
-    .map(r => { const o = old.get(r[0]); const same = o && [o[1], o[2], o[3], o[4], o[6]].join('|') === r.slice(1, 6).join('|'); return [r[0], r[1], r[2], r[3], r[4], same ? o[5] : now, r[5]]; });
+    .filter(r => r[0] && r[1] && r[0] !== r[1] && !seen.has(r[0] + '|' + r[1]) && seen.add(r[0] + '|' + r[1]))
+    .map(r => { const o = old.get(r[0] + '|' + r[1]); const same = o && [o[1], o[2], o[3], o[4], o[6]].join('|') === r.slice(1, 6).join('|'); return [r[0], r[1], r[2], r[3], r[4], same ? o[5] : now, r[5]]; });
   const last = sh.getLastRow();
   if (last > 1) sh.getRange(2, 1, last - 1, 7).clearContent();
   if (out.length) sh.getRange(2, 1, out.length, 7).setValues(out);
