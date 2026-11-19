@@ -2284,3 +2284,20 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .ph-subtag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;font-size:11px;line-height:18px;background:color-mix(in srgb,var(--warn,#a15c00) 12%,transparent);color:var(--warn,#a15c00);white-space:nowrap}
 
 .sub-skul .sub-sku.is-taken{opacity:.55}
+
+/* PR lead time panjang */
+.menu-sublabel{display:block;padding:10px 12px 2px 22px;font-size:11px;font-weight:600;color:var(--muted,#667);letter-spacing:.02em}
+.lt-st{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}
+.lt-red{background:color-mix(in srgb,#c62828 14%,transparent);color:#b71c1c}
+.lt-yel{background:color-mix(in srgb,#e6a100 18%,transparent);color:#8a5a00}
+.lt-grn{background:color-mix(in srgb,#2e7d32 14%,transparent);color:#1b5e20}
+.lt-main td small{display:block}
+.lt-t td,.lt-t th{white-space:nowrap}
+.lt-t .lt-tot td{border-top:2px solid var(--line,#d8dde3)}
+.lt-t tr.lt-low td{background:color-mix(in srgb,#c62828 7%,transparent)}
+.lt-sum dl{display:grid;grid-template-columns:max-content auto max-content auto;gap:4px 16px;margin:12px 0}
+.lt-sum dt{color:var(--muted,#667)}
+.lt-sum dd{margin:0;text-align:right}
+@media (max-width:700px){.lt-sum dl{grid-template-columns:max-content auto}}
+.lt-main td:nth-child(1){min-width:200px}
+.lt-main td:nth-child(8),.lt-main td:nth-child(9) b{white-space:nowrap}

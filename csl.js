@@ -1834,8 +1834,24 @@
     back();
     return { months: out };
   }
+  // SO per kode per bulan (bulan menurut tanggal SO), qty SO dikurangi yang batal — untuk PR lead time panjang
+  async function soOut(seg = 'pc') {
+    const back = () => setSeg(routeSeg());
+    setSeg(seg);
+    if (!SEG.url) { back(); return { lines: [], none: true }; }
+    if (!C.loaded) {
+      if (!C.loading) await load();
+      setSeg(seg);
+      while (C.loading) { await new Promise((r) => setTimeout(r, 300)); setSeg(seg); }
+    }
+    if (!C.loaded) { const e = C.err; back(); throw new Error(e || 'Data CSL belum bisa dimuat.'); }
+    const lines = C.lines.filter((L) => L.m).map((L) => [String(L.kode).trim(), L.m, Math.max(0, (Number(L.qty) || 0) - (Number(L.canQ) || 0))]);
+    const out = { lines, lastSo: String((C.A && C.A.lastSo) || '').slice(0, 10), readAt: C.readAt };
+    back();
+    return out;
+  }
   window.CSL = {
-    enter, reload: () => { setSeg(routeSeg()); return load({ fresh: true }); }, sheetUrl: () => { setSeg(routeSeg()); return C.sheetUrl || SEG.sheet || ''; }, doOut,
+    enter, reload: () => { setSeg(routeSeg()); return load({ fresh: true }); }, sheetUrl: () => { setSeg(routeSeg()); return C.sheetUrl || SEG.sheet || ''; }, doOut, soOut,
     get _state() { return C; }, _sug: sugRow, _stats: statsOf, _seg: () => SEG.key, monthly,
   };
   // Halaman CSL dibuka langsung lewat alamat; selain itu muat di belakang untuk angka Beranda

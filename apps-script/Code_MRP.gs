@@ -36,6 +36,7 @@ const MRP_CONFIG = {
   PAKAI_SHEET: 'BOM_RAKITAN_PAKAI',
   KURANG_SHEET: 'PENGURANGAN_MANUAL',
   SUBS_SHEET: 'MATERIAL_PENGGANTI',
+  LT_SHEET: 'MATERIAL_LT',
 };
 
 // Judul kolom tiap tab + kolom yang harus berformat teks (supaya "01" / "2026-11" tidak diubah Google Sheet)
@@ -98,7 +99,7 @@ function doGet(e) {
       .map(r => [d_(r[0], tz, 'yyyy-MM-dd HH:mm'), s_(r[1]), s_(r[2])]).slice(-60).reverse();
 
     return json_({
-      ok: true, master, boms, details, weeks, skus, plan, planMon, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz), subs: readSubs_(ss, tz),
+      ok: true, master, boms, details, weeks, skus, plan, planMon, stock, gantung, adj, inc, log, konf: readKonf_(ss, tz), cons: readCons_(ss, tz), incK: readIncK_(ss, tz), rakitan: readRakitan_(ss, tz), rakitanPakai: readPakai_(ss, tz), kurang: readKurang_(ss, tz), subs: readSubs_(ss, tz), lt: readLt_(ss, tz),
       databaseUrl: D.dbUrl, mrpUrl: ss.getUrl(), cached: !!D.cached,
       readAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'),
     });
@@ -198,6 +199,7 @@ function doPost(e) {
     else if (action === 'addAdj') res = addAdj_(ss, body, now);
     else if (action === 'addInc') res = addInc_(ss, body, now);
     else if (action === 'saveSubs') res = saveSubs_(ss, body.rows || [], now);
+    else if (action === 'saveLt') res = saveLt_(ss, body.rows || [], now);
     else if (action === 'delRow') res = delRow_(ss, body.kind, body.id, now);
     else return json_({ ok: false, error: 'Aksi tidak dikenal: ' + action });
     return json_(Object.assign({ ok: true, time: now }, res || {}));
@@ -326,6 +328,26 @@ function saveSubs_(ss, rows, now) {
   if (out.length) sh.getRange(2, 1, out.length, 7).setValues(out);
   log_(ss, now, 'Material pengganti', `${out.length} pasangan: ${out.map(r => r[0] + '→' + r[1] + (r[3] === 'N' ? ' (nonaktif)' : '')).join(', ')}`.slice(0, 500));
   return { subs: readSubs_(ss, tz) };
+}
+
+/* ---------- Material lead time panjang (tab MATERIAL_LT) ---------- */
+// [kode, lead time (bulan), catatan, aktif Y/N, diubah]
+function readLt_(ss, tz) {
+  const sh = ss.getSheetByName(MRP_CONFIG.LT_SHEET);
+  return rows_(sh, 5).map(r => [s_(r[0]), Number(r[1]) || 0, s_(r[2]), s_(r[3]) || 'Y', d_(r[4], tz, 'yyyy-MM-dd HH:mm')]);
+}
+function saveLt_(ss, rows, now) {
+  let sh = ss.getSheetByName(MRP_CONFIG.LT_SHEET);
+  if (!sh) { sh = ss.insertSheet(MRP_CONFIG.LT_SHEET); sh.getRange(1, 1, 1, 5).setValues([['KODE', 'LEAD TIME (BULAN)', 'CATATAN', 'AKTIF', 'DIUBAH']]).setFontWeight('bold'); sh.setFrozenRows(1); sh.getRange('A:A').setNumberFormat('@'); }
+  const tz = ss.getSpreadsheetTimeZone(), old = new Map(readLt_(ss, tz).map(r => [r[0], r])), seen = new Set();
+  const out = rows.map(r => [s_(r[0]), Number(r[1]) || 0, s_(r[2]), s_(r[3]) === 'N' ? 'N' : 'Y'])
+    .filter(r => r[0] && r[1] > 0 && !seen.has(r[0]) && seen.add(r[0]))
+    .map(r => { const o = old.get(r[0]); const same = o && [o[1], o[2], o[3]].join('|') === [r[1], r[2], r[3]].join('|'); return r.concat([same ? o[4] : now]); });
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 5).clearContent();
+  if (out.length) sh.getRange(2, 1, out.length, 5).setValues(out);
+  log_(ss, now, 'Material LT panjang', `${out.length} material: ${out.map(r => r[0] + ' ' + r[1] + ' bln' + (r[3] === 'N' ? ' (nonaktif)' : '')).join(', ')}`.slice(0, 500));
+  return { lt: readLt_(ss, tz) };
 }
 
 /* ---------- Plan satu bulan (tab PLAN_BULAN) ---------- */
