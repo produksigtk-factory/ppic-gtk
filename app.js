@@ -7568,6 +7568,11 @@
     const box = $('ltRows'), D = P.ltView || [], SO = P.ltSO || {}, ed = state.edit.on || P.edit;
     const ql = ($('ltQ').value || '').trim().toLowerCase();
     const V = D.filter(({ x, d }) => !ql || (x.kode + ' ' + ((d && d.nama) || (MRP.master.get(x.kode) || {}).name || '') + ' ' + x.cat).toLowerCase().includes(ql));
+    // sort per kolom (klik judul kolom); nonaktif selalu di bawah
+    const S = P.ltSort || { k: 'status', dir: 1 }, ordS = { red: 0, yellow: 1, green: 2 };
+    const key = { kode: (y) => y.x.kode, lt: (y) => y.x.lt, use: (y) => y.d.use, mo: (y) => y.d.moNow, stok: (y) => y.d.stok, ospo: (y) => y.d.ospo, doi: (y) => (y.d.doi === null ? 1e9 : y.d.doi), habis: (y) => y.d.habis || '9999', batas: (y) => y.d.batas || '9999', status: (y) => ordS[y.d.status] * 1e5 + (y.d.days === null ? 99999 : y.d.days), saran: (y) => y.d.saran }[S.k];
+    V.sort((a, b) => { if (!a.d || !b.d) return (!a.d) - (!b.d); const va = key(a), vb = key(b); return (typeof va === 'string' ? va.localeCompare(vb, 'id', { numeric: true }) : va - vb) * S.dir; });
+    document.querySelectorAll('#view-prlt-mat th[data-ltsort]').forEach((th) => { th.classList.toggle('is-sort', th.dataset.ltsort === S.k); th.dataset.dir = th.dataset.ltsort === S.k ? (S.dir > 0 ? 'asc' : 'desc') : ''; });
     const q = (v, u) => `${prNumTxt(v) || 0}${u ? ` <small class="muted">${esc(u)}</small>` : ''}`;
     box.innerHTML = V.map(({ x, i, d }) => {
       const act = ed ? `<button type="button" class="btn-link" data-lted="${i}">Ubah</button> <button type="button" class="btn-link" data-lton="${i}">${x.aktif ? 'Nonaktifkan' : 'Aktifkan'}</button> <button type="button" class="btn-link danger" data-ltdel="${i}">Hapus</button>` : '';
@@ -7654,6 +7659,11 @@
     $('ltAdd').addEventListener('click', () => needEdit(() => ltDialog(-1)));
     $('ltReload').addEventListener('click', async () => { LTSO.m = null; renderLtMat(); });
     $('ltQ').addEventListener('input', () => { if (P.ltView) ltPaint(); });
+    document.querySelector('#view-prlt-mat thead').addEventListener('click', (e) => {
+      const th = e.target.closest('th[data-ltsort]'); if (!th) return;
+      const k = th.dataset.ltsort, S = P.ltSort || { k: 'status', dir: 1 };
+      P.ltSort = { k, dir: S.k === k ? -S.dir : 1 }; if (P.ltView) ltPaint();
+    });
     $('ltRows').addEventListener('click', (e) => {
       const xb = e.target.closest('[data-ltx]');
       if (xb) { const v = (P.ltView || []).find((y) => y.i === Number(xb.dataset.lti)); if (v && v.d) openDialog({ title: `${({ use: 'Pemakaian / bulan', mo: 'MO bulan berjalan', po: 'OS PO' })[xb.dataset.ltx]} · ${v.d.kode} ${v.d.nama}`, ok: 'Tutup', cancel: false, wide: true, body: ltMiniHtml(xb.dataset.ltx, v.d), onSubmit: async () => '' }); return; }

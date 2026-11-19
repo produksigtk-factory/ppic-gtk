@@ -2304,3 +2304,8 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 
 .lt-num{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;text-align:right}
 .lt-num:hover{color:var(--accent,#2f6fdf)}
+
+#view-prlt-mat th[data-ltsort]{cursor:pointer;user-select:none}
+#view-prlt-mat th[data-ltsort]:hover{color:var(--accent,#2f6fdf)}
+#view-prlt-mat th[data-dir=asc]::after{content:" ▲";font-size:10px}
+#view-prlt-mat th[data-dir=desc]::after{content:" ▼";font-size:10px}
