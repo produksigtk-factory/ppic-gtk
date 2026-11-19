@@ -693,8 +693,9 @@ function readPr_(ss, tz) {
     numOrBlank_(r[7]), numOrBlank_(r[8]), numOrBlank_(r[9]), numOrBlank_(r[10]), numOrBlank_(r[11]), numOrTxt_(r[12]),
     fmtDate_(r[13], tz), str_(r[14]), str_(r[15]) || 'Aktif', show_(r[16], tz), String(r[17] || '')]);
 }
-function nextPrCode_(all, tanggal) {
-  const pre = 'PR/GTK/' + tanggal.slice(2, 4) + tanggal.slice(5, 7) + '/';
+// lt = true: PR lead time panjang → PR-LT/GTK/YYMM/NNN (nomor urut sendiri)
+function nextPrCode_(all, tanggal, lt) {
+  const pre = (lt ? 'PR-LT/GTK/' : 'PR/GTK/') + tanggal.slice(2, 4) + tanggal.slice(5, 7) + '/';
   let max = 0;
   all.forEach(r => { if (r[0].indexOf(pre) === 0) { const n = Number(r[0].slice(pre.length)); if (n > max) max = n; } });
   return pre + String(max + 1).padStart(3, '0');
@@ -707,8 +708,8 @@ function applyPr_(all, d, stamp, user, log) {
   if (!rows.length) throw new Error('PR harus berisi minimal satu kode material.');
   let kode = str_(d.kodePr);
   const isNew = !kode;
-  if (isNew) kode = nextPrCode_(all, tanggal);
-  else if (!/^PR\/GTK\/\d{4}\/\d+$/.test(kode)) throw new Error('Format Kode PR tidak dikenal: ' + kode + ' (contoh PR/GTK/2611/001).');
+  if (isNew) kode = nextPrCode_(all, tanggal, !!d.lt);
+  else if (!/^PR(-LT)?\/GTK\/\d{4}\/\d+$/.test(kode)) throw new Error('Format Kode PR tidak dikenal: ' + kode + ' (contoh PR/GTK/2611/001 atau PR-LT/GTK/2611/001).');
   const old = all.filter(r => r[0] === kode);
   const oldPo = {}; old.forEach(r => { oldPo[r[3]] = r[14]; });
   const keep = all.filter(r => r[0] !== kode);

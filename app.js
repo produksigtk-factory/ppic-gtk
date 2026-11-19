@@ -167,6 +167,8 @@
     'pr/rekap':          { view: 'view-pr-rekap',          crumb: 'Purchase Request',          title: 'Rekap PR',        actions: 'po' },
     'pr/form':           { view: 'view-pr-form',           crumb: 'Purchase Request',          title: 'Formulir PR',     actions: 'po' },
     'pr/pengganti':      { view: 'view-pr-subs',           crumb: 'Purchase Request',          title: 'Material Pengganti', actions: 'po' },
+    'prlt/rekap':        { view: 'view-pr-rekap',          crumb: 'PR Lead Time Panjang',      title: 'Rekap PR LT Panjang', actions: 'po' },
+    'prlt/form':         { view: 'view-pr-form',           crumb: 'PR Lead Time Panjang',      title: 'Formulir PR LT Panjang', actions: 'po' },
     'prlt/material':     { view: 'view-prlt-mat',          crumb: 'PR Lead Time Panjang',      title: 'Material LT & Saran Buka PO', actions: 'po' },
     'info/glosarium':    { view: 'view-info-glosarium',    crumb: 'Bantuan & Sistem',          title: 'Glosarium',       actions: '' },
     'info/kapasitas':    { view: 'view-info-kapasitas',    crumb: 'Bantuan & Sistem',          title: 'Kapasitas Google Sheet', actions: '' },
@@ -222,8 +224,9 @@
     document.title = `${r.title} · PPIC Gondowangi`;
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
     if (r.actions === 'mrp') { mrpEnter(key); renderDataInfo(); }
-    if (key === 'pr/form') prEnter();
-    if (key === 'pr/rekap') renderPrRekap();
+    if (key === 'pr/form' || key === 'pr/rekap' || key === 'prlt/form' || key === 'prlt/rekap') { if (PRF.mode !== PRM()) { PRF.kode = ''; PRF.mode = PRM(); } prApplyMode(); }
+    if (key === 'pr/form' || key === 'prlt/form') prEnter();
+    if (key === 'pr/rekap' || key === 'prlt/rekap') renderPrRekap();
     if (key === 'pr/pengganti') renderSubs();
     if (key === 'prlt/material') renderLtMat();
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
@@ -6872,12 +6875,18 @@
     { k: 'stok', h: 'Stok Terkini', u: '(Kg/Pcs)' }, { k: 'butuh', h: 'Kebutuhan', u: '(Kg/Pcs)' }, { k: 'ospo', h: 'OS PO', u: '(Kg/Pcs)' },
     { k: 'kurang', h: 'Kekurangan', u: '(Kg/Pcs)' }, { k: 'buka', h: 'Jumlah Buka PO', u: '(Kg/Pcs)' }, { k: 'pakai', h: 'Pemakaian', u: '(Bulan)' },
   ];
+  const prColH = (c) => (PRM() === 'lt' && c.k === 'stok' ? 'Stok Awal' : c.h);
   const splitPo = (t) => String(t || '').split(/[,;\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+  // PR Reguler (PR/GTK/…) dan PR LT Panjang (PR-LT/GTK/…) disimpan di tab yang sama, tampil di menu terpisah
+  const isLtPr = (k) => String(k || '').startsWith('PR-LT/');
+  const PRM = () => (String(state.routeKey || '').startsWith('prlt/') ? 'lt' : 'reg');
+  function prApplyMode() { state.pr = (state.prAll || []).filter((r) => isLtPr(r.kodePr) === (PRM() === 'lt')); }
   function setPrData(list) {
-    state.pr = (list || []).map((r) => ({ kodePr: r[0], tanggal: r[1], no: r[2], kode: r[3], nama: r[4], jenis: r[5], note: r[6],
+    state.prAll = (list || []).map((r) => ({ kodePr: r[0], tanggal: r[1], no: r[2], kode: r[3], nama: r[4], jenis: r[5], note: r[6],
       stok: r[7], butuh: r[8], ospo: r[9], kurang: r[10], buka: r[11], pakai: r[12], kirim: r[13], pos: splitPo(r[14]), status: r[15] || 'Aktif', time: r[16], by: r[17] }));
+    prApplyMode();
     state.prByPo = new Map();
-    state.pr.forEach((r) => { if (r.status !== 'Batal') r.pos.forEach((po) => { const s = state.prByPo.get(po) || new Set(); s.add(r.kodePr); state.prByPo.set(po, s); }); });
+    state.prAll.forEach((r) => { if (r.status !== 'Batal') r.pos.forEach((po) => { const s = state.prByPo.get(po) || new Set(); s.add(r.kodePr); state.prByPo.set(po, s); }); });
   }
   // Kelompok per Kode PR
   function prGroups() {
@@ -6886,7 +6895,7 @@
     m.forEach((g) => { g.rows.sort((a, b) => a.no - b.no); g.batal = g.rows.every((r) => r.status === 'Batal'); });
     return [...m.values()].sort((a, b) => (a.kodePr < b.kodePr ? 1 : -1));
   }
-  const prDefKode = (date) => `PR/GTK/${(date || todayStr()).slice(2, 4)}${(date || todayStr()).slice(5, 7)}/…`;
+  const prDefKode = (date) => `${PRM() === 'lt' ? 'PR-LT' : 'PR'}/GTK/${(date || todayStr()).slice(2, 4)}${(date || todayStr()).slice(5, 7)}/…`;
   const prDateTxt = (d) => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${Number(dd)}-${BULAN_ID[Number(m) - 1]}-${y.slice(2)}`; };
   // Split jadwal kirim: kolom TANGGAL KIRIM berisi "2026-12-01=500; 2026-12-15=500" (satu baris material, beberapa jadwal)
   const prSched = (v) => { const t = String(v || '').trim(); if (!t.includes('=')) return null; const L = t.split(';').map((x) => x.trim()).filter(Boolean).map((x) => { const [d, q] = x.split('='); return { d: String(d || '').trim(), q: prNum(String(q || '').trim()) }; }); return L.length ? L : null; };
@@ -7013,7 +7022,7 @@
   }
   document.addEventListener('click', (e) => {
     const g = e.target.closest('.pr-po[data-gopo]'); if (g) { prGoPo(g.dataset.gopo, g.dataset.gocode); return; }
-    const o = e.target.closest('[data-openpr]'); if (o) { PRF.kode = o.dataset.openpr; location.hash = '#/pr/form'; return; }
+    const o = e.target.closest('[data-openpr]'); if (o) { PRF.kode = o.dataset.openpr; location.hash = isLtPr(o.dataset.openpr) ? '#/prlt/form' : '#/pr/form'; return; }
     const ed = e.target.closest('[data-editpr]'); if (ed) prEdit(ed.dataset.editpr);
   });
 
@@ -7073,7 +7082,7 @@
     const g = kodePr ? prGroups().find((x) => x.kodePr === kodePr) : null;
     const hz0 = kodePr ? ((prHitungOf(kodePr)[0] || {}).hz || '8') : '8';
     const D = { mode: kodePr ? 'manual' : 'auto', hz: hz0, kodePr: kodePr || '', tanggal: g ? g.tanggal : todayStr(), rows: g ? g.rows.map((r) => Object.assign({}, r, { pos: r.pos.slice() })) : pre && pre.length ? pre : [prBlank(), prBlank(), prBlank()] };
-    const matOpts = [...(MRP.master || new Map()).values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim())).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
+    const matOpts = [...(MRP.master || new Map()).values()].filter((m) => !/^fg$/i.test(String(m.kat || '').trim()) && (PRM() !== 'lt' || (P.lt || []).some((x) => x.aktif && x.kode === m.code))).map((m) => `<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
     const rowHtml = (r, i) => `<tr data-i="${i}"><td class="num">${i + 1}</td>
       <td><input data-k="kode" value="${esc(r.kode)}" list="prEdMat" class="pr-in-kode" aria-label="Kode"><div class="pr-subw">${prSubWarn(r.kode, i)}</div></td>
       <td><input data-k="nama" value="${esc(r.nama)}" aria-label="Nama item"></td><td><input data-k="jenis" value="${esc(r.jenis)}" class="pr-in-s" aria-label="Jenis"></td>
@@ -7109,7 +7118,7 @@
 
           ${kodePr ? `<label class="field pr-ed-batal"><span>Status seluruh PR</span><select name="allst"><option value="">Ikuti per baris</option><option value="Aktif">Aktifkan semua</option><option value="Batal">Batalkan seluruh PR</option></select></label>` : ''}</div>
         <datalist id="prEdMat">${matOpts}</datalist>
-        <div class="table-wrap pr-ed-wrap"><table class="po-table pr-ed"><thead><tr><th>No</th><th>Kode</th><th>Nama Item</th><th>Jenis</th><th>Note</th>${PR_COLS.map((c) => `<th class="num">${c.h}</th>`).join('')}<th>Tgl Kirim</th><th>No PO <small>(pisah koma)</small></th><th>Status</th><th></th></tr></thead><tbody id="prEdRows"></tbody></table></div>
+        <div class="table-wrap pr-ed-wrap"><table class="po-table pr-ed"><thead><tr><th>No</th><th>Kode</th><th>Nama Item</th><th>Jenis</th><th>Note</th>${PR_COLS.map((c) => `<th class="num">${prColH(c)}</th>`).join('')}<th>Tgl Kirim</th><th>No PO <small>(pisah koma)</small></th><th>Status</th><th></th></tr></thead><tbody id="prEdRows"></tbody></table></div>
         <div id="prHisPanel"></div>
         <p><button type="button" class="btn btn-ghost btn-sm" id="prEdAdd">Tambah baris</button></p>
         <p class="hint" id="prMrpNote"></p><p class="hint">Pilih <b>Otomatis</b> atau <b>Manual</b> di Cara hitung. Otomatis: begitu kode diisi, Stok Terkini (stok upload terakhir + incoming − pemakaian MO Plotting Harian − ADD/FOH/RS s/d hari ini), Kebutuhan (MO Plotting Harian mulai besok s/d akhir bulan + Plan bulan bulan-bulan berikutnya), dan OS PO (sisa PO gantung) terisi otomatis. Kekurangan = Stok Terkini + OS PO − Kebutuhan − ADD/FOH/RS setelah hari ini (rinciannya di Lampiran Perhitungan); angka otomatis tetap bisa diubah. Manual: semua angka diketik sendiri. Lampiran Perhitungan tetap dihitung sistem. Kode PR dibuat otomatis mengikuti bulan Tanggal PR. Baris berstatus Batal tetap tercatat di Rekap tapi tidak dicetak. No PO bisa lebih dari satu; saran No PO diambil dari PO di Monitoring PO dengan kode material yang sama.</p>`,
@@ -7130,8 +7139,9 @@
         const all = fd.allst || '';
         const PR_LBL = { stok: 'Stok Terkini', butuh: 'Kebutuhan', ospo: 'OS PO', kurang: 'Kekurangan', buka: 'Jumlah Buka PO' };
         rows.forEach((r) => Object.keys(PR_LBL).forEach((k) => { const v = String(r[k] === undefined || r[k] === null ? '' : r[k]).trim(); if (v !== '' && isNaN(prNum(v))) throw new Error(`${PR_LBL[k]} untuk ${r.kode} harus angka (tertulis "${v}").`); }));
+        if (PRM() === 'lt') { const nl = rows.filter((r) => !(P.lt || []).some((x) => x.aktif && x.kode === String(r.kode).trim())); if (nl.length && !D.warnedLt) { D.warnedLt = true; throw new Error(`Bukan material LT panjang (tidak ada di Material LT & Saran PO): ${nl.map((r) => r.kode).join(', ')}. Klik Simpan PR sekali lagi bila memang benar.`); } }
         const hitung = state.noPrHitungScript ? null : await prHitungPayload(rows);
-        const res = await api('savePr', { data: { kodePr: D.kodePr, tanggal: fd.tanggal, statusPo: prStatusPayload(rows.map((r) => r.kode)), hitung: hitung || undefined, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
+        const res = await api('savePr', { data: { lt: PRM() === 'lt', kodePr: D.kodePr, tanggal: fd.tanggal, statusPo: prStatusPayload(rows.map((r) => r.kode)), hitung: hitung || undefined, rows: rows.map((r) => [String(r.kode).trim(), r.nama, r.jenis, r.note,
           ...PR_NUM.map((k) => (k === 'pakai' ? prPakaiVal(r.pakai) : prNum(r[k]))), r.kirim || '', r.pos.join(', '), all || r.status]) } });
         setPrData(res.pr); if (res.prStatus) setPrStatus(res.prStatus); if (res.prHitung) setPrHitung(res.prHitung); if (res.editLog) state.editLog = res.editLog;
         renderPrRekap(); renderLog();
@@ -7146,6 +7156,18 @@
       const tr = body.querySelector(`#prEdRows tr[data-i="${i}"]`); if (!tr) return;
       const set = (key, v, auto) => { r[key] = v === '' ? '' : String(v); const x = tr.querySelector(`[data-k=${key}]`); if (x) { x.value = r[key]; if (auto !== undefined) x.classList.toggle('is-auto', auto); } };
       if (!MRP.master.has(k) && !(P.stock || new Map()).has(k)) { if (!r.stokManual) set('stok', ''); r._inc = 0; r._add = 0; return; }
+      if (PRM() === 'lt') {
+        if (!LTSO.m) { ltSoMap().then(() => { if (seq === dlgSeq) fillStok(i); }).catch(() => {}); return; }
+        const L = ltCalc(k); if (!L) return;
+        if (!r.stokManual) { set('stok', L.stok, true); r.stokAuto = true; } r._inc = 0; r._add = 0;
+        if (!r.butuhManual) { set('butuh', L.total, true); r.butuhAuto = true; }
+        if (!r.ospoManual) { set('ospo', L.ospo, true); r.ospoAuto = true; }
+        if (!String(r.pakai || '').trim()) set('pakai', `${monShort(L.months[0])} - ${monShort(L.months[L.months.length - 1])}`);
+        if (!String(r.buka || '').trim() && L.saran) set('buka', L.saran);
+        prAutoKurang(r); const ki = tr.querySelector('[data-k=kurang]'); if (ki && !r.kurangManual) ki.value = r.kurang || '';
+        const mq = tr.querySelector('.pr-calcn'); if (mq) mq.textContent = `LT ${L.lt} bln · stok awal ${fmtDate(L.stokDate)} · ${L.hz} bln dari avg SO ${monShort(L.avgMs[0])}–${monShort(L.avgMs[5])} · ${LT_ST[L.status][0]}${L.batas ? ' · batas buka PO ' + fmtDate(L.batas) : ''}${(P.lt || []).some((x) => x.aktif && x.kode === k) ? '' : ' · ⚠ bukan material LT'}`;
+        return;
+      }
       const c = prCalc(k, 'all', [], { pool: true }); if (!c) return;
       if (!r.stokManual) { set('stok', c.stok, true); r.stokAuto = true; } r._inc = c.inc; r._add = c.add;
       if (!r.butuhManual) { set('butuh', c.butuh, true); r.butuhAuto = true; }
@@ -7221,6 +7243,14 @@
   }
   $('prNew').addEventListener('click', () => {
     if (!state.edit.on) { toast('Masuk Mode edit dulu.'); return; }
+    if (PRM() === 'lt') {
+      openDialog({ title: 'Tambah PR LT Panjang baru', ok: 'Lanjut', wide: false,
+        body: `<p class="dlg-lead">Mulai dari mana?</p>
+          <label class="pr-src"><input type="radio" name="src" value="saran" checked><span><b>Dari saran buka PO</b><small>Material LT berstatus Segera buka PO / Siapkan PO otomatis masuk ke formulir, lengkap dengan saran qty.</small></span></label>
+          <label class="pr-src"><input type="radio" name="src" value="manual"><span><b>Manual</b><small>Formulir kosong, ketik kode material LT sendiri.</small></span></label>`,
+        onSubmit: async (fd) => { setTimeout(() => (fd.src === 'manual' ? prEdit('') : ltPrFromSaran()), 0); return ''; } });
+      return;
+    }
     openDialog({ title: 'Tambah PR baru', ok: 'Lanjut', wide: false,
       body: `<p class="dlg-lead">Mulai dari mana?</p>
         <label class="pr-src"><input type="radio" name="src" value="short" checked><span><b>Dari stok yang kurang</b><small>Pilih material yang saldonya minus menurut Stok Terkini − Kebutuhan (dipisah RM dan PM), lalu daftar materialnya otomatis masuk ke formulir.</small></span></label>
@@ -7303,7 +7333,7 @@
         const kode = txt(r[ix('KODE')]).replace(/\.0+$/, ''); if (!kode) return;
         const kp = txt(r[ix('KODE PR')]), tg = xlDate(r[ix('TANGGAL PR')]);
         if (!tg) { errs.push(`baris ${h + i + 2}: TANGGAL PR kosong/tidak dikenal`); return; }
-        const key = kp || 'NEW|' + tg, g = groups.get(key) || { kodePr: kp, tanggal: tg, rows: [] };
+        const key = kp || 'NEW|' + tg, g = groups.get(key) || { kodePr: kp, tanggal: tg, rows: [], lt: kp ? isLtPr(kp) : PRM() === 'lt' };
         const m = MRP.master && MRP.master.get(kode), g2 = (n) => (ix(n) >= 0 ? r[ix(n)] : '');
         g.rows.push([kode, txt(g2('NAMA ITEM')) || (m ? m.name : ''), txt(g2('JENIS')) || (m ? m.kat : ''), txt(g2('NOTE')),
           ...['STOK AWAL', 'KEBUTUHAN', 'OS PO', 'KEKURANGAN', 'JUMLAH BUKA PO'].map((n) => prNum(g2(n) === '' ? '' : g2(n))), prPakaiVal(g2('PEMAKAIAN (BULAN)')),
@@ -7637,6 +7667,33 @@
       ${d.po.map((x) => `<tr><td class="mono">${esc(x.po)}</td><td>${esc(x.sup || '')}</td><td>${x.tglPo ? fmtDate(x.tglPo) : '–'}</td><td class="num">${x.qtyPo ? n(x.qtyPo) : '–'} <small class="muted">${esc(x.uomPo || '')}</small></td><td>${x.d ? fmtDate(x.d) + (x.d < todayStr() ? ' <small class="pl-bad">telat</small>' : '') : '<span class="muted">tanpa jadwal</span>'}</td><td class="num"><b>${n(x.q)}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada PO gantung.</td></tr>'}
       <tr class="lt-tot"><td colspan="5">Total OS PO</td><td class="num"><b>${n(d.ospo)} ${esc(d.uom)}</b></td></tr></tbody></table></div>`;
   }
+  // Lampiran Perhitungan PR LT Panjang (dibekukan saat PR disimpan)
+  function ltLampHtml(g, print) {
+    const H = prHitungOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal'), n = (v) => prNumTxt(v) || 0;
+    const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
+    const blk = rows.map((r) => {
+      const h = H.find((x) => x.kode === String(r.kode).trim()), d = h && h.data;
+      if (!d || d.v !== 'lt') return `<div class="lp-card"><div class="lp-head"><span class="lp-code">${esc(r.kode)}</span><span class="lp-name">${esc(r.nama)}</span><span class="lp-chip is-muted">Belum ada perhitungan</span></div></div>`;
+      const q = Number(d.prQty) || 0, sisa = Math.round((d.kurang + q) * 1000) / 1000;
+      const sch = (d.pr || []).filter((x) => x.q > 0).map((x) => `${x.d ? fmtDate(x.d) : 'tanpa tgl'} ${n(x.q)}`).join(' · ');
+      return `<div class="lp-card lt-lamp"><div class="lp-head"><span class="lp-code">${esc(d.kode)}</span><span class="lp-name">${esc(d.nama)}</span>${ltStatusHtml(d)}</div>
+        ${ltDetailHtml(d)}
+        <p class="lp-eqt">PR ini: <b>${n(q)} ${esc(d.uom)}</b>${sch ? ` (${esc(sch)})` : ''} · Kekurangan ${n(d.kurang)} + PR ${n(q)} = <b class="${sisa < -1e-9 ? 'pl-bad' : ''}">Sisa ${n(sisa)}</b>${d.noSo && d.noSo.length ? ` · SKU pemakai tanpa SO: ${esc(d.noSo.join(', '))}` : ''}</p></div>`;
+    }).join('');
+    const title = `<div class="pr-lamp-h"><b>Lampiran Perhitungan PR Lead Time Panjang</b> · ${esc(g.kodePr)}${at ? ` · dihitung ${esc(at)}` : ''}</div><p class="lp-how">Kebutuhan = rata-rata SO CSL (Personal Care + Beauty) 6 bulan penuh sebelum tanggal mulai × material per pcs (BoM aktif). Horizon = lead time + 2 bulan. Kekurangan = Stok awal + OS PO − Total pemakaian horizon. Stok pengaman = 1 bulan pemakaian; batas buka PO = perkiraan saldo di bawah stok pengaman − lead time.</p>`;
+    return print ? `<section class="pr-lamp-page pr-st-page pr-hit-page lp-print">${title}${blk}</section>` : `${title}${blk}`;
+  }
+  function ltPrFromSaran() {
+    const go = async () => {
+      if (!(await mrpReady())) { toast('Data MRP tidak bisa dimuat.'); return; }
+      try { await ltSoMap(); } catch (e) { toast('SO CSL tidak bisa dimuat: ' + e.message); }
+      const L = (P.lt || []).filter((x) => x.aktif).map((x) => ltCalc(x.kode)).filter((d) => d && d.status !== 'green' && d.saran > 0);
+      if (!L.length) { toast('Tidak ada material LT berstatus Segera buka / Siapkan PO.'); prEdit(''); return; }
+      const rows = L.map((d) => Object.assign(prBlank(), { kode: d.kode, nama: d.nama, jenis: d.kat, buka: String(d.saran), stokPending: true }));
+      prEdit('', rows);
+    };
+    go();
+  }
   async function saveLt(list, msg) {
     const res = await mrpApi('saveLt', { rows: list.map((x) => [x.kode, x.lt, x.cat || '', x.aktif ? 'Y' : 'N']) });
     setLt(res.lt || []); renderLtMat(); toast(msg || 'Daftar material LT tersimpan.');
@@ -7668,6 +7725,7 @@
     $('ltAdd').addEventListener('click', () => needEdit(() => ltDialog(-1)));
     $('ltReload').addEventListener('click', async () => { LTSO.m = null; renderLtMat(); });
     $('ltQ').addEventListener('input', () => { if (P.ltView) ltPaint(); });
+    $('ltMkPr').addEventListener('click', () => { if (!state.edit.on) { toast('Masuk Mode edit dulu (PIN Monitoring PO).'); return; } location.hash = '#/prlt/rekap'; setTimeout(ltPrFromSaran, 400); });
     document.querySelector('#view-prlt-mat thead').addEventListener('click', (e) => {
       const th = e.target.closest('th[data-ltsort]'); if (!th) return;
       const k = th.dataset.ltsort, S = P.ltSort || { k: 'status', dir: 1 };
@@ -7905,6 +7963,7 @@
   }
   const prHitungOf = (kodePr) => (state.prHitung || []).filter((x) => x.kodePr === kodePr);
   function prHitungHtml(g, print) {
+    if (isLtPr(g.kodePr)) return ltLampHtml(g, print);
     const H = prHitungOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
     const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
     const f = (v) => (Math.abs(Number(v) || 0) < 0.0005 ? '–' : prNumTxt(v));
@@ -7984,6 +8043,7 @@
   }
   /* ---------- Lampiran Penggunaan Material: produk pemakai (BoM aktif) + Sell In L3M, dibekukan bersama Lampiran Perhitungan ---------- */
   function prUseHtml(g, print) {
+    if (isLtPr(g.kodePr)) return '';
     const H = prHitungOf(g.kodePr), rows = g.rows.filter((r) => r.status !== 'Batal');
     const at = H.map((x) => x.at).filter(Boolean).sort().pop() || '';
     let months = null;
@@ -8010,6 +8070,18 @@
   }
   async function prHitungPayload(rows) {
     if (!(await mrpReady())) return null;
+    if (PRM() === 'lt') {
+      try { await ltSoMap(); } catch (e) { /* tanpa SO: kebutuhan 0 */ }
+      const o = {};
+      rows.forEach((r) => {
+        const k = String(r.kode || '').trim(); if (!k || o[k]) return;
+        const d = ltCalc(k); if (!d) return;
+        const keep = d.rows.filter((x) => x.need > 0 || x.avgPcs > 0), noSo = d.rows.filter((x) => !(x.need > 0 || x.avgPcs > 0)).map((x) => x.sku);
+        const L = Object.assign({ v: 'lt', at: todayStr(), noSo, pr: prSchedOf(r), prQty: Number(prNum(r.buka)) || 0 }, d, { rows: keep.slice(0, 60).map((x) => Object.assign({}, x, { name: x.name.length > 48 ? x.name.slice(0, 47) + '…' : x.name, perPcs: undefined })), moList: d.moList.slice(0, 40) });
+        o[k] = { hz: 'lt', data: L };
+      });
+      return o;
+    }
     let SI = null; try { SI = await sellInMap(); } catch (e) { SI = null; }
     const o = {};
     rows.forEach((r) => { const k = String(r.kode || '').trim(); if (k && !o[k]) { const d = prCalc(k, 'all', prSchedOf(r), { pool: true }); if (d) { d.use = prUseData(k, SI); while (JSON.stringify(d).length > 45000 && d.use.rows.length > 5) { d.use.more += Math.ceil(d.use.rows.length / 3); d.use.rows = d.use.rows.slice(0, Math.floor(d.use.rows.length * 2 / 3)); } o[k] = { hz: 'all', data: d }; } } });
@@ -8189,7 +8261,7 @@
       <div class="pr-meta"><div class="pr-berlaku">Tanggal Berlaku : 02 Okt 2025<br>Tanggal Kaji Ulang : 02 Okt 2028</div>
         <div class="pr-ids"><span>Tanggal PR :</span><b class="pr-box">${g ? esc(prDateTxt(g.tanggal)) : ''}</b><span>Kode PR :</span><b class="pr-box pr-box2">${g ? esc(g.kodePr) : ''}</b></div></div>`;
     const th = `<tr><th class="pr-no">No.</th><th class="pr-kode">Kode</th><th class="pr-nama">Nama Item</th><th class="pr-jenis">Jenis</th><th class="pr-note">Note</th>
-      ${PR_COLS.map((c) => `<th class="pr-n">${c.h}<small>${c.u}</small></th>`).join('')}<th class="pr-kirim">Tanggal Kirim</th></tr>`;
+      ${PR_COLS.map((c) => `<th class="pr-n">${prColH(c)}<small>${c.u}</small></th>`).join('')}<th class="pr-kirim">Tanggal Kirim</th></tr>`;
     const body = rows.map((r, i) => (r
       ? `<tr><td class="pr-no">${i + 1}</td><td class="pr-kode">${esc(r.kode)}</td><td class="pr-nama">${esc(r.nama)}</td><td class="pr-jenis">${esc(r.jenis)}</td><td class="pr-note">${esc(r.note)}</td>
         ${PR_NUM.map((k) => `<td class="pr-n">${prNumTxt(r[k])}</td>`).join('')}<td class="pr-kirim">${prKirimLines(r.kirim).map(esc).join('<br>')}</td></tr>`
@@ -8246,7 +8318,7 @@
     Promise.all(imgs.map((im) => new Promise((ok) => { im.addEventListener('load', ok, { once: true }); im.addEventListener('error', ok, { once: true }); })))
       .then(() => { window.print(); setTimeout(done, 1000); });
   });
-  function renderPrViews() { if (state.routeKey === 'pr/rekap') renderPrRekap(); if (state.routeKey === 'pr/form') prEnter(); if (state.routeKey === 'pr/pengganti') renderSubs(); if (state.routeKey === 'prlt/material') renderLtMat(); }
+  function renderPrViews() { if (state.routeKey === 'pr/rekap' || state.routeKey === 'prlt/rekap') renderPrRekap(); if (state.routeKey === 'pr/form' || state.routeKey === 'prlt/form') prEnter(); if (state.routeKey === 'pr/pengganti') renderSubs(); if (state.routeKey === 'prlt/material') renderLtMat(); }
 
   // Salin gambar (canvas) ke clipboard sebagai PNG. cvP: Promise<canvas>. Dipanggil langsung dari klik (izin clipboard).
   window.copyCanvasImage = (cvP) => {
