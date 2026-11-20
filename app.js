@@ -7410,7 +7410,7 @@
     const nm = (c) => ((MRP.master.get(c) || {}).name || '');
     const stk = (c) => { const x = prCalc(c, 'all', []); return x ? `${prNumTxt(x.stok) || 0} <small class="muted">${esc(x.uom || '')}</small>` : '–'; };
     box.innerHTML = L.map((x, i) => {
-      const users = matUsers(x.lama).map((u) => u.sku), sw = x.skus.length ? x.skus : null;
+      const users = [...new Set(matUsers(x.lama).filter((u) => !(P.skus.get(u.sku) || {}).rakitan).map((u) => u.sku).concat(ltKitUsers(x.lama).map((u) => `${u.sku} (rakitan)`)))], sw = x.skus.length ? x.skus : null;
       return `<tr class="${x.aktif ? '' : 'lp-dim'}" data-si="${i}"><td><b class="mono">${esc(x.lama)}</b><small class="sub-nm">${esc(nm(x.lama))}</small></td><td><b class="mono">${esc(x.baru)}</b><small class="sub-nm">${esc(nm(x.baru))}</small></td>
         <td>${x.pakai ? 'Habiskan dulu' : '<span class="pl-warn-t">Tidak dipakai</span>'}</td><td class="num">${stk(x.lama)}</td><td class="num">${stk(x.baru)}</td>
         <td>${sw ? `<small><b>${esc(sw.join(', '))}</b></small>` : '<span class="kf-w kf-ok">Semua SKU</span>'}</td><td>${users.length ? `<small>${esc(users.join(', '))}</small>` : '<span class="muted">tidak ada</span>'}</td><td><small>${esc(x.cat)}</small></td>
