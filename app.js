@@ -1887,7 +1887,7 @@
   function openDialog({ title, body, ok = 'Simpan', danger = false, onSubmit, cancel = true, wide = false }) {
     dlgSeq++;
     $('dlgCancel').hidden = !cancel;
-    $('dlg').classList.toggle('dlg-wide', wide);
+    $('dlg').classList.toggle('dlg-wide', !!wide); $('dlg').classList.toggle('dlg-xwide', wide === 'x');
     $('dlgTitle').textContent = title;
     $('dlgBody').innerHTML = body;
     $('dlgError').textContent = '';
@@ -5514,7 +5514,7 @@
     let J; try { J = computeProj({ weeks: [wk], all: false }); } finally { P.pjCalc = keep; }
     if (!d0 || wk.end < d0) return { days, J, j: 0, rows: [], before: true };
     const ws = wk.start, sh = (P.stockHist || new Map()).get(d0) || new Map();
-    const M = new Map(), mk = (c) => { let o = M.get(c); if (!o) { o = { pre: 0, need: new Array(nd + 1).fill(0), inc: new Array(nd).fill(0), out: new Array(nd).fill(0), preIn: 0, preOut: 0, src: [] }; M.set(c, o); } return o; };
+    const M = new Map(), mk = (c) => { let o = M.get(c); if (!o) { o = { pre: 0, need: new Array(nd + 1).fill(0), inc: new Array(nd).fill(0), out: new Array(nd).fill(0), preIn: 0, preOut: 0, src: [], det: [] }; M.set(c, o); } return o; };
     const di = (t) => days.indexOf(t);
     P.konf.forEach((r) => {
       if (kfIsEk(r.code) || planUnit(r.code) === 'pcs') return;
@@ -5530,7 +5530,10 @@
         const o = mk(c);
         if (at === -1) { o.pre += v; return; }
         if (at < 0 || t && t < d0) return;
-        o.need[at] += v; const m = o.src[at] || (o.src[at] = new Map()); m.set(lbl, (m.get(lbl) || 0) + v);
+        o.need[at] += v;
+        // rincian per MO untuk dialog Keluar: MO, SKU, qty MO, BoM MO, pemakaian material
+        (o.det[at] || (o.det[at] = [])).push({ no: r.no, sku: r.code, name: r.name || (P.skus.get(r.code) || MRP.master.get(r.code) || {}).name || '', kg: q, tgl: t, bom: n.bom || null, v });
+        void lbl;
       });
     });
     (P.incK || []).forEach((x) => { const d = x.datang || x.tgl; if (!d || d < d0 || d > wk.end) return; const o = mk(x.code); if (d < ws) o.preIn += x.qty; else { const i = di(d); if (i >= 0) o.inc[i] += x.qty; } });
@@ -5551,7 +5554,7 @@
       }
       const end = open + wIn - wNeed - wOut;
       if (short < 0 && end < -1e-9) short = nd;
-      rows.push({ code, name: m.name || (st && st.name) || code, uom: m.uom || (st && st.uom) || '', kat: m.kat || '', po: r0.po || null, open, need: o.need, un, end, inc: o.inc, out: o.out, sal, short, wNeed, src: o.src, fix: 0 });
+      rows.push({ code, name: m.name || (st && st.name) || code, uom: m.uom || (st && st.uom) || '', kat: m.kat || '', po: r0.po || null, open, need: o.need, un, end, inc: o.inc, out: o.out, sal, short, wNeed, src: o.src, det: o.det, fix: 0 });
     });
     return { days, J, j: 0, rows, before: false, d0 };
   }
@@ -5801,17 +5804,28 @@
     const r = H.rows.find((x) => x.code === code); if (!r) return;
     const isUn = i === H.days.length, d = H.days[i], m = r.src[i] || new Map(), list = [...m.entries()].sort((a, b) => b[1] - a[1]);
     const kur = isUn ? [] : (P.kurang || []).filter((x) => x.code === code && x.tgl === d);
-    const tr = (a, b) => `<tr><td>${esc(a)}</td><td class="num">${fmtQ(b)}</td></tr>`;
+    const det = (r.det && r.det[i]) || [], tot = r.need[i] + (r.out[i] || 0);
+    const pct = (v) => (tot > 1e-9 ? `${(Math.round((v / tot) * 1000) / 10).toString().replace('.', ',')}%` : '–');
+    const tr = (a, b) => `<tr><td colspan="${det.length ? 5 : 1}">${esc(a)}</td><td class="num">${fmtQ(b)}</td>${det.length ? `<td class="num">${pct(b)}</td>` : ''}</tr>`;
+    // material masuk langsung dari BoM MO, atau lewat ekstrak / bulk mana
+    const via = (bom) => {
+      if (!bom) return '–';
+      const direct = bom.comps.some((c) => String(c.code).trim() === code), out = [];
+      bom.comps.forEach((c) => { const k = String(c.code).trim(); if (k !== code && MRP.byProduct.has(k) && !isFg(k)) { const nn = needOf(k, 1000); if (nn && nn.leaves.has(code)) out.push(`${k} ${(MRP.master.get(k) || {}).name || ''}`.trim()); } });
+      return [direct ? 'langsung' : '', ...out.map((x) => 'lewat ' + x)].filter(Boolean).join(' + ') || '–';
+    };
+    const detRows = det.slice().sort((a, b) => b.v - a.v).map((x) => `<tr><td class="mono">${esc(x.no)}${x.tgl ? '' : '<small class="muted">belum bertanggal</small>'}</td><td><b>${esc(x.sku)}</b><small class="muted">${esc(x.name)}</small></td><td class="num">${fmtKg(x.kg)} kg</td><td>${esc(via(x.bom))}${x.bom ? `<small class="muted">BoM ${esc(refOf(x.bom))}</small>` : ''}</td><td class="num">${x.kg ? (x.v / x.kg).toLocaleString('id-ID', { maximumSignificantDigits: 4 }) : '–'}</td><td class="num"><b>${fmtQ(x.v)}</b></td><td class="num">${pct(x.v)}</td></tr>`).join('');
     openDialog({
-      title: isUn ? `Belum dijadwalkan ${code} · ${wLabel(phWeek())}` : `Keluar ${code} · ${dayLbl(d)}`, ok: 'Tutup', cancel: false,
+      title: isUn ? `Belum dijadwalkan ${code} · ${wLabel(phWeek())}` : `Keluar ${code} · ${dayLbl(d)}`, ok: 'Tutup', cancel: false, wide: det.length ? 'x' : false,
       body: `<p class="dlg-lead"><b>${esc(r.name)}</b> · ${esc(r.uom)}</p>
-        <table class="po-table pl-mini"><thead><tr><th>Asal</th><th class="num">Qty</th></tr></thead><tbody>
+        <div class="table-wrap"><table class="po-table pl-mini ph-out-t"><thead><tr>${det.length ? `<th>No MO</th><th>SKU</th><th class="num">Qty MO</th><th>Material masuk</th><th class="num">${esc(r.uom)} / kg produk</th><th class="num">Pemakaian ${esc(code)}</th><th class="num">Porsi</th>` : '<th>Asal</th><th class="num">Qty</th>'}</tr></thead><tbody>
+        ${detRows}
         ${list.map(([k, v]) => tr(k, v)).join('')}
         ${isUn && r.fix ? tr('Penyesuaian agar sama dengan total week di Proyeksi Stok', r.fix) : ''}
         ${kur.map((x) => tr(`ADD/FOH/RS ${x.ket || ''}`.trim(), x.qty)).join('')}
         ${i === 0 && r.out[0] - kur.reduce((t, x) => t + x.qty, 0) > 1e-9 ? tr('ADD/FOH/RS tanggal sebelumnya / tanpa tanggal di week ini', r.out[0] - kur.reduce((t, x) => t + x.qty, 0)) : ''}
-        <tr class="csl-tot"><th>Total</th><th class="num">${fmtQ(r.need[i] + (r.out[i] || 0))}</th></tr></tbody></table>
-        <p class="hint">Qty = qty MO / sisa plan × qty material di BoM (termasuk lewat ekstrak/bulk). ${isUn ? 'Sisa plan tanpa MO dan MO tanpa tanggal produksi: begitu MO keluar dan diplot tanggalnya, pindah ke hari produksinya.' : ''}</p>`,
+        <tr class="csl-tot"><th${det.length ? ' colspan="5"' : ''}>Total</th><th class="num">${fmtQ(tot)}</th>${det.length ? '<th class="num">100%</th>' : ''}</tr></tbody></table></div>
+        <p class="hint">Pemakaian = qty MO × ${esc(r.uom)} ${esc(code)} per kg produk dari BoM MO (Reference BoM di Konfirmasi Produksi; lewat ekstrak/bulk dihitung sampai bahan baku). Porsi = bagian setiap MO dari total keluar. ${isUn ? 'Sisa plan tanpa MO dan MO tanpa tanggal produksi: begitu MO keluar dan diplot tanggalnya, pindah ke hari produksinya.' : ''}</p>`,
       onSubmit: async () => '',
     });
   }

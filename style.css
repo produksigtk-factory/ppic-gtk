@@ -565,6 +565,7 @@ th[aria-sort="descending"] .sort-ind::before { content: "↓"; }
 .btn-xs { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
 .hbar-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
 .dlg.dlg-wide { width: min(760px, calc(100vw - 32px)); }
+.dlg.dlg-wide.dlg-xwide { width: min(1080px, calc(100vw - 32px)); }
 .msg-info { margin: 12px 0 6px !important; font-size: 13px; color: var(--muted); }
 .msg-field { display: flex; flex-direction: column; gap: 4px; }
 .msg-field textarea { width: 100%; font-size: 13px; line-height: 1.5; min-height: 260px; }
@@ -2311,3 +2312,7 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 #view-prlt-mat th[data-dir=desc]::after{content:" ▼";font-size:10px}
 
 .lt-sub{background:color-mix(in srgb,#607d8b 14%,transparent);color:#455a64}
+
+.ph-out-t td small{display:block}
+.ph-out-t td,.ph-out-t th{white-space:nowrap}
+.ph-out-t td:nth-child(2) small{max-width:260px;overflow:hidden;text-overflow:ellipsis}
