@@ -7528,13 +7528,13 @@
     const part = subPartOf(kode), replacedBy = subNewOf(kode);
     const skuOk = (c, sku) => { if (c === kode) return !(part && part.skus.includes(sku)); const x = olds.find((y) => y.lama === c); return !x || !x.skus.length || x.skus.includes(sku); };
     // SKU pemakai (BoM aktif) — SKU tanpa SO tetap ditampilkan
-    const users = [kode, ...olds.map((x) => x.lama)].flatMap((c) => matUsers(c).filter((u) => skuOk(c, u.sku)).map((u) => Object.assign({}, u, { mat: c })));
+    const users = [kode, ...olds.map((x) => x.lama)].flatMap((c) => matUsers(c).concat(ltKitUsers(c)).filter((u) => skuOk(c, u.sku)).map((u) => Object.assign({}, u, { mat: c })));
     const rows = users.map((u) => {
       const so = avgMs.map((b) => Math.round(SO.get(u.sku + '|' + b) || 0));
       const avgPcs = so.reduce((t, x) => t + x, 0) / 6;
       const kgPcs = u.perPcs && u.perTon ? u.perPcs / (u.perTon / 1000) : 0;   // kg produk per pcs
       const perKg = u.perTon / 1000, needM = avgPcs * u.perPcs;
-      return { sku: u.sku, name: u.name, bom: u.bom, old: u.mat !== kode ? u.mat : undefined, perKg: Math.round(perKg * 1e6) / 1e6, perPcs: u.perPcs, so, avgPcs: Math.round(avgPcs), avgKg: kgPcs ? R3(avgPcs * kgPcs) : null, prodKg: kgPcs ? R3(avgPcs * kgPcs * hz) : null, prodPcs: Math.round(avgPcs * hz), needM: R3(needM), need: R3(needM * hz) };
+      return { sku: u.sku, name: u.name, bom: u.bom, kit: !!u.kit, old: u.mat !== kode ? u.mat : undefined, perKg: Math.round(perKg * 1e6) / 1e6, perPcs: u.perPcs, so, avgPcs: Math.round(avgPcs), avgKg: kgPcs ? R3(avgPcs * kgPcs) : null, prodKg: kgPcs ? R3(avgPcs * kgPcs * hz) : null, prodPcs: Math.round(avgPcs * hz), needM: R3(needM), need: R3(needM * hz) };
     }).sort((a, b) => b.need - a.need || a.sku.localeCompare(b.sku));
     const use = R3(rows.reduce((t, x) => t + x.needM, 0)), total = R3(use * hz);
     // stok awal: upload stok terdekat dengan tanggal mulai (+ stok material lama yang diganti semua SKU-nya & stok lama dipakai)
@@ -7601,6 +7601,22 @@
     const sub = olds.length || part || replacedBy ? { olds: olds.map((x) => ({ kode: x.lama, skus: x.skus, pakai: x.pakai })), stokOld, lumps, part: part ? { baru: part.baru, skus: part.skus } : null, replacedBy } : null;
     return { sub, dip, now: pc ? { stok: pc.stok, awal: pc.awal, koreksi: pc.koreksi, gantung: pc.gantung, incPast: pc.incPast, pakaiPast: pc.pakaiPast, addPast: pc.addPast } : null, moList, stokFrom: B.d0, kode, nama: m.name || '', uom: m.uom || '', kat: m.kat || '', lt, start, hz, avgMs, months: proj.slice(0, hz).map((x) => x.b), rows, use, total, stokDate: sd, stokOwn, stok, po, ospo, moNow, moOver: use > 1e-9 ? Math.round(((moNow - use) / use) * 1000) / 10 : null, proj: proj.slice(0, Math.max(hz, 12)), safety, habis, batas, days, status: replacedBy ? 'subs' : status, kurang, doi, moq, saranRaw: R3(saranRaw), saran, cat: def.cat || '' };
   }
+  // Pemakai KIT / Banded (BoM berisi FG, satuan pcs) yang memakai material ini LANGSUNG (mis. dus kit) — khusus PR LT Panjang
+  const ltKitMemo = { key: '', map: new Map() };
+  function ltKitUsers(kode) {
+    const key = MRP.byProduct.size + '|' + P.skus.size;
+    if (ltKitMemo.key !== key) {
+      const map = new Map();
+      MRP.byProduct.forEach((_, code) => {
+        if (planUnit(code) !== 'pcs') return;
+        const bom = activeBom(code); if (!bom || !(Number(bom.batch) > 0)) return;
+        const nm = (P.skus.get(code) || MRP.master.get(code) || {}).name || bom.name || code;
+        bom.comps.forEach((c) => { if (!(Number(c.qty) > 0)) return; const k = String(c.code).trim(); if (!map.has(k)) map.set(k, []); map.get(k).push({ sku: code, name: nm, bom: refOf(bom), perTon: 0, perPcs: Number(c.qty) / Number(bom.batch), kit: true }); });
+      });
+      ltKitMemo.key = key; ltKitMemo.map = map;
+    }
+    return ltKitMemo.map.get(String(kode || '').trim()) || [];
+  }
   const LT_ST = { red: ['Segera buka PO', 'lt-red'], yellow: ['Siapkan PO', 'lt-yel'], green: ['Aman', 'lt-grn'], subs: ['Diganti', 'lt-sub'] };
   const ltStatusHtml = (d) => `<span class="lt-st ${LT_ST[d.status][1]}">${LT_ST[d.status][0]}</span>`;
   async function renderLtMat() {
@@ -7648,7 +7664,7 @@
     const n = (v) => prNumTxt(v) || 0, ms = d.months;
     return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)} · lead time ${d.lt} bln · mulai ${fmtDate(d.start)} · horizon ${d.hz} bln (${monShort(ms[0])} ${ms[0].slice(2, 4)} – ${monShort(ms[ms.length - 1])} ${ms[ms.length - 1].slice(2, 4)}) · rata-rata SO ${monShort(d.avgMs[0])}–${monShort(d.avgMs[5])}</p>
       <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>Kode FG</th><th>Nama FG</th><th class="num">Keb. / 1 kg produksi</th><th class="num">Avg L6M (pcs)</th><th class="num">Avg L6M (kg)</th><th class="num">Produksi ${d.hz} bln (kg)</th><th class="num">Kebutuhan ${d.hz} bln</th></tr></thead><tbody>
-      ${d.rows.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}${r.old ? `<small class="lp-old">BoM lama (${esc(r.old)})</small>` : ''}</td><td class="num">${r.perKg.toFixed(4).replace('.', ',')}</td><td class="num">${r.avgPcs ? n(r.avgPcs) : '–'}</td><td class="num">${r.avgKg ? n(r.avgKg) : '–'}</td><td class="num">${r.prodKg ? n(r.prodKg) : '–'}</td><td class="num"><b>${r.need ? n(r.need) : '–'}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada SKU aktif yang BoM-nya memakai material ini.</td></tr>'}
+      ${d.rows.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}${r.kit ? '<small class="muted">KIT / Banded</small>' : ''}${r.old ? `<small class="lp-old">BoM lama (${esc(r.old)})</small>` : ''}</td><td class="num">${r.kit ? `<small class="muted">${String(Math.round(r.perPcs * 1e4) / 1e4).replace('.', ',')} / pcs</small>` : r.perKg.toFixed(4).replace('.', ',')}</td><td class="num">${r.avgPcs ? n(r.avgPcs) : '–'}</td><td class="num">${r.avgKg ? n(r.avgKg) : '–'}</td><td class="num">${r.prodKg ? n(r.prodKg) : '–'}</td><td class="num"><b>${r.need ? n(r.need) : '–'}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada SKU aktif yang BoM-nya memakai material ini.</td></tr>'}
       <tr class="lt-tot"><td colspan="6">Total pemakaian ${d.hz} bulan</td><td class="num"><b>${n(d.total)} ${esc(d.uom)}</b></td></tr></tbody></table></div>
       <div class="lt-sum"><dl>
         <dt>Stok awal (${d.stokDate ? fmtDate(d.stokDate) : '–'})</dt><dd>${n(d.stok)}${d.sub && Math.abs(d.stok - d.stokOwn) > 1e-9 ? `<small class="muted">${esc(d.kode)} ${n(d.stokOwn)}${d.sub.stokOld.map((x) => ` + ${esc(x.kode)} ${n(x.q)}`).join('')}${d.sub.lumps.map((x) => ` + sisa ${esc(x.kode)} ${n(x.q)}${x.share < 1 ? ` (${Math.round(x.share * 1000) / 10}%)` : ''}`).join('')}</small>` : ''}</dd><dt>OS PO</dt><dd>${n(d.ospo)}</dd>
@@ -7672,7 +7688,7 @@
       const R = d.rows.filter((r) => r.avgPcs > 0);
       return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. Pemakaian per bulan = Σ (rata-rata SO ${monShort(d.avgMs[0])}–${monShort(d.avgMs[5])} per SKU × material per pcs). SO dari CSL Personal Care + Beauty, qty SO dikurangi batal, bulan menurut tanggal SO.</p>
         <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>SKU</th><th>Nama</th>${d.avgMs.map((b) => `<th class="num">SO ${monShort(b)}</th>`).join('')}<th class="num">Avg (pcs)</th><th class="num">Material / pcs</th><th class="num">Pemakaian / bln</th></tr></thead><tbody>
-        ${R.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}${r.old ? `<small class="lp-old">BoM lama (${esc(r.old)})</small>` : ''}</td>${r.so.map((v) => `<td class="num">${v ? n(v) : '–'}</td>`).join('')}<td class="num">${n(r.avgPcs)}</td><td class="num">${String(Math.round(r.perPcs * 1e7) / 1e7).replace('.', ',')}</td><td class="num"><b>${n(r.needM)}</b></td></tr>`).join('') || `<tr class="empty"><td colspan="${d.avgMs.length + 5}">Tidak ada SO untuk SKU pemakai material ini.</td></tr>`}
+        ${R.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}${r.kit ? '<small class="muted">KIT / Banded</small>' : ''}${r.old ? `<small class="lp-old">BoM lama (${esc(r.old)})</small>` : ''}</td>${r.so.map((v) => `<td class="num">${v ? n(v) : '–'}</td>`).join('')}<td class="num">${n(r.avgPcs)}</td><td class="num">${String(Math.round(r.perPcs * 1e7) / 1e7).replace('.', ',')}</td><td class="num"><b>${n(r.needM)}</b></td></tr>`).join('') || `<tr class="empty"><td colspan="${d.avgMs.length + 5}">Tidak ada SO untuk SKU pemakai material ini.</td></tr>`}
         <tr class="lt-tot"><td colspan="${d.avgMs.length + 4}">Total pemakaian per bulan</td><td class="num"><b>${n(d.use)} ${esc(d.uom)}</b></td></tr></tbody></table></div>
         ${d.rows.length > R.length ? `<p class="hint">SKU pemakai tanpa SO di periode ini: ${esc(d.rows.filter((r) => !(r.avgPcs > 0)).map((r) => r.sku).join(', '))}.</p>` : ''}`;
     }
