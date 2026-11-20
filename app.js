@@ -7528,7 +7528,7 @@
     const part = subPartOf(kode), replacedBy = subNewOf(kode);
     const skuOk = (c, sku) => { if (c === kode) return !(part && part.skus.includes(sku)); const x = olds.find((y) => y.lama === c); return !x || !x.skus.length || x.skus.includes(sku); };
     // SKU pemakai (BoM aktif) — SKU tanpa SO tetap ditampilkan
-    const users = [kode, ...olds.map((x) => x.lama)].flatMap((c) => matUsers(c).concat(ltKitUsers(c)).filter((u) => skuOk(c, u.sku)).map((u) => Object.assign({}, u, { mat: c })));
+    const users = [kode, ...olds.map((x) => x.lama)].flatMap((c) => matUsers(c).filter((u) => !(P.skus.get(u.sku) || {}).rakitan).concat(ltKitUsers(c)).filter((u) => skuOk(c, u.sku)).map((u) => Object.assign({}, u, { mat: c })));
     const rows = users.map((u) => {
       const so = avgMs.map((b) => Math.round(SO.get(u.sku + '|' + b) || 0));
       const avgPcs = so.reduce((t, x) => t + x, 0) / 6;
@@ -7601,17 +7601,17 @@
     const sub = olds.length || part || replacedBy ? { olds: olds.map((x) => ({ kode: x.lama, skus: x.skus, pakai: x.pakai })), stokOld, lumps, part: part ? { baru: part.baru, skus: part.skus } : null, replacedBy } : null;
     return { sub, dip, now: pc ? { stok: pc.stok, awal: pc.awal, koreksi: pc.koreksi, gantung: pc.gantung, incPast: pc.incPast, pakaiPast: pc.pakaiPast, addPast: pc.addPast } : null, moList, stokFrom: B.d0, kode, nama: m.name || '', uom: m.uom || '', kat: m.kat || '', lt, start, hz, avgMs, months: proj.slice(0, hz).map((x) => x.b), rows, use, total, stokDate: sd, stokOwn, stok, po, ospo, moNow, moOver: use > 1e-9 ? Math.round(((moNow - use) / use) * 1000) / 10 : null, proj: proj.slice(0, Math.max(hz, 12)), safety, habis, batas, days, status: replacedBy ? 'subs' : status, kurang, doi, moq, saranRaw: R3(saranRaw), saran, cat: def.cat || '' };
   }
-  // Pemakai KIT / Banded (BoM berisi FG, satuan pcs) yang memakai material ini LANGSUNG (mis. dus kit) — khusus PR LT Panjang
+  // Pemakai produk rakitan (Banded / 2in1 / KIT) — mengikuti menu BoM Banded/2in1/KIT: hanya produk rakitan aktif,
+  // BoM yang dipilih di menu itu, dan hanya baris "Ya digunakan" (ekstrak ditelusuri sampai bahan baku). Khusus PR LT Panjang.
   const ltKitMemo = { key: '', map: new Map() };
   function ltKitUsers(kode) {
-    const key = MRP.byProduct.size + '|' + P.skus.size;
+    const key = (P.rakitan || []).map((k) => k.code + k.bom + k.aktif).join(',') + '|' + (P.pakai ? P.pakai.size : 0) + '|' + MRP.byProduct.size;
     if (ltKitMemo.key !== key) {
       const map = new Map();
-      MRP.byProduct.forEach((_, code) => {
-        if (planUnit(code) !== 'pcs') return;
-        const bom = activeBom(code); if (!bom || !(Number(bom.batch) > 0)) return;
-        const nm = (P.skus.get(code) || MRP.master.get(code) || {}).name || bom.name || code;
-        bom.comps.forEach((c) => { if (!(Number(c.qty) > 0)) return; const k = String(c.code).trim(); if (!map.has(k)) map.set(k, []); map.get(k).push({ sku: code, name: nm, bom: refOf(bom), perTon: 0, perPcs: Number(c.qty) / Number(bom.batch), kit: true }); });
+      (P.rakitan || []).filter((k) => k.aktif).forEach((k) => {
+        const sk = P.skus.get(k.code) || {}, bom = activeBom(k.code); if (!bom) return;
+        const r = needRakitan(k.code, 1, bom);
+        r.leaves.forEach((q, c) => { if (!(q > 0)) return; if (!map.has(c)) map.set(c, []); map.get(c).push({ sku: k.code, name: sk.name || (MRP.master.get(k.code) || {}).name || k.code, bom: refOf(bom), perTon: 0, perPcs: q, kit: true }); });
       });
       ltKitMemo.key = key; ltKitMemo.map = map;
     }
