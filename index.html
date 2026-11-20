@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=50bb7c1b">
+<link rel="stylesheet" href="style.css?v=d0998457">
 </head>
 <body>
 <div class="shell">
@@ -1322,8 +1322,8 @@
           <label class="tb-search"><span class="sr">Cari material</span><input type="search" id="ltQ" placeholder="Cari kode / nama material"></label>
           <div class="tb-actions"><button class="btn btn-ghost btn-sm" id="ltReload" type="button">Muat ulang SO</button><button class="btn btn-ghost btn-sm" id="ltMkPr" type="button">Buat PR dari saran</button><button class="btn btn-sm" id="ltAdd" hidden>Tambah material</button></div>
         </div>
-        <div class="table-wrap"><table class="po-table lt-main"><thead><tr><th data-ltsort="kode">Material</th><th class="num" data-ltsort="lt">Lead time</th><th class="num" data-ltsort="use">Pemakaian / bln (avg SO L6M)</th><th class="num" data-ltsort="mo">MO bulan berjalan</th><th class="num" data-ltsort="stok">Stok awal</th><th class="num" data-ltsort="now">Stok terkini</th><th class="num" data-ltsort="ospo">OS PO</th><th class="num" data-ltsort="doi">DOI</th><th data-ltsort="habis">Perkiraan &lt; stok pengaman</th><th data-ltsort="batas">Batas buka PO</th><th data-ltsort="status">Status</th><th class="num" data-ltsort="saran">Saran qty</th><th></th><th></th></tr></thead><tbody id="ltRows"></tbody></table></div>
-        <p class="hint">Kebutuhan = rata-rata SO CSL Personal Care + Beauty 6 bulan penuh sebelum bulan berjalan (qty SO dikurangi batal, bulan menurut tanggal SO) × material per pcs dari BoM aktif Parameter SKU. Stok awal = upload stok terdekat dengan tanggal 1 bulan berjalan. Proyeksi saldo per bulan: stok awal + PO datang sesuai jadwal − pemakaian per bulan. Stok pengaman = 1 bulan pemakaian. Batas buka PO = bulan saat saldo di bawah stok pengaman dikurangi lead time. Status: <b>Segera buka PO</b> bila batas ≤ 14 hari lagi (atau sudah lewat), <b>Siapkan PO</b> bila ≤ 30 hari, selain itu <b>Aman</b>. Saran qty = kekurangan selama horizon (lead time + 2 bulan), minimal MoQ. MO bulan berjalan = pemakaian dari MO Plotting Harian bulan ini (sudah jalan + terjadwal), dibandingkan dengan rata-rata. Data tersimpan di tab MATERIAL_LT (Google Sheet MRP).</p>
+        <div class="table-wrap"><table class="po-table lt-main"><thead><tr><th data-ltsort="kode">Material</th><th class="num" data-ltsort="lt">Lead time</th><th class="num" data-ltsort="use">Pemakaian / bln (avg SO L6M)</th><th class="num" data-ltsort="mo">MO bulan berjalan</th><th class="num" data-ltsort="stok">Stok awal</th><th class="num" data-ltsort="now">Stok terkini</th><th class="num" data-ltsort="ospo">OS PO</th><th class="num" data-ltsort="doi">DOI</th><th data-ltsort="habis">Stok + OS PO &lt; stok pengaman</th><th data-ltsort="batas">Batas buka PO</th><th data-ltsort="status">Status</th><th class="num" data-ltsort="saran">Saran qty</th><th></th><th></th></tr></thead><tbody id="ltRows"></tbody></table></div>
+        <p class="hint">Kebutuhan = rata-rata SO CSL Personal Care + Beauty 6 bulan penuh sebelum bulan berjalan (qty SO dikurangi batal, bulan menurut tanggal SO) × material per pcs dari BoM aktif Parameter SKU. Stok awal = upload stok terdekat dengan tanggal 1 bulan berjalan. Stok pengaman = 1 bulan pemakaian. Batas buka PO = saat stok + semua OS PO tidak lagi menutup stok pengaman, dikurangi lead time. Bila saldo sempat di bawah stok pengaman sebelum OS PO datang, muncul tanda ⚠ "percepat" (minta OS PO dipercepat — PO baru tidak bisa menolong karena lead time). Material Pengganti ikut dihitung: kebutuhan SKU yang berganti, stok dan OS PO material lama digabung ke material baru. Status: <b>Segera buka PO</b> bila batas ≤ 14 hari lagi (atau sudah lewat), <b>Siapkan PO</b> bila ≤ 30 hari, selain itu <b>Aman</b>. Saran qty = kekurangan selama horizon (lead time + 2 bulan), minimal MoQ. MO bulan berjalan = pemakaian dari MO Plotting Harian bulan ini (sudah jalan + terjadwal), dibandingkan dengan rata-rata. Data tersimpan di tab MATERIAL_LT (Google Sheet MRP).</p>
       </section>
       <section id="view-pr-subs" class="view" hidden>
         <div class="toolbar">
@@ -1412,7 +1412,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=da3b6cb3"></script>
-<script src="app.js?v=b352edad"></script>
+<script src="app.js?v=a8dbdc02"></script>
 <script src="inv.js?v=88cf7dfb"></script>
 <script src="inc.js?v=523eed8b"></script>
 <script src="csl.js?v=7fb1547c"></script>

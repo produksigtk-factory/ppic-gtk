@@ -2309,3 +2309,5 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 #view-prlt-mat th[data-ltsort]:hover{color:var(--accent,#2f6fdf)}
 #view-prlt-mat th[data-dir=asc]::after{content:" ▲";font-size:10px}
 #view-prlt-mat th[data-dir=desc]::after{content:" ▼";font-size:10px}
+
+.lt-sub{background:color-mix(in srgb,#607d8b 14%,transparent);color:#455a64}

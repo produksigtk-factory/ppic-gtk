@@ -7523,34 +7523,54 @@
     const avgMs = [6, 5, 4, 3, 2, 1].map((k) => addMonth(m0, -k));
     const SO = o.SO || LTSO.m || new Map();
     const m = MRP.master.get(kode) || {};
+    // Material pengganti (sama dengan PR Reguler): material lama yang diganti ke kode ini, dan SKU kode ini yang sudah dialihkan ke material lain
+    const olds = subOldsOf(kode), full = olds.filter((x) => !x.skus.length), partO = olds.filter((x) => x.skus.length);
+    const part = subPartOf(kode), replacedBy = subNewOf(kode);
+    const skuOk = (c, sku) => { if (c === kode) return !(part && part.skus.includes(sku)); const x = olds.find((y) => y.lama === c); return !x || !x.skus.length || x.skus.includes(sku); };
     // SKU pemakai (BoM aktif) — SKU tanpa SO tetap ditampilkan
-    const rows = matUsers(kode).map((u) => {
+    const users = [kode, ...olds.map((x) => x.lama)].flatMap((c) => matUsers(c).filter((u) => skuOk(c, u.sku)).map((u) => Object.assign({}, u, { mat: c })));
+    const rows = users.map((u) => {
       const so = avgMs.map((b) => Math.round(SO.get(u.sku + '|' + b) || 0));
       const avgPcs = so.reduce((t, x) => t + x, 0) / 6;
       const kgPcs = u.perPcs && u.perTon ? u.perPcs / (u.perTon / 1000) : 0;   // kg produk per pcs
       const perKg = u.perTon / 1000, needM = avgPcs * u.perPcs;
-      return { sku: u.sku, name: u.name, bom: u.bom, perKg: Math.round(perKg * 1e6) / 1e6, perPcs: u.perPcs, so, avgPcs: Math.round(avgPcs), avgKg: kgPcs ? R3(avgPcs * kgPcs) : null, prodKg: kgPcs ? R3(avgPcs * kgPcs * hz) : null, prodPcs: Math.round(avgPcs * hz), needM: R3(needM), need: R3(needM * hz) };
+      return { sku: u.sku, name: u.name, bom: u.bom, old: u.mat !== kode ? u.mat : undefined, perKg: Math.round(perKg * 1e6) / 1e6, perPcs: u.perPcs, so, avgPcs: Math.round(avgPcs), avgKg: kgPcs ? R3(avgPcs * kgPcs) : null, prodKg: kgPcs ? R3(avgPcs * kgPcs * hz) : null, prodPcs: Math.round(avgPcs * hz), needM: R3(needM), need: R3(needM * hz) };
     }).sort((a, b) => b.need - a.need || a.sku.localeCompare(b.sku));
     const use = R3(rows.reduce((t, x) => t + x.needM, 0)), total = R3(use * hz);
-    // stok awal: upload stok terdekat dengan tanggal mulai
+    // stok awal: upload stok terdekat dengan tanggal mulai (+ stok material lama yang diganti semua SKU-nya & stok lama dipakai)
     const dates = [...(P.stockHist || new Map()).keys()].sort();
     const sd = dates.reduce((best, d) => (!best || Math.abs(ltDiff(d, start)) < Math.abs(ltDiff(best, start)) ? d : best), '');
-    const stok = R3(sd ? ((P.stockHist.get(sd).get(kode) || {}).qty || 0) : 0);
-    // OS PO per jadwal
+    const stQ = (c) => (sd ? ((P.stockHist.get(sd).get(c) || {}).qty || 0) : 0);
+    const KS = [kode, ...full.filter((x) => x.pakai).map((x) => x.lama)];
+    const stokOwn = R3(stQ(kode));
+    // sisa stok + OS PO material lama setelah kebutuhan SKU yang tidak berganti (berganti untuk SKU tertentu), dibagi bila beberapa pengganti
+    const swNeed = (x) => matUsers(x.lama).filter((u) => x.skus.includes(u.sku)).reduce((t, u) => t + (avgMs.reduce((a, b) => a + (SO.get(u.sku + '|' + b) || 0), 0) / 6) * u.perPcs, 0);
+    const lumps = partO.filter((x) => x.pakai).map((x) => {
+      const r = ltCalc(x.lama, Object.assign({}, o, { lt, start, hz, SO })), rem = r ? Math.max(0, r.kurang) : 0;
+      const sib = (P.subs || []).filter((y) => y.aktif && y.pakai && y.lama === x.lama && y.skus.length);
+      const tot = sib.reduce((t, y) => t + swNeed(y), 0), share = sib.length < 2 ? 1 : tot > 1e-9 ? swNeed(x) / tot : 1 / sib.length;
+      return { kode: x.lama, q: R3(rem * share), share };
+    });
+    const lump = R3(lumps.reduce((t, x) => t + x.q, 0));
+    const stokOld = KS.slice(1).map((c) => ({ kode: c, q: R3(stQ(c)) }));
+    const stok = R3(stokOwn + stokOld.reduce((t, x) => t + x.q, 0) + lump);
+    // OS PO per jadwal (termasuk PO material lama yang diganti semua SKU-nya)
     const po = [], seen = new Set();
-    poRowsOf(kode).forEach((x) => {
+    KS.forEach((c) => poRowsOf(c).forEach((x) => {
       const key = x.po + '|' + x.code; if (seen.has(key)) return; seen.add(key);
       const sc = (x.sched || []).filter((s) => s.status !== 'Done' && (Number(s.qty) || 0) - (Number(s.rec) || 0) > 1e-9);
-      const info = { po: x.po, sup: x.supplier || '', tglPo: x.date || '', qtyPo: x.qty, uomPo: x.uom || '' };
+      const info = { po: x.po, sup: x.supplier || '', tglPo: x.date || '', qtyPo: x.qty, uomPo: x.uom || '', mat: c !== kode ? c : undefined };
       if (sc.length) sc.forEach((s) => po.push(Object.assign({ d: s.date || '', q: R3((Number(s.qty) || 0) - (Number(s.rec) || 0)) }, info)));
       else po.push(Object.assign({ d: '', q: R3(x.sisa) }, info));
-    });
+    }));
     const ospo = R3(po.reduce((t, x) => t + x.q, 0));
-    // pemakaian bulan berjalan dari MO (Plotting Harian): sudah jalan + terjadwal bulan ini
-    const pc = prCalc(kode, 'all', []);
+    // pemakaian bulan berjalan dari MO (Plotting Harian): sudah jalan + terjadwal bulan ini (gabungan material pengganti)
+    const pc = prCalc(kode, 'all', [], { pool: true });
     const moNow = pc ? R3(pc.pakaiPast + pc.cols.filter((c) => c.kind === 'w').reduce((t, c) => t + c.need, 0)) : 0;
-    const wIdx = new Set(B.cols.map((c, i) => (c.kind === 'w' ? i : -1)).filter((i) => i >= 0)), mo0 = B.M.get(kode);
-    const moList = mo0 ? mo0.mos.filter((x) => x.past || wIdx.has(x.i)).map((x) => { const r = kfGet(x.ref) || {}; return { no: x.ref, sku: x.sku, name: (P.skus.get(x.sku) || MRP.master.get(x.sku) || {}).name || '', tgl: r.tgl || '', wk: r.week ? `${r.week} ${monShort(r.bulan || today)}` : '', qtyMo: Number(r.qty) || 0, uomMo: r.uom || '', q: R3(x.q), past: !!x.past }; }).sort((a, b) => (a.tgl || '9').localeCompare(b.tgl || '9') || a.no.localeCompare(b.no)) : [];
+    const wIdx = new Set(B.cols.map((c, i) => (c.kind === 'w' ? i : -1)).filter((i) => i >= 0));
+    const moList = [kode, ...olds.map((x) => x.lama)].flatMap((c) => { const mo0 = B.M.get(c); return mo0 ? mo0.mos.filter((x) => (x.past || wIdx.has(x.i)) && skuOk(c, x.sku)).map((x) => Object.assign({}, x, { mat: c })) : []; })
+      .map((x) => { const r = kfGet(x.ref) || {}; return { no: x.ref, sku: x.sku, mat: x.mat !== kode ? x.mat : undefined, name: (P.skus.get(x.sku) || MRP.master.get(x.sku) || {}).name || '', tgl: r.tgl || '', wk: r.week ? `${r.week} ${monShort(r.bulan || today)}` : '', qtyMo: Number(r.qty) || 0, uomMo: r.uom || '', q: R3(x.q), past: !!x.past }; })
+      .sort((a, b) => (a.tgl || '9').localeCompare(b.tgl || '9') || a.no.localeCompare(b.no));
     // proyeksi saldo per bulan (PO tanpa tanggal / telat dianggap datang di bulan pertama)
     const N = Math.max(hz, 36), proj = []; let s = stok;
     for (let i = 0; i < N; i++) {
@@ -7559,23 +7579,29 @@
       proj.push({ b, open: R3(open), inc, use, sal: s });
     }
     const safety = use;
-    let habis = '', status = 'green', batas = '', days = null;
-    if (use > 1e-9) {
+    let habis = '', status = 'green', batas = '', days = null, dip = null;
+    if (use > 1e-9 && !replacedBy) {
+      // batas buka PO: saat stok + SEMUA OS PO tidak lagi menutup stok pengaman (PO baru hanya bisa menolong setelah OS PO habis terpakai)
+      const t = Math.max(0, (stok + ospo - safety) / use);          // bulan sejak tanggal mulai
+      habis = ltAddDays(start, t * 30.44);
+      batas = ltAddDays(habis, -lt * 30.44);
+      days = ltDiff(batas, today);
+      status = days <= 14 ? 'red' : days <= 30 ? 'yellow' : 'green';
+      // penurunan sementara sebelum OS PO datang (bukan tugas PO baru → minta percepat OS PO)
       const i = proj.findIndex((x) => x.sal < safety - 1e-9);
       if (i >= 0) {
-        const x = proj[i], f = x.open <= safety ? 0 : Math.min(1, (x.open - safety) / use);
-        habis = ltAddDays(x.b + '-01', f * ltDays(x.b));
-        batas = ltAddDays(habis, -lt * 30.44);
-        days = ltDiff(batas, today);
-        status = days <= 14 ? 'red' : days <= 30 ? 'yellow' : 'green';
+        const x = proj[i], f = x.open <= safety ? 0 : Math.min(1, (x.open - safety) / use), dd = ltAddDays(x.b + '-01', f * ltDays(x.b));
+        const nx = po.filter((y) => y.d && y.d > dd).sort((a, b) => a.d.localeCompare(b.d))[0];
+        if (nx && ltDiff(habis, dd) > 7) dip = { date: dd, po: nx.po, poDate: nx.d, poQ: nx.q };
       }
     }
     const kurang = R3(stok + ospo - total), doi = use > 1e-9 ? Math.round(((stok + ospo) / use) * 10) / 10 : null;
-    const moq = ltMoq(kode), saranRaw = kurang < 0 ? -kurang : 0;
+    const moq = ltMoq(kode), saranRaw = !replacedBy && kurang < 0 ? -kurang : 0;
     const saran = saranRaw > 0 ? Math.ceil(Math.max(saranRaw, moq || 0)) : 0;
-    return { now: pc ? { stok: pc.stok, awal: pc.awal, koreksi: pc.koreksi, gantung: pc.gantung, incPast: pc.incPast, pakaiPast: pc.pakaiPast, addPast: pc.addPast } : null, moList, stokFrom: B.d0, kode, nama: m.name || '', uom: m.uom || '', kat: m.kat || '', lt, start, hz, avgMs, months: proj.slice(0, hz).map((x) => x.b), rows, use, total, stokDate: sd, stok, po, ospo, moNow, moOver: use > 1e-9 ? Math.round(((moNow - use) / use) * 1000) / 10 : null, proj: proj.slice(0, Math.max(hz, 12)), safety, habis, batas, days, status, kurang, doi, moq, saranRaw: R3(saranRaw), saran, cat: def.cat || '' };
+    const sub = olds.length || part || replacedBy ? { olds: olds.map((x) => ({ kode: x.lama, skus: x.skus, pakai: x.pakai })), stokOld, lumps, part: part ? { baru: part.baru, skus: part.skus } : null, replacedBy } : null;
+    return { sub, dip, now: pc ? { stok: pc.stok, awal: pc.awal, koreksi: pc.koreksi, gantung: pc.gantung, incPast: pc.incPast, pakaiPast: pc.pakaiPast, addPast: pc.addPast } : null, moList, stokFrom: B.d0, kode, nama: m.name || '', uom: m.uom || '', kat: m.kat || '', lt, start, hz, avgMs, months: proj.slice(0, hz).map((x) => x.b), rows, use, total, stokDate: sd, stokOwn, stok, po, ospo, moNow, moOver: use > 1e-9 ? Math.round(((moNow - use) / use) * 1000) / 10 : null, proj: proj.slice(0, Math.max(hz, 12)), safety, habis, batas, days, status: replacedBy ? 'subs' : status, kurang, doi, moq, saranRaw: R3(saranRaw), saran, cat: def.cat || '' };
   }
-  const LT_ST = { red: ['Segera buka PO', 'lt-red'], yellow: ['Siapkan PO', 'lt-yel'], green: ['Aman', 'lt-grn'] };
+  const LT_ST = { red: ['Segera buka PO', 'lt-red'], yellow: ['Siapkan PO', 'lt-yel'], green: ['Aman', 'lt-grn'], subs: ['Diganti', 'lt-sub'] };
   const ltStatusHtml = (d) => `<span class="lt-st ${LT_ST[d.status][1]}">${LT_ST[d.status][0]}</span>`;
   async function renderLtMat() {
     const box = $('ltRows'); if (!box) return;
@@ -7589,7 +7615,7 @@
     let SO; try { SO = await ltSoMap(); } catch (e) { SO = { m: new Map(), errs: [e.message] }; }
     if (state.routeKey !== 'prlt/material') return;
     const D = L.map((x, i) => ({ x, i, d: x.aktif ? ltCalc(x.kode, { SO: SO.m }) : null }));
-    const ord = { red: 0, yellow: 1, green: 2 };
+    const ord = { red: 0, yellow: 1, green: 2, subs: 3 };
     D.sort((a, b) => (!a.d) - (!b.d) || (a.d && b.d ? ord[a.d.status] - ord[b.d.status] || (a.d.batas || '9').localeCompare(b.d.batas || '9') : 0));
     P.ltView = D; P.ltSO = SO;
     ltPaint();
@@ -7600,7 +7626,7 @@
     const gf = $('ltGrp').value;
     const V = D.filter(({ x }) => !gf || rmpmOf(x.kode) === gf).filter(({ x, d }) => !ql || (x.kode + ' ' + ((d && d.nama) || (MRP.master.get(x.kode) || {}).name || '') + ' ' + x.cat).toLowerCase().includes(ql));
     // sort per kolom (klik judul kolom); nonaktif selalu di bawah
-    const S = P.ltSort || { k: 'status', dir: 1 }, ordS = { red: 0, yellow: 1, green: 2 };
+    const S = P.ltSort || { k: 'status', dir: 1 }, ordS = { red: 0, yellow: 1, green: 2, subs: 3 };
     const key = { kode: (y) => y.x.kode, lt: (y) => y.x.lt, use: (y) => y.d.use, mo: (y) => y.d.moNow, stok: (y) => y.d.stok, now: (y) => (y.d.now ? y.d.now.stok : 0), ospo: (y) => y.d.ospo, doi: (y) => (y.d.doi === null ? 1e9 : y.d.doi), habis: (y) => y.d.habis || '9999', batas: (y) => y.d.batas || '9999', status: (y) => ordS[y.d.status] * 1e5 + (y.d.days === null ? 99999 : y.d.days), saran: (y) => y.d.saran }[S.k];
     V.sort((a, b) => { if (!a.d || !b.d) return (!a.d) - (!b.d); const va = key(a), vb = key(b); return (typeof va === 'string' ? va.localeCompare(vb, 'id', { numeric: true }) : va - vb) * S.dir; });
     document.querySelectorAll('#view-prlt-mat th[data-ltsort]').forEach((th) => { th.classList.toggle('is-sort', th.dataset.ltsort === S.k); th.dataset.dir = th.dataset.ltsort === S.k ? (S.dir > 0 ? 'asc' : 'desc') : ''; });
@@ -7611,7 +7637,7 @@
       const over = d.moOver === null ? '' : d.moOver > 0.5 ? `<small class="pl-bad">+${d.moOver}% dari rata-rata</small>` : d.moOver < -0.5 ? `<small class="muted">${d.moOver}% dari rata-rata</small>` : '<small class="muted">sesuai rata-rata</small>';
       return `<tr data-lti="${i}"><td><b class="mono">${esc(d.kode)}</b><small class="sub-nm">${esc(d.nama)}</small></td><td class="num">${d.lt} bln</td>
         <td class="num"><button type="button" class="lt-num" data-ltx="use" data-lti="${i}" title="Rincian per SKU">${q(d.use, d.uom)}</button></td><td class="num"><button type="button" class="lt-num" data-ltx="mo" data-lti="${i}" title="Rincian MO">${q(d.moNow)}</button>${over}</td><td class="num">${q(d.stok)}<small class="muted">${d.stokDate ? fmtDate(d.stokDate) : ''}</small></td><td class="num">${d.now ? `<button type="button" class="lt-num" data-ltx="now" data-lti="${i}" title="Rincian stok terkini">${q(d.now.stok)}</button><small class="muted">per ${fmtDate(todayStr())}</small>` : '–'}</td><td class="num"><button type="button" class="lt-num" data-ltx="po" data-lti="${i}" title="Rincian PO">${q(d.ospo)}</button></td>
-        <td class="num">${d.doi === null ? '–' : d.doi + ' bln'}</td><td>${d.habis ? fmtDate(d.habis) : '<span class="muted">&gt; 3 thn</span>'}</td><td><b>${d.batas ? fmtDate(d.batas) : '–'}</b>${d.days !== null ? `<small class="muted">${d.days < 0 ? `lewat ${-d.days} hari` : `${d.days} hari lagi`}</small>` : ''}</td>
+        <td class="num">${d.doi === null ? '–' : d.doi + ' bln'}</td><td>${d.sub && d.sub.replacedBy ? `<span class="muted">diganti → ${esc(d.sub.replacedBy)}</span>` : d.habis ? fmtDate(d.habis) : '<span class="muted">–</span>'}${d.dip ? `<small class="pl-bad" title="Saldo sempat di bawah stok pengaman sebelum OS PO datang. PO baru tidak bisa menolong ini (lead time) — minta OS PO dipercepat.">⚠ ${fmtDate(d.dip.date)} sebelum ${esc(d.dip.po)} datang${d.dip.poDate ? ' ' + fmtDate(d.dip.poDate) : ''} → percepat</small>` : ''}${d.sub && (d.sub.olds.length || d.sub.part) ? `<small class="muted">${d.sub.olds.length ? `+ ${esc(d.sub.olds.map((x) => x.kode).join(', '))} (lama)` : `sebagian SKU → ${esc(d.sub.part.baru)}`}</small>` : ''}</td><td><b>${d.batas ? fmtDate(d.batas) : '–'}</b>${d.days !== null ? `<small class="muted">${d.days < 0 ? `lewat ${-d.days} hari` : `${d.days} hari lagi`}</small>` : ''}</td>
         <td>${ltStatusHtml(d)}</td><td class="num">${d.saran ? `<b>${prNumTxt(d.saran)}</b>${d.moq ? `<small class="muted">MoQ ${prNumTxt(d.moq)}</small>` : ''}` : '<span class="muted">–</span>'}</td>
         <td><button type="button" class="btn-link" data-ltdet="${i}">Rincian</button></td><td class="kf-act">${act}</td></tr>`;
     }).join('') || '<tr class="empty"><td colspan="14">Tidak ada material yang cocok dengan pencarian.</td></tr>';
@@ -7622,16 +7648,18 @@
     const n = (v) => prNumTxt(v) || 0, ms = d.months;
     return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)} · lead time ${d.lt} bln · mulai ${fmtDate(d.start)} · horizon ${d.hz} bln (${monShort(ms[0])} ${ms[0].slice(2, 4)} – ${monShort(ms[ms.length - 1])} ${ms[ms.length - 1].slice(2, 4)}) · rata-rata SO ${monShort(d.avgMs[0])}–${monShort(d.avgMs[5])}</p>
       <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>Kode FG</th><th>Nama FG</th><th class="num">Keb. / 1 kg produksi</th><th class="num">Avg L6M (pcs)</th><th class="num">Avg L6M (kg)</th><th class="num">Produksi ${d.hz} bln (kg)</th><th class="num">Kebutuhan ${d.hz} bln</th></tr></thead><tbody>
-      ${d.rows.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}</td><td class="num">${r.perKg.toFixed(4).replace('.', ',')}</td><td class="num">${r.avgPcs ? n(r.avgPcs) : '–'}</td><td class="num">${r.avgKg ? n(r.avgKg) : '–'}</td><td class="num">${r.prodKg ? n(r.prodKg) : '–'}</td><td class="num"><b>${r.need ? n(r.need) : '–'}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada SKU aktif yang BoM-nya memakai material ini.</td></tr>'}
+      ${d.rows.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}${r.old ? `<small class="lp-old">BoM lama (${esc(r.old)})</small>` : ''}</td><td class="num">${r.perKg.toFixed(4).replace('.', ',')}</td><td class="num">${r.avgPcs ? n(r.avgPcs) : '–'}</td><td class="num">${r.avgKg ? n(r.avgKg) : '–'}</td><td class="num">${r.prodKg ? n(r.prodKg) : '–'}</td><td class="num"><b>${r.need ? n(r.need) : '–'}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada SKU aktif yang BoM-nya memakai material ini.</td></tr>'}
       <tr class="lt-tot"><td colspan="6">Total pemakaian ${d.hz} bulan</td><td class="num"><b>${n(d.total)} ${esc(d.uom)}</b></td></tr></tbody></table></div>
       <div class="lt-sum"><dl>
-        <dt>Stok awal (${d.stokDate ? fmtDate(d.stokDate) : '–'})</dt><dd>${n(d.stok)}</dd><dt>OS PO</dt><dd>${n(d.ospo)}</dd>
+        <dt>Stok awal (${d.stokDate ? fmtDate(d.stokDate) : '–'})</dt><dd>${n(d.stok)}${d.sub && Math.abs(d.stok - d.stokOwn) > 1e-9 ? `<small class="muted">${esc(d.kode)} ${n(d.stokOwn)}${d.sub.stokOld.map((x) => ` + ${esc(x.kode)} ${n(x.q)}`).join('')}${d.sub.lumps.map((x) => ` + sisa ${esc(x.kode)} ${n(x.q)}${x.share < 1 ? ` (${Math.round(x.share * 1000) / 10}%)` : ''}`).join('')}</small>` : ''}</dd><dt>OS PO</dt><dd>${n(d.ospo)}</dd>
         <dt>Total pemakaian ${d.hz} bln</dt><dd>${n(d.total)}</dd><dt>Pemakaian per bulan (avg SO)</dt><dd>${n(d.use)}</dd>
         <dt>Pemakaian bulan berjalan (MO)</dt><dd>${n(d.moNow)}${d.moOver !== null ? ` <small class="${d.moOver > 0.5 ? 'pl-bad' : 'muted'}">${d.moOver > 0 ? '+' : ''}${d.moOver}%</small>` : ''}</dd>
         <dt>Kekurangan</dt><dd class="${d.kurang < 0 ? 'pl-bad' : ''}"><b>${n(d.kurang)}</b></dd>
         <dt>DOI</dt><dd>${d.doi === null ? '–' : d.doi + ' bulan'}</dd><dt>Stok pengaman (1 bln)</dt><dd>${n(d.safety)}</dd>
-        <dt>Perkiraan di bawah stok pengaman</dt><dd>${d.habis ? fmtDate(d.habis) : '> 3 tahun'}</dd><dt>Batas buka PO (− ${d.lt} bln)</dt><dd><b>${d.batas ? fmtDate(d.batas) : '–'}</b> ${ltStatusHtml(d)}</dd>
+        <dt>Stok + OS PO di bawah stok pengaman</dt><dd>${d.habis ? fmtDate(d.habis) : '–'}</dd><dt>Batas buka PO (− ${d.lt} bln)</dt><dd><b>${d.batas ? fmtDate(d.batas) : '–'}</b> ${ltStatusHtml(d)}</dd>
         <dt>Saran qty PO</dt><dd><b>${d.saran ? n(d.saran) : '–'}</b>${d.moq ? ` <small class="muted">MoQ ${n(d.moq)}</small>` : ''}</dd></dl></div>
+      ${d.sub ? `<p class="hint">${d.sub.replacedBy ? `Material ini sudah diganti <b>${esc(d.sub.replacedBy)}</b> untuk semua SKU — kebutuhannya dihitung di ${esc(d.sub.replacedBy)}, tidak ada saran buka PO.` : ''}${d.sub.olds.length ? `Material pengganti: termasuk kebutuhan ${d.sub.olds.map((x) => `${esc(x.kode)}${x.skus.length ? ` (SKU ${esc(x.skus.join(', '))})` : ''}`).join(', ')}; stok & OS PO material lama dipakai lebih dulu.` : ''}${d.sub.part ? ` SKU ${esc(d.sub.part.skus.join(', '))} sudah dialihkan ke ${esc(d.sub.part.baru)}; angka di sini hanya SKU yang tetap memakai ${esc(d.kode)}.` : ''}</p>` : ''}
+      ${d.dip ? `<p class="hint pl-bad">⚠ Saldo sempat di bawah stok pengaman sekitar ${fmtDate(d.dip.date)} sebelum ${esc(d.dip.po)}${d.dip.poDate ? ` (${n(d.dip.poQ)}) datang ${fmtDate(d.dip.poDate)}` : ''}. PO baru tidak bisa menolong ini karena lead time — minta OS PO dipercepat. Batas buka PO dihitung dari saat stok + semua OS PO tidak cukup lagi.</p>` : ''}
       <p><b>Proyeksi saldo per bulan</b> <small class="muted">(PO dihitung datang di bulan jadwalnya; PO telat / tanpa jadwal di bulan pertama)</small></p>
       <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>Bulan</th><th class="num">Awal</th><th class="num">+ PO datang</th><th class="num">− Pemakaian</th><th class="num">Saldo akhir</th></tr></thead><tbody>
       ${d.proj.map((x) => `<tr class="${x.sal < d.safety ? 'lt-low' : ''}"><td>${monLabel(x.b)}</td><td class="num">${n(x.open - x.inc)}</td><td class="num">${x.inc ? n(x.inc) : '–'}</td><td class="num">${n(x.use)}</td><td class="num"><b>${n(x.sal)}</b></td></tr>`).join('')}
@@ -7644,7 +7672,7 @@
       const R = d.rows.filter((r) => r.avgPcs > 0);
       return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. Pemakaian per bulan = Σ (rata-rata SO ${monShort(d.avgMs[0])}–${monShort(d.avgMs[5])} per SKU × material per pcs). SO dari CSL Personal Care + Beauty, qty SO dikurangi batal, bulan menurut tanggal SO.</p>
         <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>SKU</th><th>Nama</th>${d.avgMs.map((b) => `<th class="num">SO ${monShort(b)}</th>`).join('')}<th class="num">Avg (pcs)</th><th class="num">Material / pcs</th><th class="num">Pemakaian / bln</th></tr></thead><tbody>
-        ${R.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}</td>${r.so.map((v) => `<td class="num">${v ? n(v) : '–'}</td>`).join('')}<td class="num">${n(r.avgPcs)}</td><td class="num">${String(Math.round(r.perPcs * 1e7) / 1e7).replace('.', ',')}</td><td class="num"><b>${n(r.needM)}</b></td></tr>`).join('') || `<tr class="empty"><td colspan="${d.avgMs.length + 5}">Tidak ada SO untuk SKU pemakai material ini.</td></tr>`}
+        ${R.map((r) => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.name)}${r.old ? `<small class="lp-old">BoM lama (${esc(r.old)})</small>` : ''}</td>${r.so.map((v) => `<td class="num">${v ? n(v) : '–'}</td>`).join('')}<td class="num">${n(r.avgPcs)}</td><td class="num">${String(Math.round(r.perPcs * 1e7) / 1e7).replace('.', ',')}</td><td class="num"><b>${n(r.needM)}</b></td></tr>`).join('') || `<tr class="empty"><td colspan="${d.avgMs.length + 5}">Tidak ada SO untuk SKU pemakai material ini.</td></tr>`}
         <tr class="lt-tot"><td colspan="${d.avgMs.length + 4}">Total pemakaian per bulan</td><td class="num"><b>${n(d.use)} ${esc(d.uom)}</b></td></tr></tbody></table></div>
         ${d.rows.length > R.length ? `<p class="hint">SKU pemakai tanpa SO di periode ini: ${esc(d.rows.filter((r) => !(r.avgPcs > 0)).map((r) => r.sku).join(', '))}.</p>` : ''}`;
     }
@@ -7660,12 +7688,12 @@
     if (kind === 'mo') {
       return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. MO bulan berjalan dari Konfirmasi Produksi / Plotting Harian: yang sudah jalan sejak upload stok ${fmtDate(d.stokFrom)} + yang terjadwal sampai akhir bulan, dikali BoM MO. Dibandingkan dengan pemakaian per bulan dari rata-rata SO (${n(d.use)}).</p>
         <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>No MO</th><th>SKU</th><th>Nama</th><th>Tanggal / week</th><th class="num">Qty MO</th><th class="num">Pemakaian ${esc(d.kode)}</th><th>Status</th></tr></thead><tbody>
-        ${d.moList.map((x) => `<tr><td class="mono">${esc(x.no)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.name)}</td><td>${x.tgl ? fmtDate(x.tgl) : esc(x.wk || '–')}</td><td class="num">${n(x.qtyMo)} <small class="muted">${esc(x.uomMo)}</small></td><td class="num"><b>${n(x.q)}</b></td><td>${x.past ? 'Sudah jalan' : 'Terjadwal'}</td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada MO bulan ini yang memakai material ini.</td></tr>'}
+        ${d.moList.map((x) => `<tr><td class="mono">${esc(x.no)}</td><td class="mono">${esc(x.sku)}${x.mat ? `<small class="lp-old">BoM ${esc(x.mat)}</small>` : ''}</td><td>${esc(x.name)}</td><td>${x.tgl ? fmtDate(x.tgl) : esc(x.wk || '–')}</td><td class="num">${n(x.qtyMo)} <small class="muted">${esc(x.uomMo)}</small></td><td class="num"><b>${n(x.q)}</b></td><td>${x.past ? 'Sudah jalan' : 'Terjadwal'}</td></tr>`).join('') || '<tr class="empty"><td colspan="7">Tidak ada MO bulan ini yang memakai material ini.</td></tr>'}
         <tr class="lt-tot"><td colspan="5">Total MO bulan berjalan</td><td class="num"><b>${n(d.moNow)} ${esc(d.uom)}</b></td><td>${d.moOver === null ? '' : `${d.moOver > 0 ? '+' : ''}${d.moOver}% dari rata-rata`}</td></tr></tbody></table></div>`;
     }
     return `<p class="dlg-lead"><b>${esc(d.kode)}</b> ${esc(d.nama)}. OS PO = sisa qty jadwal PO yang belum Done (Monitoring PO). PO tanpa jadwal atau yang jadwalnya sudah lewat dihitung datang di bulan pertama proyeksi.</p>
       <div class="table-wrap"><table class="po-table lt-t"><thead><tr><th>No PO</th><th>Supplier</th><th>Tgl PO</th><th class="num">Qty PO</th><th>Jadwal datang</th><th class="num">Sisa</th></tr></thead><tbody>
-      ${d.po.map((x) => `<tr><td class="mono">${esc(x.po)}</td><td>${esc(x.sup || '')}</td><td>${x.tglPo ? fmtDate(x.tglPo) : '–'}</td><td class="num">${x.qtyPo ? n(x.qtyPo) : '–'} <small class="muted">${esc(x.uomPo || '')}</small></td><td>${x.d ? fmtDate(x.d) + (x.d < todayStr() ? ' <small class="pl-bad">telat</small>' : '') : '<span class="muted">tanpa jadwal</span>'}</td><td class="num"><b>${n(x.q)}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada PO gantung.</td></tr>'}
+      ${d.po.map((x) => `<tr><td class="mono">${esc(x.po)}${x.mat ? `<small class="lp-old">${esc(x.mat)} (lama)</small>` : ''}</td><td>${esc(x.sup || '')}</td><td>${x.tglPo ? fmtDate(x.tglPo) : '–'}</td><td class="num">${x.qtyPo ? n(x.qtyPo) : '–'} <small class="muted">${esc(x.uomPo || '')}</small></td><td>${x.d ? fmtDate(x.d) + (x.d < todayStr() ? ' <small class="pl-bad">telat</small>' : '') : '<span class="muted">tanpa jadwal</span>'}</td><td class="num"><b>${n(x.q)}</b></td></tr>`).join('') || '<tr class="empty"><td colspan="6">Tidak ada PO gantung.</td></tr>'}
       <tr class="lt-tot"><td colspan="5">Total OS PO</td><td class="num"><b>${n(d.ospo)} ${esc(d.uom)}</b></td></tr></tbody></table></div>`;
   }
   // Lampiran Perhitungan PR LT Panjang (dibekukan saat PR disimpan)
