@@ -7597,7 +7597,8 @@
   function ltPaint() {
     const box = $('ltRows'), D = P.ltView || [], SO = P.ltSO || {}, ed = state.edit.on || P.edit;
     const ql = ($('ltQ').value || '').trim().toLowerCase();
-    const V = D.filter(({ x, d }) => !ql || (x.kode + ' ' + ((d && d.nama) || (MRP.master.get(x.kode) || {}).name || '') + ' ' + x.cat).toLowerCase().includes(ql));
+    const gf = $('ltGrp').value;
+    const V = D.filter(({ x }) => !gf || rmpmOf(x.kode) === gf).filter(({ x, d }) => !ql || (x.kode + ' ' + ((d && d.nama) || (MRP.master.get(x.kode) || {}).name || '') + ' ' + x.cat).toLowerCase().includes(ql));
     // sort per kolom (klik judul kolom); nonaktif selalu di bawah
     const S = P.ltSort || { k: 'status', dir: 1 }, ordS = { red: 0, yellow: 1, green: 2 };
     const key = { kode: (y) => y.x.kode, lt: (y) => y.x.lt, use: (y) => y.d.use, mo: (y) => y.d.moNow, stok: (y) => y.d.stok, now: (y) => (y.d.now ? y.d.now.stok : 0), ospo: (y) => y.d.ospo, doi: (y) => (y.d.doi === null ? 1e9 : y.d.doi), habis: (y) => y.d.habis || '9999', batas: (y) => y.d.batas || '9999', status: (y) => ordS[y.d.status] * 1e5 + (y.d.days === null ? 99999 : y.d.days), saran: (y) => y.d.saran }[S.k];
@@ -7725,6 +7726,7 @@
     $('ltAdd').addEventListener('click', () => needEdit(() => ltDialog(-1)));
     $('ltReload').addEventListener('click', async () => { LTSO.m = null; renderLtMat(); });
     $('ltQ').addEventListener('input', () => { if (P.ltView) ltPaint(); });
+    $('ltGrp').addEventListener('change', () => { if (P.ltView) ltPaint(); });
     $('ltMkPr').addEventListener('click', () => { if (!state.edit.on) { toast('Masuk Mode edit dulu (PIN Monitoring PO).'); return; } location.hash = '#/prlt/rekap'; setTimeout(ltPrFromSaran, 400); });
     document.querySelector('#view-prlt-mat thead').addEventListener('click', (e) => {
       const th = e.target.closest('th[data-ltsort]'); if (!th) return;
