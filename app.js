@@ -8116,11 +8116,10 @@
       });
       return { free: stok - mo - add, arr, none };
     };
-    const supOf = (codes) => {
-      const k = codes.join('+'); let S = SUP.get(k);
-      if (!S) { const L = codes.map(sup1); S = { free: L.reduce((t, x) => t + x.free, 0), arr: L.flatMap((x) => x.arr).sort((a, z) => (a.late !== z.late ? (a.late ? -1 : 1) : a.d < z.d ? -1 : 1)), none: L.reduce((t, x) => t + x.none, 0), usedNow: 0, usedFut: 0 }; SUP.set(k, S); }
-      return S;
-    };
+    // satu saldo per kode material (tanpa kantong gabungan) supaya stok tidak terhitung dua kali
+    const supOf = (c) => { let S = SUP.get(c); if (!S) { S = Object.assign(sup1(c), { usedNow: 0, usedFut: 0 }); S.arr.sort((a, z) => (a.late !== z.late ? (a.late ? -1 : 1) : a.d < z.d ? -1 : 1)); SUP.set(c, S); } return S; };
+    const nowAv = (S) => Math.max(0, S.free - S.usedNow);
+    const futAv = (S) => Math.max(0, S.free - S.usedNow - S.usedFut + S.arr.reduce((t, a) => t + a.q, 0));
     const resolve = (c, sku) => { const s = (P.subs || []).find((x) => x.aktif && x.lama === c && (!x.skus.length || x.skus.includes(sku))); return !s ? [c] : s.pakai ? [c, s.baru] : [s.baru]; };
     const kindOf = (c) => rmpmOf(c) || (normU((MRP.master.get(c) || {}).kat) === 'ekstrak' ? 'RM' : '');
     const later = (a, z) => (!a ? z : !z ? a : a.late ? z : z.late ? a : a.d > z.d ? a : z);   // tanggal siap paling akhir
@@ -8131,11 +8130,16 @@
       const lines = [];
       n.leaves.forEach((q, c) => { const kind = kindOf(c); if (!kind || !(q > 0)) return; const codes = resolve(c, x.code); lines.push({ c: codes[codes.length - 1], codes, orig: c, kind, r: q / 1000 }); });
       const res = lines.map((L) => {
-        const S = supOf(L.codes), need = L.r * x.q, av = S.free - S.usedNow;
-        let ready = null, cum = av - S.usedFut;
-        if (cum >= need - 1e-9) ready = { now: true };
-        else for (const a of S.arr) { cum += a.q; if (cum >= need - 1e-9) { ready = a; break; } }
-        return Object.assign(L, { S, need, av, cap: L.r > 0 ? Math.max(0, av) / L.r : Infinity, ready, kurang: Math.max(0, need - Math.max(0, av)), noPo: !ready ? need - cum : 0 });
+        // pengganti dengan "pakai stok lama": stok LAMA dulu, kekurangannya dari BARU (codes = [lama, baru])
+        const SS = L.codes.map(supOf), need = L.r * x.q, av = SS.reduce((t, S) => t + nowAv(S), 0);
+        const net = SS.map((S) => S.free - S.usedNow - S.usedFut), tot = () => net.reduce((t, v) => t + Math.max(0, v), 0);
+        let ready = null;
+        if (tot() >= need - 1e-9) ready = { now: true };
+        else {
+          const ev = SS.flatMap((S, k) => S.arr.map((a2) => Object.assign({ k }, a2))).sort((a2, z) => (a2.late !== z.late ? (a2.late ? -1 : 1) : a2.d < z.d ? -1 : a2.d > z.d ? 1 : 0));
+          for (const e of ev) { net[e.k] += e.q; if (tot() >= need - 1e-9) { ready = e; break; } }
+        }
+        return Object.assign(L, { SS, need, av, cap: L.r > 0 ? av / L.r : Infinity, ready, kurang: Math.max(0, need - av) });
       });
       const capOf = (k) => Math.min(Infinity, ...res.filter((L) => L.kind === k).map((L) => L.cap));
       const capRM = capOf('RM'), capPM = capOf('PM'), now = sgR3(Math.min(x.q, capRM, capPM));
@@ -8145,7 +8149,12 @@
       const st = rmOk && pmOk ? 'siap' : now > 1e-6 ? 'sebagian' : !rmOk ? 'rm' : 'pm';
       const rAll = st === 'siap' ? null : readyAll('');
       // stok sekarang hanya terpakai sebesar yang bisa diproduksi sekarang; sisanya mengklaim PO yang akan datang
-      res.forEach((L) => { const a = L.r * now; L.S.usedNow += a; L.S.usedFut += L.need - a; });
+      res.forEach((L) => {
+        let a = L.r * now, f = L.need - a;
+        L.SS.forEach((S, k) => { const last = k === L.SS.length - 1;
+          const tn = last ? a : Math.min(a, nowAv(S)); S.usedNow += tn; a -= tn;
+          const tf = last ? f : Math.min(f, futAv(S)); S.usedFut += tf; f -= tf; });
+      });
       rows.push(Object.assign({}, x, { prio: idx + 1, now, rmOk, pmOk, capRM: sgR3(Math.min(x.q, capRM)), st, rmShort: shortL('RM'), pmShort: shortL('PM'), rAll, nMat: res.length }));
     });
     rows.forEach((r, i) => { r.prio = i + 1; });
