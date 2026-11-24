@@ -2388,3 +2388,6 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .sg-t td:nth-child(3) { white-space: nowrap; }
 .sg-t td:nth-child(4), .sg-t td:nth-child(5), .sg-t td:nth-child(6) { white-space: nowrap; }
 .sg-t .sg-nm { max-width: none; }
+.fu-t td.fu-act { white-space: nowrap; } .fu-t td.fu-act .btn-link + .btn-link { margin-left: 10px; }
+.fu-t th:nth-child(9) { width: 150px; }
+.fu-t th:nth-child(7) { width: 135px; } .fu-t .pill { white-space: nowrap; }

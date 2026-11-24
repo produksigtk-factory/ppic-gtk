@@ -1401,13 +1401,13 @@
   function fuTable(gs, print) {
     const ed = state.edit.on && !print;
     return gs.map((g) => `<section class="fu-grp"><h3 class="fu-gh">${esc(g.sup)}<span>${g.items.length} jadwal${g.nLate ? ` · <b class="pl-bad">${g.nLate} terlambat</b>` : ''}</span></h3>
-      <table class="po-table fu-t"><thead><tr><th>No PO</th><th>Tgl PO</th><th>Material</th><th class="num">Ke</th><th>Jadwal</th><th class="num">Sisa</th><th>Status</th><th>Follow up terakhir</th>${print ? '<th class="fu-hasil">Hasil follow up</th>' : ed ? '<th></th>' : ''}</tr></thead><tbody>
-      ${g.items.map((x) => { const f = x.r.follow; return `<tr class="${x.late ? 'is-late' : ''}"><td class="mono">${esc(x.r.po)}</td><td class="date">${fmtDate(x.r.date)}</td>
+      <table class="po-table fu-t"><thead><tr><th>No PO</th><th>Tgl PO</th><th>Material</th><th class="num">Ke</th><th>Jadwal</th><th class="num">Sisa</th><th>Status</th><th>Follow up terakhir</th>${print ? '<th class="fu-hasil">Hasil follow up</th>' : '<th></th>'}</tr></thead><tbody>
+      ${g.items.map((x) => { const f = x.r.follow; return `<tr class="${x.late ? 'is-late' : ''}"><td class="mono">${print ? esc(x.r.po) : `<button type="button" class="btn-link pr-po" data-gopo="${esc(x.r.po)}" data-gocode="${esc(x.r.code)}" title="Buka ${esc(x.r.po)} di Monitoring PO">${esc(x.r.po)}</button>`}</td><td class="date">${fmtDate(x.r.date)}</td>
         <td><b>${esc(x.r.code)}</b> ${esc(x.r.name)}</td><td class="num">${esc(x.s.n)}</td><td class="date">${fmtDate(x.s.date)}</td>
         <td class="num">${fmtNum(x.gap)} <small>${esc(x.r.uom || '')}</small></td>
         <td>${x.late ? `<span class="pill pill-late">Lewat ${-x.d} hari</span>` : `<span class="pill pill-wait">${x.d ? x.d + ' hari lagi' : 'Hari ini'}</span>`}</td>
         <td class="fu-last">${f ? `${esc(f.status)}${f.promise ? ` · janji <b>${fmtDate(f.promise)}</b>` : ''}${f.note ? `<small>${esc(f.note)}</small>` : ''}` : '<span class="muted">–</span>'}</td>
-        ${print ? '<td class="fu-hasil"></td>' : ed ? `<td><button type="button" class="btn-link" data-fu="${esc(x.r.po)}|${esc(x.r.code)}">Follow up</button></td>` : ''}</tr>`; }).join('')}
+        ${print ? '<td class="fu-hasil"></td>' : `<td class="fu-act"><button type="button" class="btn-link pr-po" data-gopo="${esc(x.r.po)}" data-gocode="${esc(x.r.code)}">Buka PO</button>${ed ? `<button type="button" class="btn-link" data-fu="${esc(x.r.po)}|${esc(x.r.code)}">Follow up</button>` : ''}</td>`}</tr>`; }).join('')}
       </tbody></table></section>`).join('');
   }
   function renderFu() {
