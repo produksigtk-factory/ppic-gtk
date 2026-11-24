@@ -2351,17 +2351,12 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
   #fuPrintRoot .fu-t th, #fuPrintRoot .fu-t td { padding: 3px 5px; border-bottom: 1px solid #ccc; }
   #fuPrintRoot .fu-t thead { display: table-header-group; }
   #fuPrintRoot .fu-t tr { page-break-inside: avoid; }
-  #fuPrintRoot .fu-t td.fu-last { min-width: 0; font-size: 9.5px; }
   #fuPrintRoot .fu-hasil { width: 22%; border-left: 1px solid #ccc; }
   #fuPrintRoot .pill { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 9.5px; padding: 0 5px; }
 }
 .fu-t { table-layout: fixed; }
-.fu-t th:nth-child(1) { width: 92px; } .fu-t th:nth-child(2) { width: 84px; } .fu-t th:nth-child(4) { width: 40px; } .fu-t th:nth-child(5) { width: 84px; }
-.fu-t th:nth-child(6) { width: 100px; } .fu-t th:nth-child(7) { width: 120px; } .fu-t th:nth-child(8) { width: 24%; } .fu-t th:nth-child(9) { width: 90px; }
 .fu-t td { overflow-wrap: anywhere; }
 @media print {
-  #fuPrintRoot .fu-t th:nth-child(1) { width: 11%; } #fuPrintRoot .fu-t th:nth-child(2) { width: 8%; } #fuPrintRoot .fu-t th:nth-child(4) { width: 3%; } #fuPrintRoot .fu-t th:nth-child(5) { width: 8%; }
-  #fuPrintRoot .fu-t th:nth-child(6) { width: 9%; } #fuPrintRoot .fu-t th:nth-child(7) { width: 10%; } #fuPrintRoot .fu-t th:nth-child(8) { width: 17%; } #fuPrintRoot .fu-t th:nth-child(9) { width: 18%; }
 }
 
 /* Suggest Produksi */
@@ -2389,5 +2384,9 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
 .sg-t td:nth-child(4), .sg-t td:nth-child(5), .sg-t td:nth-child(6) { white-space: nowrap; }
 .sg-t .sg-nm { max-width: none; }
 .fu-t td.fu-act { white-space: nowrap; } .fu-t td.fu-act .btn-link + .btn-link { margin-left: 10px; }
-.fu-t th:nth-child(9) { width: 150px; }
-.fu-t th:nth-child(7) { width: 135px; } .fu-t .pill { white-space: nowrap; }
+.fu-t .pill { white-space: nowrap; }
+.fu-t th.c-po { width: 92px; } .fu-t th.c-d { width: 80px; } .fu-t th.c-n { width: 96px; } .fu-t th.c-k { width: 36px; } .fu-t th.c-st { width: 130px; } .fu-t th.c-act { width: 150px; }
+@media print {
+  #fuPrintRoot .fu-t th.c-po { width: 10%; } #fuPrintRoot .fu-t th.c-d { width: 7%; } #fuPrintRoot .fu-t th.c-n { width: 7.5%; } #fuPrintRoot .fu-t th.c-k { width: 3%; } #fuPrintRoot .fu-t th.c-st { width: 9%; } #fuPrintRoot .fu-hasil { width: 15%; }
+}
+@media print { #fuPrintRoot .fu-t th { white-space: normal; overflow: visible; } #fuPrintRoot .fu-t .pill { white-space: nowrap; } }

@@ -1399,15 +1399,14 @@
     return { all, list, gs };
   }
   function fuTable(gs, print) {
-    const ed = state.edit.on && !print;
+    const ed = state.edit.on && !print, u = (x) => ` <small>${esc(x.r.uom || '')}</small>`;
     return gs.map((g) => `<section class="fu-grp"><h3 class="fu-gh">${esc(g.sup)}<span>${g.items.length} jadwal${g.nLate ? ` · <b class="pl-bad">${g.nLate} terlambat</b>` : ''}</span></h3>
-      <table class="po-table fu-t"><thead><tr><th>No PO</th><th>Tgl PO</th><th>Material</th><th class="num">Ke</th><th>Jadwal</th><th class="num">Sisa</th><th>Status</th><th>Follow up terakhir</th>${print ? '<th class="fu-hasil">Hasil follow up</th>' : '<th></th>'}</tr></thead><tbody>
-      ${g.items.map((x) => { const f = x.r.follow; return `<tr class="${x.late ? 'is-late' : ''}"><td class="mono">${print ? esc(x.r.po) : `<button type="button" class="btn-link pr-po" data-gopo="${esc(x.r.po)}" data-gocode="${esc(x.r.code)}" title="Buka ${esc(x.r.po)} di Monitoring PO">${esc(x.r.po)}</button>`}</td><td class="date">${fmtDate(x.r.date)}</td>
-        <td><b>${esc(x.r.code)}</b> ${esc(x.r.name)}</td><td class="num">${esc(x.s.n)}</td><td class="date">${fmtDate(x.s.date)}</td>
-        <td class="num">${fmtNum(x.gap)} <small>${esc(x.r.uom || '')}</small></td>
+      <table class="po-table fu-t"><thead><tr><th class="c-po">No PO</th><th class="c-d">Tgl PO</th><th>Material</th><th class="num c-n">Qty PO</th><th class="num c-k">Ke</th><th class="c-d">Jadwal</th><th class="num c-n">Qty jadwal</th><th class="num c-n">Sudah datang</th><th class="num c-n">Kurang</th><th class="c-st">Status</th>${print ? '<th class="fu-hasil">Hasil follow up</th>' : '<th class="c-act"></th>'}</tr></thead><tbody>
+      ${g.items.map((x) => `<tr class="${x.late ? 'is-late' : ''}"><td class="mono">${print ? esc(x.r.po) : `<button type="button" class="btn-link pr-po" data-gopo="${esc(x.r.po)}" data-gocode="${esc(x.r.code)}" title="Buka ${esc(x.r.po)} di Monitoring PO">${esc(x.r.po)}</button>`}</td><td class="date">${fmtDate(x.r.date)}</td>
+        <td><b>${esc(x.r.code)}</b> ${esc(x.r.name)}</td><td class="num">${fmtNum(x.r.qty)}${u(x)}</td><td class="num">${esc(x.s.n)}</td><td class="date">${fmtDate(x.s.date)}</td>
+        <td class="num">${fmtNum(Number(x.s.qty) || 0)}</td><td class="num">${fmtNum(Number(x.s.rec) || 0)}</td><td class="num"><b>${fmtNum(x.gap)}</b>${u(x)}</td>
         <td>${x.late ? `<span class="pill pill-late">Lewat ${-x.d} hari</span>` : `<span class="pill pill-wait">${x.d ? x.d + ' hari lagi' : 'Hari ini'}</span>`}</td>
-        <td class="fu-last">${f ? `${esc(f.status)}${f.promise ? ` · janji <b>${fmtDate(f.promise)}</b>` : ''}${f.note ? `<small>${esc(f.note)}</small>` : ''}` : '<span class="muted">–</span>'}</td>
-        ${print ? '<td class="fu-hasil"></td>' : `<td class="fu-act"><button type="button" class="btn-link pr-po" data-gopo="${esc(x.r.po)}" data-gocode="${esc(x.r.code)}">Buka PO</button>${ed ? `<button type="button" class="btn-link" data-fu="${esc(x.r.po)}|${esc(x.r.code)}">Follow up</button>` : ''}</td>`}</tr>`; }).join('')}
+        ${print ? '<td class="fu-hasil"></td>' : `<td class="fu-act"><button type="button" class="btn-link pr-po" data-gopo="${esc(x.r.po)}" data-gocode="${esc(x.r.code)}">Buka PO</button>${ed ? `<button type="button" class="btn-link" data-fu="${esc(x.r.po)}|${esc(x.r.code)}">Follow up</button>` : ''}</td>`}</tr>`).join('')}
       </tbody></table></section>`).join('');
   }
   function renderFu() {
@@ -1455,12 +1454,12 @@
         doc.setTextColor(0);
         doc.autoTable({
           startY: y + 2, margin: { left: M, right: M }, theme: 'plain',
-          head: [['No PO', 'Tgl PO', 'Material', 'Ke', 'Jadwal', 'Sisa', 'Status', 'Follow up terakhir', 'Hasil follow up']],
-          body: g.items.map((x) => { const f = x.r.follow; return [x.r.po, fmtDate(x.r.date), `${x.r.code}  ${x.r.name || ''}`, String(x.s.n), fmtDate(x.s.date), `${fmtNum(x.gap)} ${x.r.uom || ''}`, x.late ? `Lewat ${-x.d} hari` : x.d ? `${x.d} hari lagi` : 'Hari ini', f ? `${f.status}${f.promise ? ' · janji ' + fmtDate(f.promise) : ''}${f.note ? '\n' + f.note : ''}` : '-', ''].map(t); }),
+          head: [['No PO', 'Tgl PO', 'Material', 'Qty PO', 'Ke', 'Jadwal', 'Qty jadwal', 'Sudah datang', 'Kurang', 'Status', 'Hasil follow up']],
+          body: g.items.map((x) => [x.r.po, fmtDate(x.r.date), `${x.r.code}  ${x.r.name || ''}`, `${fmtNum(x.r.qty)} ${x.r.uom || ''}`, String(x.s.n), fmtDate(x.s.date), fmtNum(Number(x.s.qty) || 0), fmtNum(Number(x.s.rec) || 0), `${fmtNum(x.gap)} ${x.r.uom || ''}`, x.late ? `Lewat ${-x.d} hari` : x.d ? `${x.d} hari lagi` : 'Hari ini', ''].map(t)),
           styles: { font: 'helvetica', fontSize: 8, cellPadding: { top: 1.6, bottom: 1.6, left: 1.5, right: 1.5 }, lineColor: [205, 205, 205], lineWidth: { bottom: 0.2 }, valign: 'top' },
           headStyles: { fontStyle: 'bold', textColor: [70, 70, 70], fillColor: [240, 242, 240], lineWidth: { bottom: 0.4 }, lineColor: [60, 60, 60] },
-          columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 19 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 8, halign: 'right' }, 4: { cellWidth: 19 }, 5: { cellWidth: 22, halign: 'right' }, 6: { cellWidth: 24 }, 7: { cellWidth: 48 }, 8: { cellWidth: 46, lineWidth: { bottom: 0.2, left: 0.2 } } },
-          didParseCell: (d) => { if (d.section === 'head' && (d.column.index === 3 || d.column.index === 5)) d.cell.styles.halign = 'right'; if (d.section === 'body' && d.column.index === 6 && g.items[d.row.index].late) { d.cell.styles.textColor = [192, 57, 43]; d.cell.styles.fontStyle = 'bold'; } },
+          columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 17 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 22, halign: 'right' }, 4: { cellWidth: 7, halign: 'right' }, 5: { cellWidth: 17 }, 6: { cellWidth: 18, halign: 'right' }, 7: { cellWidth: 19, halign: 'right' }, 8: { cellWidth: 22, halign: 'right', fontStyle: 'bold' }, 9: { cellWidth: 26 }, 10: { cellWidth: 40, lineWidth: { bottom: 0.2, left: 0.2 } } },
+          didParseCell: (d) => { if (d.section === 'head' && [3, 4, 6, 7, 8].includes(d.column.index)) d.cell.styles.halign = 'right'; if (d.section === 'body' && d.column.index === 9 && g.items[d.row.index].late) { d.cell.styles.textColor = [192, 57, 43]; d.cell.styles.fontStyle = 'bold'; } },
         });
         y = doc.lastAutoTable.finalY + 8;
       });
