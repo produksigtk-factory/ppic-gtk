@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=19c79e04">
+<link rel="stylesheet" href="style.css?v=a87b186e">
 </head>
 <body>
 <div class="shell">
@@ -66,6 +66,7 @@
           <a class="menu-item sub" href="#/po/dashboard" data-route="po/dashboard">Dashboard PO</a>
           <a class="menu-item sub" href="#/po/monitoring" data-route="po/monitoring">Monitoring PO</a>
           <a class="menu-item sub" href="#/po/kalender" data-route="po/kalender">Kalender Kedatangan</a>
+          <a class="menu-item sub" href="#/po/followup" data-route="po/followup">Follow Up PO</a>
           <a class="menu-item sub" href="#/po/perubahan" data-route="po/perubahan">Perubahan Data</a>
           <a class="menu-item sub" href="#/po/perhatian" data-route="po/perhatian">Perhatian Khusus<span class="menu-badge" id="attBadge" hidden></span></a>
           <a class="menu-item sub" href="#/po/update" data-route="po/update">Update Data PO</a>
@@ -457,6 +458,19 @@
       </section>
 
       <!-- ================= PERHATIAN KHUSUS ================= -->
+      <section id="view-po-followup" class="view" hidden>
+        <p class="lead">Jadwal PO yang perlu di-follow up ke supplier: semua yang sudah lewat tanggal jadwal, ditambah yang akan datang sampai akhir bulan depan. Dikelompokkan per supplier, supplier dengan keterlambatan terlama di atas.</p>
+        <div class="fu-tools">
+          <label class="tb-search"><span class="sr">Cari</span><input type="search" id="fuQ" placeholder="Cari No PO, kode, atau nama material"></label>
+          <label class="tb-field"><span class="sr">Supplier</span><select id="fuSup"><option value="">Semua supplier</option></select></label>
+          <label class="tb-field tb-narrow"><span class="sr">Jenis material</span><select id="fuJenis"></select></label>
+          <div class="fu-seg" id="fuSt" role="group" aria-label="Status"><button type="button" data-st="" class="is-on">Semua</button><button type="button" data-st="late">Terlambat</button><button type="button" data-st="wait">Akan datang</button></div>
+          <button type="button" class="btn btn-primary" id="fuPdf">Unduh PDF</button>
+        </div>
+        <p class="fu-sum" id="fuSum"></p>
+        <div id="fuBody"></div>
+      </section>
+
       <section id="view-po-perhatian" class="view" hidden>
         <p class="lead">Data PO yang perlu dicek karena tidak cocok antara PO-DET dan PO-DEL. Daftar ini dihitung ulang setiap kali data dimuat.</p>
         <div class="att-tools">
@@ -1330,7 +1344,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=f92bdaf2"></script>
-<script src="app.js?v=70d5bd66"></script>
+<script src="app.js?v=71940028"></script>
 <script src="csl.js?v=c699e490"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

@@ -136,6 +136,7 @@
     'po/perubahan':      { view: 'view-po-perubahan',      crumb: 'Purchase Order',            title: 'Perubahan Data',  actions: 'po' },
     'po/monitoring':     { view: 'view-po-monitoring',     crumb: 'Purchase Order',            title: 'Monitoring PO',   actions: 'po' },
     'po/update':         { view: 'view-po-update',         crumb: 'Purchase Order',            title: 'Update Data PO',  actions: 'po' },
+    'po/followup':       { view: 'view-po-followup',       crumb: 'Purchase Order',            title: 'Follow Up PO',    actions: 'po' },
     'po/perhatian':      { view: 'view-po-perhatian',      crumb: 'Purchase Order',            title: 'Perhatian Khusus', actions: 'po' },
     'po/riwayat':        { view: 'view-po-riwayat',        crumb: 'Purchase Order',            title: 'Riwayat Edit PO', actions: 'po' },
     'mrp/bom':           { view: 'view-mrp-bom',           crumb: 'MRP',                       title: 'Bill of Material', actions: 'mrp' },
@@ -223,6 +224,7 @@
     if (key === 'pr/form' || key === 'pr/rekap' || key === 'prlt/form' || key === 'prlt/rekap') { if (PRF.mode !== PRM()) { PRF.kode = ''; PRF.mode = PRM(); } prApplyMode(); }
     if (key === 'pr/form' || key === 'prlt/form') prEnter();
     if (key === 'pr/rekap' || key === 'prlt/rekap') renderPrRekap();
+    if (key === 'po/followup') renderFu();
     if (key === 'pr/pengganti') renderSubs();
     if (key === 'prlt/material') renderLtMat();
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
@@ -432,6 +434,7 @@
     renderDash();
     renderChanges();
     renderCal();
+    renderFu();
     renderLog();
     renderAttention();
     renderDataInfo();
@@ -1364,6 +1367,75 @@
         tip: `${x.ok} dari ${x.n} penerimaan tepat waktu`, go: { supplier: sup, jenis: '' } };
     }), 'Belum ada data. Angka muncul setelah ada penerimaan yang terdeteksi di antara dua upload.');
   }
+
+  /* ================= FOLLOW UP PO ================= */
+  // Jadwal belum Done yang sudah lewat + yang jatuh tempo s/d akhir bulan depan, per supplier
+  const FU = { st: '' };
+  const fuEnd = () => { const d = new Date(); return ymd(new Date(d.getFullYear(), d.getMonth() + 2, 0)); };
+  function fuItems() {
+    const today = todayStr(), end = fuEnd(), out = [], seen = new Set();
+    state.rows.forEach((r) => {
+      if (isClosed(r)) return;
+      const k = r.po + '|' + r.code; if (seen.has(k)) return; seen.add(k);
+      r.sched.forEach((s) => {
+        if (s.status === 'Done' || !s.date || s.date > end) return;
+        const gap = Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0)); if (!(gap > 1e-9)) return;
+        out.push({ r, s, gap, late: s.date < today, d: daysBetween(today, s.date) });
+      });
+    });
+    return out;
+  }
+  function fuGroups() {
+    const j = $('fuJenis').value, sp = $('fuSup').value, q = $('fuQ').value.trim().toLowerCase();
+    const all = fuItems().filter((x) => jenisOk(x.r, j));
+    const list = all.filter((x) => (!sp || x.r.supplier === sp) && (!FU.st || (FU.st === 'late') === x.late)
+      && (!q || `${x.r.po} ${x.r.code} ${x.r.name} ${x.r.supplier}`.toLowerCase().includes(q)));
+    const m = new Map();
+    list.forEach((x) => { const g = m.get(x.r.supplier) || { sup: x.r.supplier || '(tanpa supplier)', items: [] }; g.items.push(x); m.set(x.r.supplier, g); });
+    const gs = [...m.values()];
+    gs.forEach((g) => { g.items.sort((a, b) => a.s.date.localeCompare(b.s.date) || a.r.po.localeCompare(b.r.po)); g.nLate = g.items.filter((x) => x.late).length; g.worst = Math.min(...g.items.map((x) => x.d)); });
+    gs.sort((a, b) => a.worst - b.worst || a.sup.localeCompare(b.sup));
+    return { all, list, gs };
+  }
+  function fuTable(gs, print) {
+    const ed = state.edit.on && !print;
+    return gs.map((g) => `<section class="fu-grp"><h3 class="fu-gh">${esc(g.sup)}<span>${g.items.length} jadwal${g.nLate ? ` · <b class="pl-bad">${g.nLate} terlambat</b>` : ''}</span></h3>
+      <table class="po-table fu-t"><thead><tr><th>No PO</th><th>Tgl PO</th><th>Material</th><th class="num">Ke</th><th>Jadwal</th><th class="num">Sisa</th><th>Status</th><th>Follow up terakhir</th>${print ? '<th class="fu-hasil">Hasil follow up</th>' : ed ? '<th></th>' : ''}</tr></thead><tbody>
+      ${g.items.map((x) => { const f = x.r.follow; return `<tr class="${x.late ? 'is-late' : ''}"><td class="mono">${esc(x.r.po)}</td><td class="date">${fmtDate(x.r.date)}</td>
+        <td><b>${esc(x.r.code)}</b> ${esc(x.r.name)}</td><td class="num">${esc(x.s.n)}</td><td class="date">${fmtDate(x.s.date)}</td>
+        <td class="num">${fmtNum(x.gap)} <small>${esc(x.r.uom || '')}</small></td>
+        <td>${x.late ? `<span class="pill pill-late">Lewat ${-x.d} hari</span>` : `<span class="pill pill-wait">${x.d ? x.d + ' hari lagi' : 'Hari ini'}</span>`}</td>
+        <td class="fu-last">${f ? `${esc(f.status)}${f.promise ? ` · janji <b>${fmtDate(f.promise)}</b>` : ''}${f.note ? `<small>${esc(f.note)}</small>` : ''}` : '<span class="muted">–</span>'}</td>
+        ${print ? '<td class="fu-hasil"></td>' : ed ? `<td><button type="button" class="btn-link" data-fu="${esc(x.r.po)}|${esc(x.r.code)}">Follow up</button></td>` : ''}</tr>`; }).join('')}
+      </tbody></table></section>`).join('');
+  }
+  function renderFu() {
+    if (!$('fuBody') || !state.rows.length) return;
+    if (!$('fuJenis').dataset.ready) fillJenis($('fuJenis'), [...new Set(state.rows.map((r) => r.jenis).filter(Boolean))].sort());
+    const sups = [...new Set(fuItems().map((x) => x.r.supplier).filter(Boolean))].sort(), cur = $('fuSup').value;
+    $('fuSup').innerHTML = '<option value="">Semua supplier</option>' + sups.map((v) => `<option${v === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    document.querySelectorAll('#fuSt [data-st]').forEach((b) => b.classList.toggle('is-on', b.dataset.st === FU.st));
+    const { list, gs } = fuGroups(), nL = list.filter((x) => x.late).length;
+    $('fuSum').innerHTML = `<b>${nL}</b> jadwal terlambat · <b>${list.length - nL}</b> akan datang s/d ${fmtDate(fuEnd())} · ${gs.length} supplier`;
+    $('fuBody').innerHTML = gs.length ? fuTable(gs, false) : '<p class="empty-note">Tidak ada jadwal yang perlu di-follow up untuk filter ini.</p>';
+    $('fuPdf').disabled = !gs.length;
+  }
+  ['fuQ', 'fuSup', 'fuJenis'].forEach((id) => $(id).addEventListener(id === 'fuQ' ? 'input' : 'change', renderFu));
+  $('fuSt').addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (!b) return; FU.st = b.dataset.st; renderFu(); });
+  $('fuBody').addEventListener('click', (e) => { const b = e.target.closest('[data-fu]'); if (!b) return; const [po, code] = b.dataset.fu.split('|'); const r = state.rows.find((x) => x.po === po && x.code === code); if (r) editFollow(r); });
+  $('fuPdf').addEventListener('click', () => {
+    const { list, gs } = fuGroups(); if (!gs.length) return;
+    let root = document.getElementById('fuPrintRoot');
+    if (!root) { root = document.createElement('div'); root.id = 'fuPrintRoot'; document.body.appendChild(root); }
+    const nL = list.filter((x) => x.late).length, now = new Date(), sp = $('fuSup').value, j = $('fuJenis').value;
+    const filt = [sp && 'Supplier: ' + sp, j !== RMPM && 'Jenis: ' + jenisLabel(j), FU.st && (FU.st === 'late' ? 'Hanya terlambat' : 'Hanya akan datang'), $('fuQ').value.trim() && 'Cari: ' + $('fuQ').value.trim()].filter(Boolean).join(' · ');
+    root.innerHTML = `<header class="fu-ph"><div><h1>Follow Up Purchase Order</h1><p>Terlambat dan akan datang s/d ${fmtDate(fuEnd())}${filt ? ' · ' + esc(filt) : ''}</p></div><p>Dicetak ${fmtDate(ymd(now))} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}<br><b>${nL}</b> terlambat · <b>${list.length - nL}</b> akan datang · ${gs.length} supplier</p></header>${fuTable(gs, true)}`;
+    document.body.classList.add('printing-fu');
+    const t0 = document.title; document.title = 'Follow-Up-PO-' + ymd(now);
+    const done = () => { document.body.classList.remove('printing-fu'); document.title = t0; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    window.print(); setTimeout(done, 1000);
+  });
 
   /* ================= KALENDER KEDATANGAN ================= */
   const CAL = { month: null, day: null };
