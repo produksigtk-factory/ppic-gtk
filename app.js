@@ -184,10 +184,6 @@
     'cslb/update':        { view: 'view-csl-update',        crumb: 'CSL Beauty',                title: 'Update Data CSL', actions: 'csl' },
     'csl/cek':           { view: 'view-csl-cek',           crumb: 'CSL Personal Care',         title: 'Pemeriksaan Data CSL', actions: 'csl' },
     'cslb/cek':           { view: 'view-csl-cek',           crumb: 'CSL Beauty',                title: 'Pemeriksaan Data CSL', actions: 'csl' },
-    'rep/inv-mat':       { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'RM, PM, dan WIP', actions: 'inv' },
-    'rep/inv-fg':        { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'FG', actions: 'inv' },
-    'rep/incoming':      { view: 'view-rep-inc',           crumb: 'Kebutuhan Report',          title: 'Incoming RMPM',   actions: 'inc' },
-    'rep/inventory':     { view: 'view-rep-inv',           crumb: 'Kebutuhan Report · Value and Qty Inventory', title: 'RM, PM, dan WIP', actions: 'inv' },
   };
   function route() {
     let key = location.hash.replace(/^#\/?/, '') || 'beranda';
@@ -211,15 +207,15 @@
     state.routeKey = ROUTES[key] ? key : 'beranda';
     const planView = PLAN_KEYS.has(state.routeKey);
     $('poActions').hidden = !r.actions;
-    $('btnEditMode').hidden = r.actions === 'sup' || r.actions === 'csl' || r.actions === 'inv' || r.actions === 'inc' || (r.actions === 'mrp' && !planView);
+    $('btnEditMode').hidden = r.actions === 'sup' || r.actions === 'csl' || (r.actions === 'mrp' && !planView);
     paintEditBtn();
-    const sheet = r.actions === 'inc' ? ((window.INC && window.INC.sheetUrl()) || CFG.INC_SHEET_URL) : r.actions === 'inv' ? ((window.INV && window.INV.sheetUrl()) || CFG.INV_SHEET_URL) : r.actions === 'csl' ? ((window.CSL && window.CSL.sheetUrl()) || (state.routeKey.startsWith('cslb/') ? CFG.CSL_BEAUTY_SHEET_URL : CFG.CSL_SHEET_URL)) : r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : planView ? (P.mrpUrl || CFG.MRP_SHEET_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
+    const sheet = r.actions === 'csl' ? ((window.CSL && window.CSL.sheetUrl()) || (state.routeKey.startsWith('cslb/') ? CFG.CSL_BEAUTY_SHEET_URL : CFG.CSL_SHEET_URL)) : r.actions === 'sup' ? (state.sup.dbUrl || CFG.DATABASE_URL) : planView ? (P.mrpUrl || CFG.MRP_SHEET_URL) : r.actions === 'mrp' ? (MRP.dbUrl || state.sup.dbUrl || CFG.DATABASE_URL) : CFG.SHEET_URL;
     $('lnkSheet').hidden = !sheet;
     if (sheet) $('lnkSheet').href = sheet;
-    $('lnkSheet').title = r.actions === 'inc' ? 'Buka Google Sheet Incoming RMPM di tab baru' : r.actions === 'inv' ? 'Buka Google Sheet Value and Qty Inventory (RM, PM, dan FG) di tab baru' : r.actions === 'csl' ? `Buka Google Sheet ${state.routeKey.startsWith('cslb/') ? 'CSL Beauty' : 'CSL Personal Care'} (SO, DO, forecast) di tab baru` : r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
+    $('lnkSheet').title = r.actions === 'csl' ? `Buka Google Sheet ${state.routeKey.startsWith('cslb/') ? 'CSL Beauty' : 'CSL Personal Care'} (SO, DO, forecast) di tab baru` : r.actions === 'sup' ? 'Buka Google Sheet DATABASE PPIC (tab SUPPLIER_MATERIAL) di tab baru'
       : planView ? 'Buka Google Sheet MRP PPIC GTK (rencana, SKU, stok) di tab baru'
       : r.actions === 'mrp' ? 'Buka Google Sheet DATABASE PPIC (MASTER_MATERIAL, BOM_LIST, BOM_DETAIL) di tab baru' : 'Buka Google Sheet MONITORING PO di tab baru';
-    $('btnReload').title = r.actions === 'inc' ? 'Ambil ulang data incoming dari Google Sheet Incoming RMPM' : r.actions === 'inv' ? 'Ambil ulang golongan, harga, dan stok dari Google Sheet Value and Qty Inventory' : r.actions === 'csl' ? `Ambil data SO-DO dan forecast yang berubah dari Google Sheet ${state.routeKey.startsWith('cslb/') ? 'CSL Beauty' : 'CSL Personal Care'}` : r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
+    $('btnReload').title = r.actions === 'csl' ? `Ambil data SO-DO dan forecast yang berubah dari Google Sheet ${state.routeKey.startsWith('cslb/') ? 'CSL Beauty' : 'CSL Personal Care'}` : r.actions === 'sup' ? 'Hitung ulang daftar supplier dari data PO terbaru dan isian MoQ'
       : r.actions === 'mrp' ? 'Ambil ulang BOM, rencana, dan stok dari Google Sheet' : 'Ambil ulang data terbaru dari Google Sheet MONITORING PO';
     document.title = `${r.title} · PPIC Gondowangi`;
     document.body.classList.toggle('lock-mon', r.view === 'view-po-monitoring');
@@ -230,8 +226,6 @@
     if (key === 'pr/pengganti') renderSubs();
     if (key === 'prlt/material') renderLtMat();
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
-    else if (r.actions === 'inv') { if (window.INV) window.INV.enter(state.routeKey); }
-    else if (r.actions === 'inc') { if (window.INC) window.INC.enter(state.routeKey); }
     else if (state.routeKey.startsWith('info/')) { if (window.HELP) window.HELP.enter(state.routeKey); }
     else if (state.freshLoaded) renderDataInfo();
     else $('dataInfo').textContent = 'Memuat data…';
@@ -256,7 +250,7 @@
     const box = $('fresh');
     if (!box) return;
     const r = state.route;
-    const show = state.freshLoaded && r && ((r.actions && r.actions !== 'mrp' && r.actions !== 'csl' && r.actions !== 'inv' && r.actions !== 'inc') || r.view === 'view-beranda');
+    const show = state.freshLoaded && r && ((r.actions && r.actions !== 'mrp' && r.actions !== 'csl') || r.view === 'view-beranda');
     box.hidden = !show;
     if (!show) return;
     const ut = uploadTimes();
@@ -461,7 +455,7 @@
     return { det: up.det ? up.time : '', del: up.del ? up.time : '' };
   }
   function renderDataInfo() {
-    if (state.route && (state.route.actions === 'csl' || state.route.actions === 'inv' || state.route.actions === 'inc' || state.routeKey.startsWith('info/'))) return;   // diisi csl.js / help.js
+    if (state.route && (state.route.actions === 'csl' || state.routeKey.startsWith('info/'))) return;   // diisi csl.js / help.js
     if (state.route && state.route.actions === 'mrp') {
       if (MRP.loaded) $('dataInfo').textContent = PLAN_KEYS.has(state.routeKey) && P.ready
         ? `Rencana, SKU, dan stok dibaca dari MRP PPIC GTK ${whenText(MRP.readAt)}${P.stockDate ? ` · stok per ${fmtDate(P.stockDate)}` : ' · belum ada data stok'}`
@@ -972,8 +966,7 @@
   ['fFrom', 'fTo'].forEach((id) => $(id).addEventListener('change', dateChanged));
   $('fDateType').addEventListener('change', () => { if ($('fFrom').value || $('fTo').value) dateChanged(); });
   $('btnMsg').addEventListener('click', () => openSupplierMsg({ supplier: $('fSupplier').value, from: 'mon' }));
-  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'inc' ? (window.INC && window.INC.reload()) : state.route && state.route.actions === 'inv' ? (window.INV && window.INV.reload())
-    : state.route && state.route.actions === 'csl' ? (window.CSL && window.CSL.reload())
+  $('btnReload').addEventListener('click', () => (state.route && state.route.actions === 'csl' ? (window.CSL && window.CSL.reload())
     : state.route && state.route.actions === 'sup' ? loadSupplier(true)
     : state.route && state.route.actions === 'mrp' ? loadMrp('fresh') : loadData(true)));
 

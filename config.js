@@ -11,11 +11,5 @@ window.PPIC_CONFIG = {
   // Apps Script di Google Sheet "CSL Beauty" (menu CSL Beauty; file Code_CSL.gs yang sama). Kosong = belum dipasang.
   CSL_BEAUTY_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbz_xGV42r-pgy1_5W_XRHh1hPYxN88iyIbwks7COK7OZ6Gq6WK0m8v_xh0AB8_obQW8mQ/exec',
   CSL_BEAUTY_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1-zjUPgQKUEXrRja6wM1__qMEBgLFJNxmNGOFjJFC3-o/edit',
-  // Apps Script di Google Sheet "Value and Qty Inventory (RM, PM, dan FG)" (menu Kebutuhan Report). Kosong = belum dipasang.
-  INV_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxUtbfQ5Bhnq_YIfFlxhAgf5Yxy6A5hYL1XkcXDMq27oSGblCs17fq6xBSPBqyzm9OmWw/exec',
-  INV_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1eRIhOhSAC61J_QNCX42G2gOAF6uXiQjpt2W-MJz3uWs/edit',
-  // Apps Script di Google Sheet "Incoming RMPM" (menu Kebutuhan Report → Incoming RMPM). Kosong = belum dipasang.
-  INC_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyJz02V3vW68U7dCGgwPIwhX0EYC37XsGHfHyXKNkhg2icEaTvdIXbqIGn-AAXBgtXw/exec',
-  INC_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1L19yQiJgc8K7JG7rpSYZnErUtQohMR5KTc_WdWgBhnE/edit',
   SHEET_URL: 'https://docs.google.com/spreadsheets/d/1Dw7HmExGNYYDkbNgYTPA7zwEr6ueUMhdtjdlR7tCBdU/edit',
 };
