@@ -1418,7 +1418,7 @@
     const { list, gs } = fuGroups(), nL = list.filter((x) => x.late).length;
     $('fuSum').innerHTML = `<b>${nL}</b> jadwal terlambat · <b>${list.length - nL}</b> akan datang s/d ${fmtDate(fuEnd())} · ${gs.length} supplier`;
     $('fuBody').innerHTML = gs.length ? fuTable(gs, false) : '<p class="empty-note">Tidak ada jadwal yang perlu di-follow up untuk filter ini.</p>';
-    $('fuPdf').disabled = $('fuPrint').disabled = !gs.length;
+    $('fuPdf').disabled = $('fuPrint').disabled = $('fuXls').disabled = !gs.length;
   }
   ['fuQ', 'fuSup', 'fuJenis'].forEach((id) => $(id).addEventListener(id === 'fuQ' ? 'input' : 'change', renderFu));
   $('fuSt').addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (!b) return; FU.st = b.dataset.st; renderFu(); });
@@ -1466,6 +1466,117 @@
       const n = doc.internal.getNumberOfPages();
       for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`Halaman ${i} dari ${n}`, W - M, doc.internal.pageSize.getHeight() - 6, { align: 'right' }); }
       doc.save(`Follow-Up-PO-${ymd(now)}.pdf`);
+    } catch (e) { toast(e.message || String(e)); } finally { btn.disabled = false; btn.textContent = lbl; }
+  });
+  // Unduh Excel berformat (ExcelJS, dimuat saat pertama dipakai): Follow Up (per supplier) · Pivot (rumus COUNTIFS) · Data (Excel Table)
+  let xjsP = null;
+  const loadExcelJs = () => xjsP || (xjsP = (window.ExcelJS ? Promise.resolve() : loadJs('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js')).then(() => window.ExcelJS).catch((e) => { xjsP = null; throw new Error('Pustaka Excel tidak bisa dimuat. Periksa koneksi lalu coba lagi.'); }));
+  $('fuXls').addEventListener('click', async () => {
+    const { list, gs } = fuGroups(); if (!gs.length) return;
+    const btn = $('fuXls'), lbl = btn.textContent; btn.disabled = true; btn.textContent = 'Menyiapkan Excel…';
+    try {
+      const EJ = await loadExcelJs(), wb = new EJ.Workbook(), now = new Date(), end = fuEnd(), today = todayStr();
+      wb.creator = 'PPIC Gondowangi'; wb.created = now;
+      const GREEN = 'FF1F5F3A', GREEN_L = 'FFE8F3EC', RED = 'FFB3261E', RED_L = 'FFFCEDEB', GREY = 'FF6B7280', LINE = 'FFD9DED9';
+      const dt = (s) => (s ? new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))) : null);   // ExcelJS menulis tanggal sebagai UTC
+      const monL = (b) => `${monShort(b)} ${b.slice(0, 4)}`;
+      const nL = list.filter((x) => x.late).length, filt = fuFilt();
+      const thin = { style: 'thin', color: { argb: LINE } };
+      const head = (row) => { row.eachCell((c) => { c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } }; c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; c.border = { top: thin, bottom: thin, left: thin, right: thin }; }); row.height = 30; };
+      const titleBlock = (ws, title, span) => {
+        ws.mergeCells(1, 1, 1, span); ws.getCell(1, 1).value = title; ws.getCell(1, 1).font = { bold: true, size: 15, color: { argb: GREEN } };
+        ws.mergeCells(2, 1, 2, span); ws.getCell(2, 1).value = `Terlambat dan akan datang s/d ${fmtDate(end)}${filt ? ' · ' + filt : ''} · dicetak ${fuStamp(now)}`; ws.getCell(2, 1).font = { size: 9.5, color: { argb: GREY } };
+        ws.mergeCells(3, 1, 3, span); ws.getCell(3, 1).value = `${nL} jadwal terlambat · ${list.length - nL} akan datang · ${gs.length} supplier`; ws.getCell(3, 1).font = { size: 10, bold: true };
+        ws.getRow(1).height = 22;
+      };
+      // ---- Sheet 3: Data (dibuat dulu supaya rumus Pivot bisa merujuk) ----
+      const flat = gs.flatMap((g) => g.items.map((x) => ({ g, x })));
+      const wsF = wb.addWorksheet('Follow Up', { views: [{ state: 'frozen', ySplit: 5, showGridLines: false }], properties: { tabColor: { argb: GREEN } } });
+      const wsP = wb.addWorksheet('Pivot', { views: [{ showGridLines: false }], properties: { tabColor: { argb: 'FFC9962B' } } });
+      const wsD = wb.addWorksheet('Data', { views: [{ state: 'frozen', ySplit: 1 }], properties: { tabColor: { argb: 'FF9AA5B1' } } });
+      const dCols = [['Supplier', 34], ['No PO', 12], ['Tgl PO', 11], ['Kode', 10], ['Material', 40], ['Jenis', 8], ['Qty PO', 12], ['UoM', 7], ['Ke', 5], ['Jadwal', 11], ['Bulan jadwal', 12], ['Qty jadwal', 12], ['Sudah datang', 12], ['Kurang', 12], ['Status', 12], ['Hari terlambat', 10], ['Hari lagi', 9]];
+      dCols.forEach(([, w], i) => { wsD.getColumn(i + 1).width = w; });
+      wsD.addTable({ name: 'DataFollowUp', ref: 'A1', headerRow: true, style: { theme: 'TableStyleMedium7', showRowStripes: true },
+        columns: dCols.map(([n]) => ({ name: n, filterButton: true })),
+        rows: flat.map(({ x }) => [x.r.supplier || '(tanpa supplier)', x.r.po, dt(x.r.date), x.r.code, x.r.name || '', x.r.jenis || '', Number(x.r.qty) || 0, x.r.uom || '', Number(x.s.n) || x.s.n, dt(x.s.date), x.late ? 'Terlambat' : monL(x.s.date.slice(0, 7)), Number(x.s.qty) || 0, Number(x.s.rec) || 0, sgR3(x.gap), x.late ? 'Terlambat' : 'Akan datang', x.late ? -x.d : null, x.late ? null : x.d]) });
+      ['C', 'J'].forEach((c) => { wsD.getColumn(c).numFmt = 'dd mmm yy'; }); ['G', 'L', 'M', 'N'].forEach((c) => { wsD.getColumn(c).numFmt = '#,##0.###'; });
+      const N = flat.length + 1, rg = (c) => `Data!$${c}$2:$${c}$${N}`;
+      // ---- Sheet 1: Follow Up ----
+      const fCols = [['No PO', 12], ['Tgl PO', 10], ['Kode', 9], ['Material', 38], ['Qty PO', 11], ['UoM', 6], ['Ke', 4], ['Jadwal', 10], ['Qty jadwal', 11], ['Sudah datang', 11], ['Kurang', 11], ['Status', 13], ['Hari', 7], ['Hasil follow up', 34]];
+      fCols.forEach(([, w], i) => { wsF.getColumn(i + 1).width = w; });
+      titleBlock(wsF, 'Follow Up Purchase Order', fCols.length);
+      head(wsF.getRow(5)); wsF.getRow(5).values = fCols.map(([n]) => n); head(wsF.getRow(5));
+      let r = 6;
+      gs.forEach((g) => {
+        wsF.mergeCells(r, 1, r, fCols.length);
+        const c = wsF.getCell(r, 1); c.value = { richText: [{ text: g.sup, font: { bold: true, size: 11, color: { argb: GREEN } } }, { text: `   ${g.items.length} jadwal${g.nLate ? ` · ${g.nLate} terlambat` : ''}`, font: { size: 9.5, color: { argb: g.nLate ? RED : GREY } } }] };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN_L } }; c.border = { top: { style: 'thin', color: { argb: 'FF9FC3AC' } } }; wsF.getRow(r).height = 20; r++;
+        g.items.forEach((x) => {
+          const row = wsF.getRow(r);
+          row.values = [x.r.po, dt(x.r.date), x.r.code, x.r.name || '', Number(x.r.qty) || 0, x.r.uom || '', Number(x.s.n) || x.s.n, dt(x.s.date), Number(x.s.qty) || 0, Number(x.s.rec) || 0, sgR3(x.gap), x.late ? 'Terlambat' : 'Akan datang', x.late ? -x.d : x.d, ''];
+          row.eachCell({ includeEmpty: true }, (cc, ci) => {
+            cc.border = { bottom: thin }; cc.font = { size: 10 }; cc.alignment = { vertical: 'top', wrapText: ci === 4 };
+            if (x.late) cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: RED_L } };
+          });
+          [2, 8].forEach((ci) => { row.getCell(ci).numFmt = 'dd mmm yy'; row.getCell(ci).alignment = { vertical: 'top', horizontal: 'center' }; }); row.getCell(7).alignment = { vertical: 'top', horizontal: 'center' }; row.getCell(3).alignment = { vertical: 'top', indent: 1 }; [5, 9, 10, 11].forEach((ci) => { row.getCell(ci).numFmt = '#,##0.###'; });
+          row.getCell(11).font = { size: 10, bold: true };
+          row.getCell(12).font = { size: 10, bold: true, color: { argb: x.late ? RED : GREEN } };
+          row.getCell(13).value = x.late ? `${-x.d} hr lewat` : x.d ? `${x.d} hr lagi` : 'hari ini'; row.getCell(13).font = { size: 9.5, color: { argb: x.late ? RED : GREY } };
+          row.getCell(14).border = { bottom: thin, left: thin, right: thin };
+          r++;
+        });
+        r++;
+      });
+      wsF.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 }, printTitlesRow: '5:5' };
+      wsF.headerFooter.oddFooter = '&L&8Follow Up PO&R&8Halaman &P dari &N';
+      // ---- Sheet 2: Pivot (rumus membaca sheet Data) ----
+      const sups = gs.map((g) => g.sup);
+      const mons = [...new Set(list.filter((x) => !x.late).map((x) => x.s.date.slice(0, 7)))].sort();
+      titleBlock(wsP, 'Pivot Follow Up PO', 2 + Math.max(4, mons.length + 2));
+      wsP.getColumn(1).width = 38; for (let i = 2; i <= 9; i++) wsP.getColumn(i).width = 14;
+      const section = (top, title, heads, rowFn, totFn) => {
+        wsP.getCell(top, 1).value = title; wsP.getCell(top, 1).font = { bold: true, size: 12, color: { argb: GREEN } };
+        const hr = wsP.getRow(top + 1); hr.values = heads; head(hr);
+        sups.forEach((sp, i) => {
+          const rr = wsP.getRow(top + 2 + i); rr.getCell(1).value = sp; rowFn(rr, top + 2 + i, sp);
+          rr.eachCell({ includeEmpty: true }, (cc, ci) => { if (ci > heads.length) return; cc.border = { bottom: thin }; cc.font = Object.assign({ size: 10 }, cc.font && cc.font.bold ? { bold: true } : {}); if (ci > 1) { cc.alignment = { horizontal: 'center' }; cc.numFmt = '#,##0'; } });
+          if (i % 2) rr.eachCell({ includeEmpty: true }, (cc, ci) => { if (ci <= heads.length) cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F9F7' } }; });
+        });
+        const last = top + 1 + sups.length, tr = wsP.getRow(last + 1); tr.getCell(1).value = 'Total'; totFn(tr, top + 2, last);
+        tr.eachCell({ includeEmpty: true }, (cc, ci) => { if (ci > heads.length) return; cc.font = { bold: true, size: 10 }; cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN_L } }; cc.border = { top: { style: 'medium', color: { argb: GREEN } } }; if (ci > 1) { cc.alignment = { horizontal: 'center' }; cc.numFmt = '#,##0'; } });
+        return { first: top + 2, last };
+      };
+      const cnt = (sp, ex) => list.filter((x) => (x.r.supplier || '(tanpa supplier)') === sp && ex(x)).length;
+      const L = (i) => String.fromCharCode(64 + i);
+      // 1) Supplier × Status
+      const s1 = section(5, 'Jumlah jadwal per supplier & status', ['Supplier', 'Terlambat', 'Akan datang', 'Total', 'Terlambat terlama (hari)'],
+        (rr, i, sp) => {
+          rr.getCell(2).value = { formula: `COUNTIFS(${rg('A')},$A${i},${rg('O')},"Terlambat")`, result: cnt(sp, (x) => x.late) };
+          rr.getCell(3).value = { formula: `COUNTIFS(${rg('A')},$A${i},${rg('O')},"Akan datang")`, result: cnt(sp, (x) => !x.late) };
+          rr.getCell(4).value = { formula: `B${i}+C${i}`, result: cnt(sp, () => true) };
+          const mx = Math.max(0, ...list.filter((x) => (x.r.supplier || '(tanpa supplier)') === sp && x.late).map((x) => -x.d));
+          rr.getCell(5).value = { formula: `IFERROR(MAXIFS(${rg('P')},${rg('A')},$A${i}),0)`, result: mx };
+        },
+        (tr, a, b) => { ['B', 'C', 'D'].forEach((c) => { tr.getCell(c).value = { formula: `SUM(${c}${a}:${c}${b})` }; }); tr.getCell('E').value = { formula: `MAX(E${a}:E${b})` }; });
+      // 2) Supplier × Bulan jatuh tempo
+      const t2 = s1.last + 4, heads2 = ['Supplier', 'Terlambat', ...mons.map(monL), 'Total'];
+      const s2 = section(t2, 'Jumlah jadwal per bulan jatuh tempo', heads2,
+        (rr, i, sp) => {
+          rr.getCell(2).value = { formula: `COUNTIFS(${rg('A')},$A${i},${rg('K')},"Terlambat")`, result: cnt(sp, (x) => x.late) };
+          mons.forEach((m, k) => { rr.getCell(3 + k).value = { formula: `COUNTIFS(${rg('A')},$A${i},${rg('K')},"${monL(m)}")`, result: cnt(sp, (x) => !x.late && x.s.date.slice(0, 7) === m) }; });
+          const lc = L(2 + mons.length); rr.getCell(3 + mons.length).value = { formula: `SUM(B${i}:${lc}${i})`, result: cnt(sp, () => true) };
+        },
+        (tr, a, b) => { for (let k = 2; k <= 3 + mons.length; k++) tr.getCell(k).value = { formula: `SUM(${L(k)}${a}:${L(k)}${b})` }; });
+      // heatmap ringan
+      const heat = (ref, color) => wsP.addConditionalFormatting({ ref, rules: [{ type: 'colorScale', priority: 1, cfvo: [{ type: 'min' }, { type: 'max' }], color: [{ argb: 'FFFFFFFF' }, { argb: color }] }] });
+      heat(`B${s1.first}:B${s1.last}`, 'FFF4B4AC'); heat(`E${s1.first}:E${s1.last}`, 'FFF4B4AC'); heat(`C${s1.first}:C${s1.last}`, 'FFB9DEC6');
+      heat(`B${s2.first}:B${s2.last}`, 'FFF4B4AC'); if (mons.length) heat(`C${s2.first}:${L(2 + mons.length)}${s2.last}`, 'FFF6D99A');
+      wsP.getCell(s2.last + 3, 1).value = 'Angka di sheet ini berupa rumus COUNTIFS yang membaca sheet Data. Untuk PivotTable sendiri: klik tabel di sheet Data → Insert → PivotTable.';
+      wsP.getCell(s2.last + 3, 1).font = { italic: true, size: 9, color: { argb: GREY } };
+      wsP.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+      const buf = await wb.xlsx.writeBuffer();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = `Follow-Up-PO-${ymd(now)}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
     } catch (e) { toast(e.message || String(e)); } finally { btn.disabled = false; btn.textContent = lbl; }
   });
   $('fuPrint').addEventListener('click', () => {
