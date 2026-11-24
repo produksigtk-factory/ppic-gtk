@@ -1418,18 +1418,62 @@
     const { list, gs } = fuGroups(), nL = list.filter((x) => x.late).length;
     $('fuSum').innerHTML = `<b>${nL}</b> jadwal terlambat · <b>${list.length - nL}</b> akan datang s/d ${fmtDate(fuEnd())} · ${gs.length} supplier`;
     $('fuBody').innerHTML = gs.length ? fuTable(gs, false) : '<p class="empty-note">Tidak ada jadwal yang perlu di-follow up untuk filter ini.</p>';
-    $('fuPdf').disabled = !gs.length;
+    $('fuPdf').disabled = $('fuPrint').disabled = !gs.length;
   }
   ['fuQ', 'fuSup', 'fuJenis'].forEach((id) => $(id).addEventListener(id === 'fuQ' ? 'input' : 'change', renderFu));
   $('fuSt').addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (!b) return; FU.st = b.dataset.st; renderFu(); });
   $('fuBody').addEventListener('click', (e) => { const b = e.target.closest('[data-fu]'); if (!b) return; const [po, code] = b.dataset.fu.split('|'); const r = state.rows.find((x) => x.po === po && x.code === code); if (r) editFollow(r); });
-  $('fuPdf').addEventListener('click', () => {
+  const fuFilt = () => { const sp = $('fuSup').value, j = $('fuJenis').value, q = $('fuQ').value.trim(); return [sp && 'Supplier: ' + sp, j !== RMPM && 'Jenis: ' + jenisLabel(j), FU.st && (FU.st === 'late' ? 'Hanya terlambat' : 'Hanya akan datang'), q && 'Cari: ' + q].filter(Boolean).join(' · '); };
+  const fuStamp = (now) => `${fmtDate(ymd(now))} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  // Unduh PDF langsung (jsPDF + autotable, dimuat saat pertama dipakai)
+  let pdfLibP = null;
+  const loadJs = (src) => new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('Pustaka PDF tidak bisa dimuat. Periksa koneksi lalu coba lagi.')); document.head.appendChild(sc); });
+  const loadPdfLib = () => pdfLibP || (pdfLibP = (window.jspdf ? Promise.resolve() : loadJs('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'))
+    .then(() => (window.jspdf && window.jspdf.jsPDF.API.autoTable ? null : loadJs('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js')))
+    .then(() => window.jspdf.jsPDF).catch((e) => { pdfLibP = null; throw e; }));
+  $('fuPdf').addEventListener('click', async () => {
+    const { list, gs } = fuGroups(); if (!gs.length) return;
+    const btn = $('fuPdf'), lbl = btn.textContent; btn.disabled = true; btn.textContent = 'Menyiapkan PDF…';
+    try {
+      const JsPDF = await loadPdfLib(), doc = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const now = new Date(), nL = list.filter((x) => x.late).length, W = doc.internal.pageSize.getWidth(), M = 10, filt = fuFilt();
+      const t = (v) => String(v == null ? '' : v).replace(/[–—]/g, '-');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('Follow Up Purchase Order', M, 15);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      doc.text(t(`Terlambat dan akan datang s/d ${fmtDate(fuEnd())}${filt ? ' · ' + filt : ''}`), M, 20.5);
+      doc.text(t(`Dicetak ${fuStamp(now)}`), W - M, 15, { align: 'right' });
+      doc.text(`${nL} terlambat · ${list.length - nL} akan datang · ${gs.length} supplier`, W - M, 20.5, { align: 'right' });
+      doc.setLineWidth(0.5); doc.line(M, 23, W - M, 23);
+      let y = 29;
+      gs.forEach((g) => {
+        if (y > doc.internal.pageSize.getHeight() - 30) { doc.addPage(); y = 14; }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text(t(g.sup), M, y);
+        const tw = doc.getTextWidth(t(g.sup)); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+        doc.setTextColor(110); doc.text(`${g.items.length} jadwal`, M + tw + 3, y);
+        if (g.nLate) { doc.setTextColor(192, 57, 43); doc.text(`· ${g.nLate} terlambat`, M + tw + 3 + doc.getTextWidth(`${g.items.length} jadwal `), y); }
+        doc.setTextColor(0);
+        doc.autoTable({
+          startY: y + 2, margin: { left: M, right: M }, theme: 'plain',
+          head: [['No PO', 'Tgl PO', 'Material', 'Ke', 'Jadwal', 'Sisa', 'Status', 'Follow up terakhir', 'Hasil follow up']],
+          body: g.items.map((x) => { const f = x.r.follow; return [x.r.po, fmtDate(x.r.date), `${x.r.code}  ${x.r.name || ''}`, String(x.s.n), fmtDate(x.s.date), `${fmtNum(x.gap)} ${x.r.uom || ''}`, x.late ? `Lewat ${-x.d} hari` : x.d ? `${x.d} hari lagi` : 'Hari ini', f ? `${f.status}${f.promise ? ' · janji ' + fmtDate(f.promise) : ''}${f.note ? '\n' + f.note : ''}` : '-', ''].map(t); }),
+          styles: { font: 'helvetica', fontSize: 8, cellPadding: { top: 1.6, bottom: 1.6, left: 1.5, right: 1.5 }, lineColor: [205, 205, 205], lineWidth: { bottom: 0.2 }, valign: 'top' },
+          headStyles: { fontStyle: 'bold', textColor: [70, 70, 70], fillColor: [240, 242, 240], lineWidth: { bottom: 0.4 }, lineColor: [60, 60, 60] },
+          columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 19 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 8, halign: 'right' }, 4: { cellWidth: 19 }, 5: { cellWidth: 22, halign: 'right' }, 6: { cellWidth: 24 }, 7: { cellWidth: 48 }, 8: { cellWidth: 46, lineWidth: { bottom: 0.2, left: 0.2 } } },
+          didParseCell: (d) => { if (d.section === 'head' && (d.column.index === 3 || d.column.index === 5)) d.cell.styles.halign = 'right'; if (d.section === 'body' && d.column.index === 6 && g.items[d.row.index].late) { d.cell.styles.textColor = [192, 57, 43]; d.cell.styles.fontStyle = 'bold'; } },
+        });
+        y = doc.lastAutoTable.finalY + 8;
+      });
+      const n = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`Halaman ${i} dari ${n}`, W - M, doc.internal.pageSize.getHeight() - 6, { align: 'right' }); }
+      doc.save(`Follow-Up-PO-${ymd(now)}.pdf`);
+    } catch (e) { toast(e.message || String(e)); } finally { btn.disabled = false; btn.textContent = lbl; }
+  });
+  $('fuPrint').addEventListener('click', () => {
     const { list, gs } = fuGroups(); if (!gs.length) return;
     let root = document.getElementById('fuPrintRoot');
     if (!root) { root = document.createElement('div'); root.id = 'fuPrintRoot'; document.body.appendChild(root); }
-    const nL = list.filter((x) => x.late).length, now = new Date(), sp = $('fuSup').value, j = $('fuJenis').value;
-    const filt = [sp && 'Supplier: ' + sp, j !== RMPM && 'Jenis: ' + jenisLabel(j), FU.st && (FU.st === 'late' ? 'Hanya terlambat' : 'Hanya akan datang'), $('fuQ').value.trim() && 'Cari: ' + $('fuQ').value.trim()].filter(Boolean).join(' · ');
-    root.innerHTML = `<header class="fu-ph"><div><h1>Follow Up Purchase Order</h1><p>Terlambat dan akan datang s/d ${fmtDate(fuEnd())}${filt ? ' · ' + esc(filt) : ''}</p></div><p>Dicetak ${fmtDate(ymd(now))} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}<br><b>${nL}</b> terlambat · <b>${list.length - nL}</b> akan datang · ${gs.length} supplier</p></header>${fuTable(gs, true)}`;
+    const nL = list.filter((x) => x.late).length, now = new Date(), filt = fuFilt();
+    root.innerHTML = `<header class="fu-ph"><div><h1>Follow Up Purchase Order</h1><p>Terlambat dan akan datang s/d ${fmtDate(fuEnd())}${filt ? ' · ' + esc(filt) : ''}</p></div><p>Dicetak ${fuStamp(now)}<br><b>${nL}</b> terlambat · <b>${list.length - nL}</b> akan datang · ${gs.length} supplier</p></header>${fuTable(gs, true)}`;
     document.body.classList.add('printing-fu');
     const t0 = document.title; document.title = 'Follow-Up-PO-' + ymd(now);
     const done = () => { document.body.classList.remove('printing-fu'); document.title = t0; window.removeEventListener('afterprint', done); };
