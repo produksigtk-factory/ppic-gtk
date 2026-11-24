@@ -148,6 +148,7 @@
     'mrp/harian':        { view: 'view-mrp-harian',        crumb: 'MRP',                       title: 'Plotting Harian',     actions: 'mrp' },
     'mrp/kalender':      { view: 'view-mrp-kalender',      crumb: 'MRP',                       title: 'Kalender Produksi',   actions: 'mrp' },
     'mrp/kebutuhan':     { view: 'view-mrp-kebutuhan',     crumb: 'MRP',                       title: 'Kebutuhan Material', actions: 'mrp' },
+    'mrp/suggest':       { view: 'view-mrp-suggest',       crumb: 'MRP',                       title: 'Suggest Produksi', actions: 'mrp' },
     'mrp/proyeksi':      { view: 'view-mrp-proyeksi',      crumb: 'MRP',                       title: 'Proyeksi Stok', actions: 'mrp' },
     'mrp/rakitan':       { view: 'view-mrp-rakitan',       crumb: 'MRP',                       title: 'BoM Banded/2in1/KIT', actions: 'mrp' },
     'mrp/sku':           { view: 'view-mrp-sku',           crumb: 'MRP',                       title: 'Parameter SKU', actions: 'mrp' },
@@ -3243,7 +3244,7 @@
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
     parsedStock: null, parsedPlan: null,
   };
-  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/harian', 'mrp/kalender', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/sku', 'mrp/update', 'mrp/rakitan']);
+  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/harian', 'mrp/kalender', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/suggest', 'mrp/sku', 'mrp/update', 'mrp/rakitan']);
   const BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const monLabel = (b) => `${BULAN_PANJANG[Number(b.slice(5, 7)) - 1]} ${b.slice(0, 4)}`;
@@ -3810,6 +3811,7 @@
     else if (key === 'mrp/kalender') renderKalender();
     else if (key === 'mrp/kebutuhan') renderKebutuhan();
     else if (key === 'mrp/proyeksi') renderProyeksi();
+    else if (key === 'mrp/suggest') renderSuggest();
     else if (key === 'mrp/sku') renderSku();
     else if (key === 'mrp/update') renderMrpUpdate();
     else if (key === 'mrp/rakitan') renderRakitan();
@@ -7927,6 +7929,165 @@
    * Produk rakitan (Banded / 2in1 / KIT) tidak dihitung. MO ekstrak tidak dihitung terpisah (sudah lewat MO FG-nya). */
   const stkCache = new Map();
   const addDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  /* ---------- Suggest Produksi ---------- */
+  // Kebutuhan = sisa Plan bulan berjalan (Plan − MO) + Plan bulan depan (− MO bulan depan).
+  // Ketersediaan material = stok terkini − pemakaian MO terjadwal − ADD/FOH/RS mendatang, + PO incoming per tanggal.
+  // Prioritas: bulan berjalan dulu, lalu rata-rata SO 6 bulan penuh terakhir (PC + Beauty) terbesar. Material yang dipakai bersama
+  // dialokasikan berurutan (SKU prioritas lebih tinggi "memakai" lebih dulu). Siap = RM dan PM lengkap.
+  const SG = { loadingSo: false, soErr: '' };
+  const sgR3 = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
+  function sgCalc() {
+    const B = stkBase(), today = B.today, cur = B.cur, nxt = addMonth(cur, 1), KF = konfByCell();
+    const SO = LTSO.m || new Map(), avgMs = [6, 5, 4, 3, 2, 1].map((k) => addMonth(cur, -k));
+    const monQ = (b, c) => { const o = P.planMon.get(`${b}|${c}`); let q = o ? o.qty : 0; if (!(q > 0)) q = sumWeekOf(b, c); return q; };
+    const skip = { pcs: [], noBom: [] }, dem = [];
+    [cur, nxt].forEach((b) => {
+      const codes = new Set(); P.planMon.forEach((o) => { if (o.bulan === b && o.qty > 0) codes.add(o.code); }); P.plan.forEach((x) => { if (x.bulan === b && x.kg > 0) codes.add(x.code); });
+      codes.forEach((c) => {
+        if (kfIsEk(c)) return;
+        if (planUnit(c) === 'pcs') { skip.pcs.push(c); return; }
+        const plan = monQ(b, c), mo = sumKonfOf(b, c, KF), q = sgR3(plan - mo); if (!(q > 1e-6)) return;
+        const so = avgMs.reduce((t, m) => t + (SO.get(c + '|' + m) || 0), 0) / 6;
+        dem.push({ b, code: c, name: (P.skus.get(c) || MRP.master.get(c) || {}).name || '', plan: sgR3(plan), mo: sgR3(mo), q, so: Math.round(so) });
+      });
+    });
+    dem.sort((a, z) => (a.b < z.b ? -1 : a.b > z.b ? 1 : 0) || z.so - a.so || z.q - a.q || a.code.localeCompare(z.code));
+    // stok & PO per material (lazy)
+    const SUP = new Map();
+    const sup1 = (X) => {
+      const pc = prCalc(X, 'all', []), stok = pc ? pc.stok : 0;
+      const mo = ((B.M.get(X) || {}).mos || []).filter((m) => !m.past).reduce((t, m) => t + m.q, 0);
+      const add = (P.kurang || []).filter((x) => x.code === X && x.tgl && x.tgl > today).reduce((t, x) => t + x.qty, 0);
+      const arr = []; let none = 0;
+      poRowsOf(X).forEach((x) => {
+        let left = x.sisa;
+        (x.sched || []).filter((s) => s.status !== 'Done' && s.date).sort((a, z) => (a.date < z.date ? -1 : 1)).forEach((s) => {
+          const q = Math.min(left, Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0))); if (!(q > 0)) return;
+          left -= q; arr.push({ d: s.date, q, po: x.po, late: s.date < today });
+        });
+        if (left > 1e-9) none += left;
+      });
+      return { free: stok - mo - add, arr, none };
+    };
+    const supOf = (codes) => {
+      const k = codes.join('+'); let S = SUP.get(k);
+      if (!S) { const L = codes.map(sup1); S = { free: L.reduce((t, x) => t + x.free, 0), arr: L.flatMap((x) => x.arr).sort((a, z) => (a.late !== z.late ? (a.late ? -1 : 1) : a.d < z.d ? -1 : 1)), none: L.reduce((t, x) => t + x.none, 0), usedNow: 0, usedFut: 0 }; SUP.set(k, S); }
+      return S;
+    };
+    const resolve = (c, sku) => { const s = (P.subs || []).find((x) => x.aktif && x.lama === c && (!x.skus.length || x.skus.includes(sku))); return !s ? [c] : s.pakai ? [c, s.baru] : [s.baru]; };
+    const kindOf = (c) => rmpmOf(c) || (normU((MRP.master.get(c) || {}).kat) === 'ekstrak' ? 'RM' : '');
+    const later = (a, z) => (!a ? z : !z ? a : a.late ? z : z.late ? a : a.d > z.d ? a : z);   // tanggal siap paling akhir
+    const rows = [];
+    dem.forEach((x, idx) => {
+      const n = needOf(x.code, 1000);
+      if (!n) { skip.noBom.push(x.code); return; }
+      const lines = [];
+      n.leaves.forEach((q, c) => { const kind = kindOf(c); if (!kind || !(q > 0)) return; const codes = resolve(c, x.code); lines.push({ c: codes[codes.length - 1], codes, orig: c, kind, r: q / 1000 }); });
+      const res = lines.map((L) => {
+        const S = supOf(L.codes), need = L.r * x.q, av = S.free - S.usedNow;
+        let ready = null, cum = av - S.usedFut;
+        if (cum >= need - 1e-9) ready = { now: true };
+        else for (const a of S.arr) { cum += a.q; if (cum >= need - 1e-9) { ready = a; break; } }
+        return Object.assign(L, { S, need, av, cap: L.r > 0 ? Math.max(0, av) / L.r : Infinity, ready, kurang: Math.max(0, need - Math.max(0, av)), noPo: !ready ? need - cum : 0 });
+      });
+      const capOf = (k) => Math.min(Infinity, ...res.filter((L) => L.kind === k).map((L) => L.cap));
+      const capRM = capOf('RM'), capPM = capOf('PM'), now = sgR3(Math.min(x.q, capRM, capPM));
+      const rmOk = capRM >= x.q - 1e-6, pmOk = capPM >= x.q - 1e-6;
+      const shortL = (k) => res.filter((L) => L.kind === k && L.kurang > Math.max(1e-6, L.need * 1e-4)).sort((a, z) => z.kurang / (z.need || 1) - a.kurang / (a.need || 1));
+      const readyAll = (k) => { const L = res.filter((y) => (!k || y.kind === k) && y.kurang > 1e-6); if (L.some((y) => !y.ready)) return null; return L.reduce((t, y) => later(t, y.ready), null); };
+      const st = rmOk && pmOk ? 'siap' : now > 1e-6 ? 'sebagian' : !rmOk ? 'rm' : 'pm';
+      const rAll = st === 'siap' ? null : readyAll('');
+      // stok sekarang hanya terpakai sebesar yang bisa diproduksi sekarang; sisanya mengklaim PO yang akan datang
+      res.forEach((L) => { const a = L.r * now; L.S.usedNow += a; L.S.usedFut += L.need - a; });
+      rows.push(Object.assign({}, x, { prio: idx + 1, now, rmOk, pmOk, capRM: sgR3(Math.min(x.q, capRM)), st, rmShort: shortL('RM'), pmShort: shortL('PM'), rAll, nMat: res.length }));
+    });
+    rows.forEach((r, i) => { r.prio = i + 1; });
+    return { rows, cur, nxt, skip, avgMs, B };
+  }
+  const sgWhen = (a) => (!a ? 'belum ada PO yang cukup' : a.now ? 'stok cukup' : a.late ? `cukup setelah ${a.po} datang (terlambat, jadwal ${fmtDate(a.d)})` : `cukup ${fmtDate(a.d)} (${a.po})`);
+  const sgWhenAll = (a) => (!a ? 'sisanya menunggu PO material (belum ada PO yang cukup)' : a.late ? `lengkap setelah ${a.po} datang (terlambat, jadwal ${fmtDate(a.d)})` : `lengkap ${fmtDate(a.d)} setelah ${a.po} datang`);
+  const SG_ST = { siap: ['Siap produksi', 'sg-ok'], sebagian: ['Bisa sebagian', 'sg-part'], pm: ['RM lengkap, PM kurang', 'sg-pm'], rm: ['RM kurang', 'sg-rm'] };
+  function sgSaran(r) {
+    const kg = (v) => `${fmtNum(sgR3(v))} kg`;
+    if (r.st === 'siap') return `Siap produksi ${kg(r.q)}`;
+    const rest = sgWhenAll(r.rAll);
+    if (r.st === 'sebagian') return `Bisa ${kg(r.now)} dari ${kg(r.q)} sekarang; sisa ${kg(r.q - r.now)} ${rest}`;
+    if (r.st === 'pm') return `Belum bisa: RM cukup untuk ${kg(r.q)}, PM kurang; ${rest}`;
+    return `Belum bisa: RM ${r.capRM > 1e-6 ? `cukup untuk ${kg(r.capRM)} dari ${kg(r.q)}` : 'kurang'}; ${rest}`;
+  }
+  const sgMatTxt = (L) => { const m = MRP.master.get(L.c) || {}; return { code: L.c, name: m.name || '', uom: m.uom || '', kurang: sgR3(L.kurang), when: sgWhen(L.ready), sub: L.orig !== L.c ? L.orig : '' }; };
+  function sgFiltered(R) {
+    const mon = $('sgMon').value, st = $('sgSt').value, q = $('sgQ').value.trim().toLowerCase();
+    return R.rows.filter((r) => (!mon || r.b === mon) && (!st || r.st === st)
+      && (!q || `${r.code} ${r.name} ${[...r.rmShort, ...r.pmShort].map((L) => L.c).join(' ')}`.toLowerCase().includes(q)));
+  }
+  function renderSuggest() {
+    if (!$('sgRows')) return;
+    if (!LTSO.m && !SG.loadingSo) {
+      SG.loadingSo = true; $('sgSum').innerHTML = '<span class="muted">Memuat SO dari CSL untuk urutan prioritas…</span>';
+      ltSoMap().then(() => { SG.soErr = (LTSO.errs || []).join('; '); }).catch((e) => { SG.soErr = e.message; LTSO.m = new Map(); LTSO.at = Date.now(); })
+        .finally(() => { SG.loadingSo = false; if (state.routeKey === 'mrp/suggest') renderSuggest(); });
+      return;
+    }
+    if (SG.loadingSo) return;
+    const R = sgCalc(); SG.R = R;
+    const sel = $('sgMon'), keep = sel.value;
+    sel.innerHTML = `<option value="">${esc(monLabel(R.cur))} + ${esc(monLabel(R.nxt))}</option><option value="${R.cur}">Sisa ${esc(monLabel(R.cur))}</option><option value="${R.nxt}">${esc(monLabel(R.nxt))}</option>`;
+    sel.value = [R.cur, R.nxt].includes(keep) ? keep : '';
+    const V = sgFiltered(R), cnt = (k) => V.filter((r) => r.st === k).length;
+    $('sgSum').innerHTML = ['siap', 'sebagian', 'pm', 'rm'].map((k) => `<span class="sg-chip ${SG_ST[k][1]}"><b>${cnt(k)}</b> ${SG_ST[k][0]}</span>`).join('') + `<span class="muted">${V.length} SKU</span>`;
+    const matCell = (ok, L, kind) => ok ? `<span class="sg-ok-t">✔ ${kind} lengkap</span>` : `<ul class="sg-ml">${L.map((x) => { const t = sgMatTxt(x); return `<li><b>${esc(t.code)}</b> ${esc(t.name)}${t.sub ? ` <small class="muted">(pengganti ${esc(t.sub)})</small>` : ''}<small>kurang ${fmtQ(t.kurang)} ${esc(t.uom)} · ${esc(t.when)}</small></li>`; }).join('')}</ul>`;
+    $('sgRows').innerHTML = V.length ? V.map((r) => `<tr><td class="num">${r.prio}</td><td><b>${esc(r.code)}</b><small class="muted sg-nm">${esc(r.name)}</small></td>
+      <td>${r.b === R.cur ? `Sisa ${esc(monShort(r.b))}` : esc(monShort(r.b))}<small class="muted">plan ${fmtQ(r.plan)} · MO ${fmtQ(r.mo)}</small></td>
+      <td class="num">${r.so ? fmtNum(r.so) + ' pcs' : '<span class="muted">–</span>'}</td><td class="num"><b>${fmtQ(r.q)}</b> kg</td>
+      <td class="num">${r.now > 1e-6 ? fmtQ(r.now) + ' kg' : '<span class="muted">0</span>'}</td>
+      <td>${matCell(r.rmOk, r.rmShort, 'RM')}</td><td>${r.rmOk ? matCell(r.pmOk, r.pmShort, 'PM') : r.pmOk ? '<span class="sg-ok-t">✔ PM lengkap</span>' : matCell(false, r.pmShort, 'PM')}</td>
+      <td><span class="sg-st ${SG_ST[r.st][1]}">${SG_ST[r.st][0]}</span><small>${esc(sgSaran(r))}</small></td></tr>`).join('')
+      : `<tr class="empty"><td colspan="9">${R.rows.length ? 'Tidak ada SKU untuk filter ini.' : `Tidak ada sisa Plan bulan ${esc(monLabel(R.cur))} maupun Plan ${esc(monLabel(R.nxt))}.`}</td></tr>`;
+    const notes = [`Rata SO = rata-rata SO ${monShort(R.avgMs[0])}–${monShort(R.avgMs[5])} ${R.avgMs[5].slice(0, 4)} (PC + Beauty, dikurangi batal).`, 'Kebutuhan tidak dibulatkan ke ukuran batch.', 'PO terlambat dihitung sebagai yang paling dulu datang; PO tanpa jadwal tidak dihitung.'];
+    if (SG.soErr) notes.push(`SO belum lengkap (${SG.soErr}); urutan prioritas memakai kebutuhan kg.`);
+    if (R.skip.pcs.length) notes.push(`${new Set(R.skip.pcs).size} produk Banded/2in1/KIT (rencana dalam pcs) tidak dihitung.`);
+    if (R.skip.noBom.length) notes.push(`Tanpa BoM aktif: ${[...new Set(R.skip.noBom)].join(', ')}.`);
+    $('sgNote').textContent = notes.join(' ');
+    $('sgPdf').disabled = $('sgXls').disabled = !V.length;
+  }
+  ['sgQ', 'sgMon', 'sgSt'].forEach((id) => $(id).addEventListener(id === 'sgQ' ? 'input' : 'change', renderSuggest));
+  const sgMatPlain = (ok, L, kind) => (ok ? `${kind} lengkap` : L.map((x) => { const t = sgMatTxt(x); return `${t.code} ${t.name}${t.sub ? ' (pengganti ' + t.sub + ')' : ''}: kurang ${fmtNum(t.kurang)} ${t.uom}, ${t.when}`; }).join('\n'));
+  $('sgXls').addEventListener('click', () => {
+    const R = SG.R; if (!R) return;
+    const data = sgFiltered(R).map((r) => ({ Prio: r.prio, SKU: r.code, Nama: r.name, Bulan: r.b === R.cur ? 'Sisa ' + monLabel(r.b) : monLabel(r.b), 'Plan (kg)': r.plan, 'MO (kg)': r.mo, 'Kebutuhan (kg)': r.q,
+      'Rata SO / bln (pcs)': r.so, 'Bisa sekarang (kg)': r.now, Status: SG_ST[r.st][0], RM: sgMatPlain(r.rmOk, r.rmShort, 'RM'), PM: sgMatPlain(r.pmOk, r.pmShort, 'PM'), Saran: sgSaran(r) }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Suggest Produksi');
+    XLSX.writeFile(wb, `Suggest_Produksi_${todayStr()}.xlsx`);
+  });
+  $('sgPdf').addEventListener('click', async () => {
+    const R = SG.R; if (!R) return; const V = sgFiltered(R); if (!V.length) return;
+    const btn = $('sgPdf'), lbl = btn.textContent; btn.disabled = true; btn.textContent = 'Menyiapkan PDF…';
+    try {
+      const JsPDF = await loadPdfLib(), doc = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' }), now = new Date(), W = doc.internal.pageSize.getWidth(), M = 10;
+      const t = (v) => String(v == null ? '' : v).replace(/[–—]/g, '-').replace(/✔/g, '');
+      const cnt = (k) => V.filter((r) => r.st === k).length;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('Suggest Produksi', M, 15);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      doc.text(t(`${$('sgMon').selectedOptions[0].textContent} · ${['siap', 'sebagian', 'pm', 'rm'].map((k) => `${cnt(k)} ${SG_ST[k][0]}`).join(' · ')}`), M, 20.5);
+      doc.text(t(`Dicetak ${fuStamp(now)} · stok per ${fmtDate(R.B.d0)}`), W - M, 15, { align: 'right' });
+      doc.setLineWidth(0.5); doc.line(M, 23, W - M, 23);
+      const col = { siap: [31, 107, 53], sebagian: [176, 120, 20], pm: [176, 90, 20], rm: [192, 57, 43] };
+      doc.autoTable({
+        startY: 27, margin: { left: M, right: M, bottom: 12 }, theme: 'plain',
+        head: [['Prio', 'SKU', 'Bulan', 'Rata SO/bln', 'Kebutuhan', 'Bisa sekarang', 'RM', 'PM', 'Saran']],
+        body: V.map((r) => [String(r.prio), `${r.code}\n${r.name}`, r.b === R.cur ? 'Sisa ' + monShort(r.b) : monShort(r.b), r.so ? fmtNum(r.so) + ' pcs' : '-', fmtNum(r.q) + ' kg', r.now > 1e-6 ? fmtNum(r.now) + ' kg' : '0',
+          sgMatPlain(r.rmOk, r.rmShort, 'RM'), r.rmOk ? sgMatPlain(r.pmOk, r.pmShort, 'PM') : (r.pmOk ? 'PM lengkap' : sgMatPlain(false, r.pmShort, 'PM')), `${SG_ST[r.st][0]}\n${sgSaran(r)}`].map(t)),
+        styles: { font: 'helvetica', fontSize: 7.5, cellPadding: { top: 1.5, bottom: 1.5, left: 1.4, right: 1.4 }, lineColor: [205, 205, 205], lineWidth: { bottom: 0.2 }, valign: 'top' },
+        headStyles: { fontStyle: 'bold', textColor: [70, 70, 70], fillColor: [240, 242, 240], lineWidth: { bottom: 0.4 }, lineColor: [60, 60, 60] },
+        columnStyles: { 0: { cellWidth: 10, halign: 'right' }, 1: { cellWidth: 40 }, 2: { cellWidth: 16 }, 3: { cellWidth: 19, halign: 'right' }, 4: { cellWidth: 19, halign: 'right' }, 5: { cellWidth: 19, halign: 'right' }, 6: { cellWidth: 'auto' }, 7: { cellWidth: 'auto' }, 8: { cellWidth: 52 } },
+        didParseCell: (d) => { if (d.section === 'head' && [0, 3, 4, 5].includes(d.column.index)) d.cell.styles.halign = 'right'; if (d.section === 'body' && d.column.index === 8) { d.cell.styles.textColor = col[V[d.row.index].st]; } },
+      });
+      const n = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`Halaman ${i} dari ${n}`, W - M, doc.internal.pageSize.getHeight() - 6, { align: 'right' }); }
+      doc.save(`Suggest-Produksi-${ymd(now)}.pdf`);
+    } catch (e) { toast(e.message || String(e)); } finally { btn.disabled = false; btn.textContent = lbl; }
+  });
   function stkBase() {
     const today = todayStr();
     const key = today + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.planMon.size + '|' + P.stockDate + '|' + (P.kurang || []).length + '|' + (P.incK || []).length + '|' + P.adj.length;

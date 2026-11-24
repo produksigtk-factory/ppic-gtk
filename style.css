@@ -2363,3 +2363,28 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
   #fuPrintRoot .fu-t th:nth-child(1) { width: 11%; } #fuPrintRoot .fu-t th:nth-child(2) { width: 8%; } #fuPrintRoot .fu-t th:nth-child(4) { width: 3%; } #fuPrintRoot .fu-t th:nth-child(5) { width: 8%; }
   #fuPrintRoot .fu-t th:nth-child(6) { width: 9%; } #fuPrintRoot .fu-t th:nth-child(7) { width: 10%; } #fuPrintRoot .fu-t th:nth-child(8) { width: 17%; } #fuPrintRoot .fu-t th:nth-child(9) { width: 18%; }
 }
+
+/* Suggest Produksi */
+.sg-tools { flex-wrap: wrap; }
+.sg-tools #sgXls { margin-left: auto; }
+.sg-sum { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 10px; font-size: 13px; }
+.sg-chip { border-radius: 999px; padding: 3px 10px; background: #f1f3f2; }
+.sg-chip.sg-ok, .sg-st.sg-ok { background: #e3f3e8; color: #1f6b35; }
+.sg-chip.sg-part, .sg-st.sg-part { background: #fbf1dc; color: #8a5b0c; }
+.sg-chip.sg-pm, .sg-st.sg-pm { background: #fdebdc; color: #9a4a12; }
+.sg-chip.sg-rm, .sg-st.sg-rm { background: #fbe4e1; color: #a5281b; }
+.sg-t { font-size: 13px; min-width: 1200px; }
+.sg-t td { vertical-align: top; }
+.sg-t td small { display: block; }
+.sg-t .sg-nm { max-width: 220px; }
+.sg-t td:nth-child(7), .sg-t td:nth-child(8) { min-width: 230px; }
+.sg-t td:nth-child(9) { min-width: 240px; }
+.sg-st { display: inline-block; border-radius: 4px; padding: 1px 7px; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+.sg-ok-t { color: #1f6b35; font-weight: 600; }
+.sg-ml { margin: 0; padding: 0; list-style: none; }
+.sg-ml li { margin-bottom: 4px; font-size: 12.5px; }
+.sg-ml li small { color: var(--late); }
+.sg-t td:nth-child(2) { min-width: 190px; }
+.sg-t td:nth-child(3) { white-space: nowrap; }
+.sg-t td:nth-child(4), .sg-t td:nth-child(5), .sg-t td:nth-child(6) { white-space: nowrap; }
+.sg-t .sg-nm { max-width: none; }

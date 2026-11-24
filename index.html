@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=a87b186e">
+<link rel="stylesheet" href="style.css?v=7e9d97dd">
 </head>
 <body>
 <div class="shell">
@@ -34,6 +34,7 @@
           <a class="menu-item sub" href="#/mrp/kalender" data-route="mrp/kalender">Kalender Produksi</a>
           <a class="menu-item sub" href="#/mrp/kebutuhan" data-route="mrp/kebutuhan">Kebutuhan Material</a>
           <a class="menu-item sub" href="#/mrp/proyeksi" data-route="mrp/proyeksi">Proyeksi Stok</a>
+          <a class="menu-item sub" href="#/mrp/suggest" data-route="mrp/suggest">Suggest Produksi</a>
           <a class="menu-item sub" href="#/mrp/sku" data-route="mrp/sku">Parameter SKU</a>
           <a class="menu-item sub" href="#/mrp/rakitan" data-route="mrp/rakitan">BoM Banded/2in1/KIT</a>
           <a class="menu-item sub" href="#/mrp/update" data-route="mrp/update">Update Data MRP</a>
@@ -747,6 +748,22 @@
       </section>
 
       <!-- ================= MRP: PROYEKSI STOK ================= -->
+      <section id="view-mrp-suggest" class="view" hidden>
+        <div class="mrp-loading" data-mrp-loading>Menghitung suggest produksi…</div>
+        <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <p class="lead">SKU mana yang bisa diproduksi dan berapa kg, dari sisa Plan bulan berjalan dan Plan bulan depan dibandingkan ketersediaan material (stok terkini + PO incoming − pemakaian MO yang sudah terjadwal). RM dicek lebih dulu, lalu PM; SKU baru dianggap siap bila RM dan PM sama-sama lengkap. Bila material dipakai beberapa SKU, SKU dengan rata-rata SO terbesar mendapat material lebih dulu.</p>
+        <div class="toolbar sg-tools">
+          <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="sgQ" placeholder="Cari kode atau nama SKU, atau kode material"></label>
+          <label class="tb-field"><span class="sr">Bulan</span><select id="sgMon"></select></label>
+          <label class="tb-field"><span class="sr">Status</span><select id="sgSt"><option value="">Semua status</option><option value="siap">Siap produksi</option><option value="sebagian">Bisa sebagian</option><option value="pm">RM lengkap, PM kurang</option><option value="rm">RM kurang</option></select></label>
+          <button type="button" class="btn" id="sgXls">Unduh Excel</button>
+          <button type="button" class="btn btn-primary" id="sgPdf">Unduh PDF</button>
+        </div>
+        <div class="sg-sum" id="sgSum"></div>
+        <div class="table-wrap"><table class="po-table sg-t"><thead><tr><th class="num">Prio</th><th>SKU</th><th>Bulan</th><th class="num">Rata SO / bln</th><th class="num">Kebutuhan</th><th class="num">Bisa sekarang</th><th>RM</th><th>PM</th><th>Saran</th></tr></thead><tbody id="sgRows"></tbody></table></div>
+        <p class="hint" id="sgNote"></p>
+      </section>
+
       <section id="view-mrp-proyeksi" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Menghitung proyeksi stok…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
@@ -1345,7 +1362,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=f92bdaf2"></script>
-<script src="app.js?v=a6314487"></script>
+<script src="app.js?v=04e16c3d"></script>
 <script src="csl.js?v=c699e490"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>
