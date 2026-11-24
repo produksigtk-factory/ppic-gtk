@@ -1418,7 +1418,7 @@
     const { list, gs } = fuGroups(), nL = list.filter((x) => x.late).length;
     $('fuSum').innerHTML = `<b>${nL}</b> jadwal terlambat · <b>${list.length - nL}</b> akan datang s/d ${fmtDate(fuEnd())} · ${gs.length} supplier`;
     $('fuBody').innerHTML = gs.length ? fuTable(gs, false) : '<p class="empty-note">Tidak ada jadwal yang perlu di-follow up untuk filter ini.</p>';
-    $('fuPdf').disabled = $('fuPrint').disabled = $('fuXls').disabled = !gs.length;
+    $('fuPdf').disabled = $('fuPrint').disabled = $('fuXls').disabled = $('fuCopy').disabled = !gs.length;
   }
   ['fuQ', 'fuSup', 'fuJenis'].forEach((id) => $(id).addEventListener(id === 'fuQ' ? 'input' : 'change', renderFu));
   $('fuSt').addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (!b) return; FU.st = b.dataset.st; renderFu(); });
@@ -1615,6 +1615,32 @@
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       a.download = `Follow-Up-PO-${ymd(now)}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
     } catch (e) { toast(e.message || String(e)); } finally { btn.disabled = false; btn.textContent = lbl; }
+  });
+  // Salin tabel: HTML bergaya inline (Gmail / Outlook / Word, dikelompokkan per supplier) + teks bertab (Excel, satu baris per jadwal)
+  $('fuCopy').addEventListener('click', async () => {
+    const { list, gs } = fuGroups(); if (!gs.length) return;
+    const q = (v) => (Number(v) || 0).toLocaleString('id-ID', { maximumFractionDigits: 3 });
+    const head = ['No PO', 'Tgl PO', 'Kode', 'Material', 'Qty PO', 'UoM', 'Ke', 'Jadwal', 'Qty jadwal', 'Sudah datang', 'Kurang', 'Status'];
+    const cells = (x) => [x.r.po, fmtDate(x.r.date), x.r.code, x.r.name || '', q(x.r.qty), x.r.uom || '', String(x.s.n), fmtDate(x.s.date), q(x.s.qty), q(x.s.rec), q(x.gap), x.late ? `Lewat ${-x.d} hari` : x.d ? `${x.d} hari lagi` : 'Hari ini'];
+    const nL = list.filter((x) => x.late).length, filt = fuFilt();
+    const title = `Follow Up PO s/d ${fmtDate(fuEnd())}${filt ? ' · ' + filt : ''}`, sumTxt = `${nL} terlambat · ${list.length - nL} akan datang · ${gs.length} supplier`;
+    const td = 'border:1px solid #c9d1cc;padding:3px 7px;font-family:Arial,sans-serif;font-size:12.5px;vertical-align:top;', num = [4, 8, 9, 10];
+    const html = `<p style="font-family:Arial,sans-serif;font-size:13px;margin:0 0 6px"><b>${esc(title)}</b><br>${esc(sumTxt)}</p>`
+      + `<table style="border-collapse:collapse;border:1px solid #c9d1cc"><thead><tr>${head.map((x, j) => `<th style="${td}background:#1f5f3a;color:#fff;text-align:${num.includes(j) ? 'right' : 'left'}">${esc(x)}</th>`).join('')}</tr></thead><tbody>`
+      + gs.map((g) => `<tr><td colspan="${head.length}" style="${td}background:#e8f3ec;color:#1f5f3a;font-weight:bold">${esc(g.sup)} <span style="font-weight:normal;color:${g.nLate ? '#b3261e' : '#6b7280'}">· ${g.items.length} jadwal${g.nLate ? ` · ${g.nLate} terlambat` : ''}</span></td></tr>`
+        + g.items.map((x) => `<tr>${cells(x).map((v, j) => `<td style="${td}${x.late ? 'background:#fcedeb;' : ''}${num.includes(j) ? 'text-align:right;white-space:nowrap;' : ''}${j === 10 ? 'font-weight:bold;' : ''}${j === 11 ? `white-space:nowrap;color:${x.late ? '#b3261e' : '#1f5f3a'};font-weight:bold;` : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')).join('')
+      + '</tbody></table>';
+    const text = [title, sumTxt, ['Supplier', ...head].join('\t'), ...gs.flatMap((g) => g.items.map((x) => [g.sup, ...cells(x)].join('\t')))].join('\n');
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+      } else {
+        const box = document.createElement('div'); box.contentEditable = 'true'; box.style.cssText = 'position:fixed;left:-9999px;top:0'; box.innerHTML = html; document.body.appendChild(box);
+        const rg = document.createRange(); rg.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+        const ok = document.execCommand('copy'); sel.removeAllRanges(); box.remove(); if (!ok) throw new Error('copy');
+      }
+      toast(`Tabel disalin (${list.length} jadwal). Tempel (Ctrl+V) di email, WhatsApp Web, Word, atau Excel.`);
+    } catch (e) { toast('Gagal menyalin otomatis. Pakai Unduh Excel sebagai gantinya.'); }
   });
   $('fuPrint').addEventListener('click', () => {
     const { list, gs } = fuGroups(); if (!gs.length) return;
