@@ -1493,6 +1493,7 @@
       const flat = gs.flatMap((g) => g.items.map((x) => ({ g, x })));
       const wsF = wb.addWorksheet('Follow Up', { views: [{ state: 'frozen', ySplit: 5, showGridLines: false }], properties: { tabColor: { argb: GREEN } } });
       const wsP = wb.addWorksheet('Pivot', { views: [{ showGridLines: false }], properties: { tabColor: { argb: 'FFC9962B' } } });
+      const wsM = wb.addWorksheet('Pivot Material', { views: [{ state: 'frozen', ySplit: 6, showGridLines: false }], properties: { tabColor: { argb: 'FFC0392B' } } });
       const wsD = wb.addWorksheet('Data', { views: [{ state: 'frozen', ySplit: 1 }], properties: { tabColor: { argb: 'FF9AA5B1' } } });
       const dCols = [['Supplier', 34], ['No PO', 12], ['Tgl PO', 11], ['Kode', 10], ['Material', 40], ['Jenis', 8], ['Qty PO', 12], ['UoM', 7], ['Ke', 5], ['Jadwal', 11], ['Bulan jadwal', 12], ['Qty jadwal', 12], ['Sudah datang', 12], ['Kurang', 12], ['Status', 12], ['Hari terlambat', 10], ['Hari lagi', 9]];
       dCols.forEach(([, w], i) => { wsD.getColumn(i + 1).width = w; });
@@ -1574,6 +1575,42 @@
       wsP.getCell(s2.last + 3, 1).value = 'Angka di sheet ini berupa rumus COUNTIFS yang membaca sheet Data. Untuk PivotTable sendiri: klik tabel di sheet Data → Insert → PivotTable.';
       wsP.getCell(s2.last + 3, 1).font = { italic: true, size: 9, color: { argb: GREY } };
       wsP.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+      // ---- Sheet Pivot Material ----
+      const mCols = [['Kode', 10], ['Material', 40], ['UoM', 7], ['PO', 6], ['Terlambat', 11], ['Akan datang', 11], ['Total kurang', 14], ['Kurang terlambat', 14], ['Terlambat terlama (hari)', 13], ['Supplier', 46]];
+      mCols.forEach(([, w], i) => { wsM.getColumn(i + 1).width = w; });
+      titleBlock(wsM, 'Pivot per Material', mCols.length);
+      wsM.getCell(5, 1).value = 'Jumlah jadwal dan qty kurang per material (satuan per material sama, jadi qty bisa dijumlahkan)'; wsM.getCell(5, 1).font = { bold: true, size: 12, color: { argb: GREEN } };
+      const hm = wsM.getRow(6); hm.values = mCols.map(([n]) => n); head(hm);
+      const mm = new Map();
+      list.forEach((x) => { const k = x.r.code; let o = mm.get(k); if (!o) { o = { code: k, name: x.r.name || '', uom: x.r.uom || '', po: new Set(), sup: new Set(), late: 0, wait: 0, kur: 0, kurL: 0, max: 0 }; mm.set(k, o); }
+        o.po.add(x.r.po); o.sup.add(x.r.supplier || '(tanpa supplier)'); if (x.late) { o.late++; o.kurL += x.gap; o.max = Math.max(o.max, -x.d); } else o.wait++; o.kur += x.gap; });
+      const ML = [...mm.values()].sort((a2, b2) => b2.max - a2.max || b2.kurL - a2.kurL || b2.kur - a2.kur || a2.code.localeCompare(b2.code));
+      ML.forEach((o, k) => {
+        const i = 7 + k, rr = wsM.getRow(i);
+        rr.values = [o.code, o.name, o.uom, o.po.size,
+          { formula: `COUNTIFS(${rg('D')},$A${i},${rg('O')},"Terlambat")`, result: o.late },
+          { formula: `COUNTIFS(${rg('D')},$A${i},${rg('O')},"Akan datang")`, result: o.wait },
+          { formula: `SUMIFS(${rg('N')},${rg('D')},$A${i})`, result: sgR3(o.kur) },
+          { formula: `SUMIFS(${rg('N')},${rg('D')},$A${i},${rg('O')},"Terlambat")`, result: sgR3(o.kurL) },
+          { formula: `IFERROR(MAXIFS(${rg('P')},${rg('D')},$A${i}),0)`, result: o.max },
+          [...o.sup].join(', ')];
+        rr.eachCell({ includeEmpty: true }, (cc, ci) => {
+          if (ci > mCols.length) return;
+          cc.border = { bottom: thin }; cc.font = { size: 10 }; cc.alignment = { vertical: 'top', wrapText: ci === 2 || ci === 10, horizontal: [3, 4, 5, 6, 9].includes(ci) ? 'center' : undefined };
+          if ([7, 8].includes(ci)) cc.numFmt = '#,##0.###'; if (ci === 8) cc.font = { size: 10, bold: true, color: { argb: o.kurL ? RED : 'FF111111' } };
+          if (k % 2) cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F9F7' } };
+        });
+      });
+      const mF = 7, mL = 6 + ML.length;
+      const trm = wsM.getRow(mL + 1); trm.getCell(1).value = 'Total'; trm.getCell(2).value = `${ML.length} material`;
+      trm.getCell(5).value = { formula: `SUM(E${mF}:E${mL})` }; trm.getCell(6).value = { formula: `SUM(F${mF}:F${mL})` }; trm.getCell(9).value = { formula: `MAX(I${mF}:I${mL})` };
+      trm.eachCell({ includeEmpty: true }, (cc, ci) => { if (ci > mCols.length) return; cc.font = { bold: true, size: 10 }; cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN_L } }; cc.border = { top: { style: 'medium', color: { argb: GREEN } } }; if ([5, 6, 9].includes(ci)) cc.alignment = { horizontal: 'center' }; });
+      const heatM = (ref, color) => wsM.addConditionalFormatting({ ref, rules: [{ type: 'colorScale', priority: 1, cfvo: [{ type: 'min' }, { type: 'max' }], color: [{ argb: 'FFFFFFFF' }, { argb: color }] }] });
+      heatM(`E${mF}:E${mL}`, 'FFF4B4AC'); heatM(`I${mF}:I${mL}`, 'FFF4B4AC'); heatM(`F${mF}:F${mL}`, 'FFB9DEC6');
+      wsM.getCell(mL + 3, 1).value = 'Total kurang tidak dijumlahkan antar material karena satuannya berbeda. Angka berupa rumus yang membaca sheet Data.';
+      wsM.getCell(mL + 3, 1).font = { italic: true, size: 9, color: { argb: GREY } };
+      wsM.autoFilter = { from: { row: 6, column: 1 }, to: { row: mL, column: mCols.length } };
+      wsM.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '6:6' };
       const buf = await wb.xlsx.writeBuffer();
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       a.download = `Follow-Up-PO-${ymd(now)}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
