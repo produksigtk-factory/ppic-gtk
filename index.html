@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=edc27492">
+<link rel="stylesheet" href="style.css?v=a72eb639">
 </head>
 <body>
 <div class="shell">
@@ -753,6 +753,8 @@
       <section id="view-mrp-suggest" class="view" hidden>
         <div class="mrp-loading" data-mrp-loading>Menghitung suggest produksi…</div>
         <div class="warn-box mrp-old" hidden><b>Apps Script MRP belum versi terbaru.</b> Tempel Code_MRP.gs terbaru lalu buat versi deployment baru.</div>
+        <div class="sg-mode" role="tablist" aria-label="Mode Suggest Produksi"><button type="button" class="is-on" data-sgmode="plan">Dari Plan</button><button type="button" data-sgmode="cap">Cek Kapasitas</button></div>
+        <div id="sgPlanBox">
         <p class="lead">SKU mana yang bisa diproduksi dan berapa kg, dari sisa Plan bulan berjalan dan Plan bulan depan dibandingkan ketersediaan material (stok terkini + PO incoming − pemakaian MO yang sudah terjadwal). RM dicek lebih dulu, lalu PM; SKU baru dianggap siap bila RM dan PM sama-sama lengkap. Bila material dipakai beberapa SKU, SKU dengan rata-rata SO terbesar mendapat material lebih dulu.</p>
         <div class="toolbar sg-tools">
           <label class="tb-search"><span class="sr">Cari SKU</span><input type="search" id="sgQ" placeholder="Cari kode atau nama SKU, atau kode material"></label>
@@ -764,6 +766,20 @@
         <div class="sg-sum" id="sgSum"></div>
         <div class="table-wrap"><table class="po-table sg-t"><thead><tr><th class="num">Prio</th><th>SKU</th><th>Bulan</th><th class="num">Rata SO / bln</th><th class="num">Kebutuhan</th><th class="num">Bisa sekarang</th><th>RM</th><th>PM</th><th>Saran</th></tr></thead><tbody id="sgRows"></tbody></table></div>
         <p class="hint" id="sgNote"></p>
+        </div>
+        <div id="sgCapBox" hidden>
+          <p class="lead">Ketik SKU apa saja (boleh di luar plan) dan rencananya dalam kg atau pcs. Rencana dikosongkan = dicari kg maksimal. Dihitung dari Stok terkini dikurangi pemakaian MO yang sudah terjadwal dan ADD/FOH/RS mendatang; material yang dipakai beberapa SKU dibagi proporsional sesuai kebutuhan masing-masing.</p>
+          <div class="cap-grid"><table class="po-table cap-in"><thead><tr><th>SKU</th><th class="num">Rencana</th><th>Satuan</th><th></th></tr></thead><tbody id="capRows"></tbody></table></div>
+          <datalist id="capSkuList"></datalist>
+          <div class="toolbar cap-tools">
+            <button type="button" class="btn" id="capAdd">+ Tambah SKU</button>
+            <label class="cap-chk"><input type="checkbox" id="capOld" checked> Pakai juga stok material lama (Material Pengganti) bila BoM sudah memakai kode baru</label>
+            <button type="button" class="btn btn-primary" id="capRun">Hitung</button>
+            <button type="button" class="btn" id="capCopy" disabled>Salin hasil</button>
+            <button type="button" class="btn" id="capXls" disabled>Unduh Excel</button>
+          </div>
+          <div id="capOut"></div>
+        </div>
       </section>
 
       <section id="view-mrp-proyeksi" class="view" hidden>
@@ -1364,7 +1380,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=f92bdaf2"></script>
-<script src="app.js?v=47b01a5c"></script>
+<script src="app.js?v=32f461bb"></script>
 <script src="csl.js?v=c699e490"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

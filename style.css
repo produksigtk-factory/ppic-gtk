@@ -2390,3 +2390,26 @@ body[data-cslseg="beauty"] label:has(> #coGrp) { display: none; }
   #fuPrintRoot .fu-t th.c-po { width: 10%; } #fuPrintRoot .fu-t th.c-d { width: 7%; } #fuPrintRoot .fu-t th.c-n { width: 7.5%; } #fuPrintRoot .fu-t th.c-k { width: 3%; } #fuPrintRoot .fu-t th.c-st { width: 9%; } #fuPrintRoot .fu-hasil { width: 15%; }
 }
 @media print { #fuPrintRoot .fu-t th { white-space: normal; overflow: visible; } #fuPrintRoot .fu-t .pill { white-space: nowrap; } }
+
+/* Suggest Produksi · Cek Kapasitas */
+.sg-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+.sg-mode button { border: 0; background: var(--surface); padding: 8px 16px; font: inherit; font-size: 13.5px; cursor: pointer; }
+.sg-mode button + button { border-left: 1px solid var(--line); }
+.sg-mode button.is-on { background: var(--brand-dark); color: #fff; }
+.cap-in { width: auto; min-width: 560px; font-size: 13px; }
+.cap-in td { vertical-align: top; }
+.cap-in input[type=text] { width: 150px; font: inherit; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; text-transform: uppercase; }
+.cap-in input[type=number] { width: 110px; font: inherit; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; text-align: right; }
+.cap-in select { font: inherit; padding: 5px; border: 1px solid var(--line); border-radius: 6px; }
+.cap-in small { display: block; max-width: 340px; }
+.cap-tools { flex-wrap: wrap; gap: 10px; margin: 10px 0 14px; align-items: center; }
+.cap-chk { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+.cap-t, .cap-t2 { font-size: 13px; }
+.cap-t td, .cap-t2 td { vertical-align: top; }
+.cap-t td small { display: block; }
+.cap-t td:nth-child(5) { min-width: 420px; }
+.cap-h { font-size: 14px; margin: 18px 0 6px; }
+.cap-ml { margin: 0; padding: 0; list-style: none; }
+.cap-ml li { margin-bottom: 4px; font-size: 12.5px; }
+.cap-ml li small { color: var(--muted); }
+.cap-ml li.cap-bad small { color: var(--late); }

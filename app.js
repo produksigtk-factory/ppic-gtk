@@ -3984,7 +3984,7 @@
     else if (key === 'mrp/kalender') renderKalender();
     else if (key === 'mrp/kebutuhan') renderKebutuhan();
     else if (key === 'mrp/proyeksi') renderProyeksi();
-    else if (key === 'mrp/suggest') renderSuggest();
+    else if (key === 'mrp/suggest') { renderSuggest(); if (CAP.mode === 'cap') capRenderIn(); }
     else if (key === 'mrp/sku') renderSku();
     else if (key === 'mrp/update') renderMrpUpdate();
     else if (key === 'mrp/rakitan') renderRakitan();
@@ -8270,6 +8270,152 @@
       doc.save(`Suggest-Produksi-${ymd(now)}.pdf`);
     } catch (e) { toast(e.message || String(e)); } finally { btn.disabled = false; btn.textContent = lbl; }
   });
+  /* ---------- Suggest Produksi · Cek Kapasitas (SKU bebas, di luar plan) ---------- */
+  const CAP = { mode: 'plan', rows: [{ code: '', qty: '', unit: 'kg' }], res: null };
+  try { const sv = JSON.parse(localStorage.getItem('ppic.cap') || 'null'); if (sv && Array.isArray(sv.rows) && sv.rows.length) CAP.rows = sv.rows; } catch (e) { /* abaikan */ }
+  const capSave = () => { try { localStorage.setItem('ppic.cap', JSON.stringify({ rows: CAP.rows })); } catch (e) { /* abaikan */ } };
+  function sgSetMode(m) {
+    CAP.mode = m;
+    document.querySelectorAll('[data-sgmode]').forEach((b) => b.classList.toggle('is-on', b.dataset.sgmode === m));
+    $('sgPlanBox').hidden = m !== 'plan'; $('sgCapBox').hidden = m !== 'cap';
+    if (m === 'cap') capRenderIn(); else renderSuggest();
+  }
+  document.querySelectorAll('[data-sgmode]').forEach((b) => b.addEventListener('click', () => sgSetMode(b.dataset.sgmode)));
+  const capPcsPerKg = (code) => { const b = activeBom(code); if (!b || !b.batch) return null; if (planUnit(code) === 'pcs') return null; return normU(b.uom) === 'kg' ? null : b.batch / 1000; };
+  function capRenderIn() {
+    if (!MRP.byProduct) return;
+    const dl = $('capSkuList');
+    if (!dl.dataset.ready) {
+      dl.innerHTML = [...MRP.byProduct.keys()].filter((c) => !kfIsEk(c)).sort().map((c) => `<option value="${esc(c)}">${esc((P.skus.get(c) || MRP.master.get(c) || (MRP.byProduct.get(c) || [{}])[0] || {}).name || '')}</option>`).join('');
+      dl.dataset.ready = '1';
+    }
+    $('capRows').innerHTML = CAP.rows.map((r, i) => {
+      const ok = r.code && MRP.byProduct.has(r.code), nm = ok ? ((P.skus.get(r.code) || MRP.master.get(r.code) || MRP.byProduct.get(r.code)[0] || {}).name || '') : '';
+      const ppk = ok ? capPcsPerKg(r.code) : null, pcsOnly = ok && planUnit(r.code) === 'pcs';
+      return `<tr data-i="${i}"><td><input type="text" class="cap-sku" list="capSkuList" value="${esc(r.code)}" placeholder="Kode SKU" autocomplete="off"><small class="${r.code && !ok ? 'pl-bad' : 'muted'}">${r.code && !ok ? 'SKU tidak punya BoM' : esc(nm)}${ppk ? ` · ${fmtNum(Math.round(ppk * 1000) / 1000)} pcs/kg` : ''}</small></td>
+        <td class="num"><input type="number" class="cap-qty" min="0" step="any" value="${esc(r.qty)}" placeholder="maks"></td>
+        <td><select class="cap-unit"${pcsOnly ? ' disabled' : ''}><option value="kg"${r.unit === 'kg' && !pcsOnly ? ' selected' : ''}>kg</option><option value="pcs"${r.unit === 'pcs' || pcsOnly ? ' selected' : ''}>pcs</option></select></td>
+        <td><button type="button" class="btn-link cap-del" aria-label="Hapus baris">Hapus</button></td></tr>`;
+    }).join('');
+  }
+  $('capRows').addEventListener('change', (e) => {
+    const tr = e.target.closest('tr'); if (!tr) return; const r = CAP.rows[+tr.dataset.i];
+    if (e.target.classList.contains('cap-sku')) r.code = e.target.value.trim().toUpperCase();
+    if (e.target.classList.contains('cap-qty')) r.qty = e.target.value;
+    if (e.target.classList.contains('cap-unit')) r.unit = e.target.value;
+    capSave();
+    if (e.target.classList.contains('cap-sku')) {   // perbarui baris ini saja (render ulang seluruh tabel saat blur memutus fokus)
+      const ok = r.code && MRP.byProduct.has(r.code), nm = ok ? ((P.skus.get(r.code) || MRP.master.get(r.code) || MRP.byProduct.get(r.code)[0] || {}).name || '') : '';
+      const ppk = ok ? capPcsPerKg(r.code) : null, pcsOnly = ok && planUnit(r.code) === 'pcs', sm = tr.querySelector('small'), sel = tr.querySelector('.cap-unit');
+      e.target.value = r.code;
+      sm.className = r.code && !ok ? 'pl-bad' : 'muted'; sm.textContent = r.code && !ok ? 'SKU tidak punya BoM' : nm + (ppk ? ` · ${fmtNum(Math.round(ppk * 1000) / 1000)} pcs/kg` : '');
+      sel.disabled = !!pcsOnly; if (pcsOnly) { sel.value = 'pcs'; r.unit = 'pcs'; capSave(); }
+    }
+  });
+  $('capRows').addEventListener('click', (e) => { const b = e.target.closest('.cap-del'); if (!b) return; CAP.rows.splice(+b.closest('tr').dataset.i, 1); if (!CAP.rows.length) CAP.rows.push({ code: '', qty: '', unit: 'kg' }); capSave(); capRenderIn(); });
+  $('capAdd').addEventListener('click', () => { CAP.rows.push({ code: '', qty: '', unit: 'kg' }); capSave(); capRenderIn(); const ins = document.querySelectorAll('#capRows .cap-sku'); ins[ins.length - 1].focus(); });
+  function capCalc(useOld) {
+    const B = stkBase(), today = B.today, R3 = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
+    // tersedia sekarang per kode = stok terkini − MO terjadwal (belum lewat) − ADD/FOH/RS mendatang
+    const SUP = new Map();
+    const sup1 = (X) => {
+      if (SUP.has(X)) return SUP.get(X);
+      const pc = prCalc(X, 'all', []), stok = pc ? pc.stok : 0;
+      const mo = ((B.M.get(X) || {}).mos || []).filter((m) => !m.past).reduce((t, m) => t + m.q, 0);
+      const add = (P.kurang || []).filter((x) => x.code === X && x.tgl && x.tgl > today).reduce((t, x) => t + x.qty, 0);
+      const po = [];
+      poRowsOf(X).forEach((x) => { let left = x.sisa; (x.sched || []).filter((s) => s.status !== 'Done').sort((a, z) => ((a.date || '9') < (z.date || '9') ? -1 : 1)).forEach((s) => { const q = Math.min(left, Math.max(0, (Number(s.qty) || 0) - (Number(s.rec) || 0))); if (!(q > 0)) return; left -= q; po.push({ po: x.po, d: s.date || '', q, late: !!s.date && s.date < today }); }); if (left > 1e-9) po.push({ po: x.po, d: '', q: left, late: false }); });
+      const o = { stok, mo, add, av: stok - mo - add, po }; SUP.set(X, o); return o;
+    };
+    const subs = (P.subs || []).filter((x) => x.aktif);
+    const items = CAP.rows.filter((r) => r.code && MRP.byProduct.has(r.code)).map((r) => {
+      const ppk = capPcsPerKg(r.code), pcsOnly = planUnit(r.code) === 'pcs', unit = pcsOnly ? 'pcs' : r.unit;
+      const q = Number(r.qty) > 0 ? Number(r.qty) : null;
+      const kg = q == null ? null : unit === 'pcs' && !pcsOnly ? (ppk ? q / ppk : null) : q;   // qty untuk needOf (kg; pcs untuk rakitan)
+      const base = pcsOnly ? 1 : 1;   // needOf per 1 kg (atau 1 pcs rakitan)
+      const n = needOf(r.code, 1000 * base);
+      const lines = new Map();
+      if (n) n.leaves.forEach((qq, c) => {
+        if (!(qq > 0)) return;
+        const sb = subs.find((x) => x.lama === c && (!x.skus.length || x.skus.includes(r.code)));
+        let codes = !sb ? [c] : sb.pakai ? [c, sb.baru] : [sb.baru];
+        if (useOld) subs.filter((x) => x.pakai && x.baru === codes[codes.length - 1] && !codes.includes(x.lama)).forEach((x) => codes.unshift(x.lama));
+        const key = codes[codes.length - 1]; const L = lines.get(key) || { codes: new Set(), per: 0 }; codes.forEach((x) => L.codes.add(x)); L.per += qq / 1000; lines.set(key, L);
+      });
+      return { code: r.code, name: (P.skus.get(r.code) || MRP.master.get(r.code) || MRP.byProduct.get(r.code)[0] || {}).name || '', unit, q, kg, ppk, pcsOnly, lines, noBom: !n };
+    });
+    // gabung material yang kodenya beririsan (lama/baru) jadi satu kelompok stok
+    const parent = new Map(); const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+    const uni = (a, b) => { [a, b].forEach((x) => { if (!parent.has(x)) parent.set(x, x); }); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+    items.forEach((it) => it.lines.forEach((L, key) => { uni(key, key); L.codes.forEach((c) => uni(key, c)); }));
+    const groups = new Map();
+    items.forEach((it) => it.lines.forEach((L, key) => { const g = find(key); let G = groups.get(g); if (!G) { G = { codes: new Set(), users: new Map(), main: key }; groups.set(g, G); } L.codes.forEach((c) => G.codes.add(c)); G.users.set(it.code, (G.users.get(it.code) || 0) + L.per); L.g = g; }));
+    groups.forEach((G) => { const L = [...G.codes].map(sup1); G.av = Math.max(0, L.reduce((t, x) => t + x.av, 0)); G.stok = L.reduce((t, x) => t + x.stok, 0); G.mo = L.reduce((t, x) => t + x.mo + x.add, 0); G.po = [...G.codes].flatMap((c) => sup1(c).po.map((p) => Object.assign({ c }, p))); });
+    // kg maksimal tiap SKU sendirian
+    items.forEach((it) => { it.alone = Math.min(Infinity, ...[...it.lines.values()].map((L) => groups.get(L.g).av / L.per)); });
+    // SKU dengan rencana: bagi proporsional (iteratif); SKU tanpa rencana: maksimal dari sisa
+    const T = items.filter((it) => it.kg != null && it.kg > 0); const f = new Map(T.map((it) => [it.code, 1]));
+    for (let k = 0; k < 30; k++) {
+      let changed = false;
+      const ratio = new Map();
+      groups.forEach((G, g) => {
+        const us = T.filter((it) => G.users.has(it.code)); if (!us.length) return;
+        const dem = us.reduce((t, it) => t + G.users.get(it.code) * it.kg, 0); if (!(dem > 1e-12)) return;
+        ratio.set(g, Math.min(1, G.av / dem));
+      });
+      // SKU yang dibatasi kelompok lain memakai lebih sedikit -> sisa dibagi ulang ke SKU lain di kelompok ini
+      const want = new Map(T.map((it) => [it.code, Math.min(1, ...[...it.lines.values()].map((L) => (ratio.has(L.g) ? ratio.get(L.g) : 1)))]));
+      groups.forEach((G, g) => {
+        const us = T.filter((it) => G.users.has(it.code)); if (us.length < 2) return;
+        const used = (it) => G.users.get(it.code) * it.kg * want.get(it.code);
+        const tot = us.reduce((t, it) => t + used(it), 0); if (tot >= G.av - 1e-9) return;
+        // ada sisa: naikkan SKU yang pembatasnya kelompok ini
+        const bind = us.filter((it) => Math.abs(want.get(it.code) - (ratio.get(g) || 1)) < 1e-9 && want.get(it.code) < 1);
+        if (!bind.length) return;
+        const rest = G.av - us.filter((it) => !bind.includes(it)).reduce((t, it) => t + used(it), 0);
+        const dem = bind.reduce((t, it) => t + G.users.get(it.code) * it.kg, 0);
+        const nr = Math.min(1, rest / dem);
+        bind.forEach((it) => { const other = Math.min(1, ...[...it.lines.values()].filter((L) => L.g !== g).map((L) => (ratio.has(L.g) ? ratio.get(L.g) : 1))); want.set(it.code, Math.min(nr, other)); });
+      });
+      want.forEach((v, c) => { if (Math.abs((f.get(c) || 0) - v) > 1e-9) changed = true; f.set(c, v); });
+      if (!changed) break;
+    }
+    const usedBy = new Map();
+    T.forEach((it) => { it.ok = it.kg * f.get(it.code); it.lines.forEach((L) => { usedBy.set(L.g, (usedBy.get(L.g) || 0) + L.per * it.ok); }); });
+    items.filter((it) => it.kg == null).forEach((it) => { it.ok = Math.max(0, Math.min(Infinity, ...[...it.lines.values()].map((L) => (groups.get(L.g).av - (usedBy.get(L.g) || 0)) / L.per))); if (!isFinite(it.ok)) it.ok = 0; });
+    items.forEach((it) => {
+      it.ok = R3(it.ok || 0);
+      it.lim = [...it.lines.values()].map((L) => { const G = groups.get(L.g), share = it.kg != null ? G.av * (G.users.get(it.code) * it.kg) / Math.max(1e-12, [...G.users].reduce((t, [c, per]) => { const o = items.find((x) => x.code === c); return t + (o && o.kg != null ? per * o.kg : 0); }, 0)) : G.av - (usedBy.get(L.g) || 0); return { G, per: L.per, cap: L.per > 0 ? Math.max(0, share) / L.per : Infinity, need: it.kg != null ? L.per * it.kg : null }; }).sort((a, z) => a.cap - z.cap).slice(0, 3);
+    });
+    return { items, groups, today, d0: B.d0, useOld };
+  }
+  const capMatName = (c) => (MRP.master.get(c) || {}).name || '';
+  const capPoTxt = (G) => { const late = G.po.filter((p) => p.late || !p.d), nx = G.po.filter((p) => p.d && !p.late).sort((a, z) => (a.d < z.d ? -1 : 1)); return [late.length ? `PO telat/tanpa jadwal ${fmtNum(R3c(late.reduce((t, p) => t + p.q, 0)))} (${[...new Set(late.map((p) => p.po))].slice(0, 2).join(', ')})` : '', nx.length ? `PO ${fmtDate(nx[0].d)} ${fmtNum(R3c(nx[0].q))} (${nx[0].po})` : ''].filter(Boolean).join(' · ') || 'tidak ada PO'; };
+  const R3c = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
+  const capGName = (G) => [...G.codes].map((c) => `${c} ${capMatName(c)}`).join(' + ');
+  function capRun() {
+    if (!MRP.byProduct) { toast('Data MRP belum termuat.'); return; }
+    const R = capCalc($('capOld').checked); CAP.res = R;
+    if (!R.items.length) { $('capOut').innerHTML = '<p class="empty-note">Ketik minimal satu kode SKU yang punya BoM.</p>'; $('capCopy').disabled = $('capXls').disabled = true; return; }
+    const u = (it, kg) => (it.pcsOnly ? `${fmtNum(Math.floor(kg))} pcs` : `${fmtQ(R3c(kg))} kg${it.ppk ? ` <small class="muted">± ${fmtNum(Math.floor(kg * it.ppk))} pcs</small>` : ''}`);
+    const rows = R.items.map((it) => {
+      const full = it.kg != null && it.ok >= it.kg - 1e-6, st = it.noBom ? 'Tanpa BoM' : it.kg == null ? 'Maksimal' : full ? 'Bisa' : it.ok > 1e-6 ? 'Sebagian' : 'Belum bisa';
+      const cls = full ? 'sg-ok' : it.kg == null ? 'sg-part' : it.ok > 1e-6 ? 'sg-pm' : 'sg-rm';
+      return `<tr><td><b>${esc(it.code)}</b><small class="muted">${esc(it.name)}</small></td><td class="num">${it.kg == null ? '<span class="muted">maks</span>' : u(it, it.kg)}</td><td class="num"><b>${u(it, it.ok)}</b></td><td><span class="sg-st ${cls}">${st}</span></td>
+        <td><ul class="cap-ml">${it.lim.map((L, li) => `<li class="${(it.kg != null ? L.cap < it.kg - 1e-6 : li === 0) ? 'cap-bad' : ''}"><b>${esc(capGName(L.G))}</b><small>tersedia ${fmtQ(R3c(L.G.av))} ${esc((MRP.master.get(L.G.main) || {}).uom || '')}${L.G.mo > 1e-9 ? ` (stok ${fmtQ(R3c(L.G.stok))} − MO/ADD ${fmtQ(R3c(L.G.mo))})` : ''} · cukup ${it.pcsOnly ? fmtNum(Math.floor(L.cap)) + ' pcs' : fmtQ(R3c(L.cap)) + ' kg'}${L.G.users.size > 1 ? ` · dipakai ${L.G.users.size} SKU` : ''} · ${esc(capPoTxt(L.G))}</small></li>`).join('')}</ul></td></tr>`;
+    }).join('');
+    const shared = [...R.groups.values()].filter((G) => G.users.size > 1).map((G) => { const need = [...G.users].reduce((t, [c, per]) => { const o = R.items.find((x) => x.code === c); return t + per * (o && o.kg != null ? o.kg : o ? o.ok : 0); }, 0); return { G, need }; }).sort((a, z) => z.need / Math.max(1e-9, z.G.av) - a.need / Math.max(1e-9, a.G.av));
+    const short = [...R.groups.values()].map((G) => { const need = [...G.users].reduce((t, [c, per]) => { const o = R.items.find((x) => x.code === c); return t + (o && o.kg != null ? per * o.kg : 0); }, 0); return { G, need, kur: need - G.av }; }).filter((x) => x.kur > 1e-6).sort((a, z) => z.kur / z.need - a.kur / a.need);
+    $('capOut').innerHTML = `<p class="hint">Stok terkini per ${fmtDate(R.today)} (upload stok ${fmtDate(R.d0)}) dikurangi MO terjadwal & ADD/FOH/RS mendatang${R.useOld ? '; stok material lama ikut dihitung bila ada Material Pengganti' : ''}.</p>
+      <div class="table-wrap"><table class="po-table cap-t"><thead><tr><th>SKU</th><th class="num">Rencana</th><th class="num">Bisa diproduksi</th><th>Status</th><th>Material pembatas (3 teratas)</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${short.length ? `<h3 class="cap-h">Material kurang untuk rencana (${short.length})</h3><div class="table-wrap"><table class="po-table cap-t2"><thead><tr><th>Material</th><th class="num">Butuh</th><th class="num">Tersedia</th><th class="num">Kurang</th><th>Dipakai</th><th>PO</th></tr></thead><tbody>${short.map((x) => `<tr><td>${esc(capGName(x.G))}</td><td class="num">${fmtQ(R3c(x.need))}</td><td class="num">${fmtQ(R3c(x.G.av))}</td><td class="num pl-bad"><b>${fmtQ(R3c(x.kur))}</b></td><td>${esc([...x.G.users.keys()].join(', '))}</td><td><small>${esc(capPoTxt(x.G))}</small></td></tr>`).join('')}</tbody></table></div>` : ''}
+      ${shared.length ? `<h3 class="cap-h">Material dipakai lebih dari 1 SKU (${shared.length})</h3><div class="table-wrap"><table class="po-table cap-t2"><thead><tr><th>Material</th><th class="num">Butuh total</th><th class="num">Tersedia</th><th>Status</th><th>Dipakai</th></tr></thead><tbody>${shared.map((x) => `<tr><td>${esc(capGName(x.G))}</td><td class="num">${fmtQ(R3c(x.need))}</td><td class="num">${fmtQ(R3c(x.G.av))}</td><td>${x.need > x.G.av + 1e-6 ? '<span class="sg-st sg-rm">Rebutan — dibagi proporsional</span>' : '<span class="sg-st sg-ok">Cukup</span>'}</td><td>${esc([...x.G.users.keys()].join(', '))}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    $('capCopy').disabled = $('capXls').disabled = false;
+  }
+  $('capRun').addEventListener('click', capRun);
+  const capFlat = () => { const R = CAP.res; if (!R) return []; return R.items.map((it) => ({ SKU: it.code, Nama: it.name, Satuan: it.pcsOnly ? 'pcs' : 'kg', Rencana: it.kg == null ? 'maks' : R3c(it.kg), 'Bisa diproduksi': R3c(it.ok), 'Bisa (pcs)': it.ppk ? Math.floor(it.ok * it.ppk) : it.pcsOnly ? Math.floor(it.ok) : '', Pembatas: it.lim.map((L) => `${capGName(L.G)} (tersedia ${R3c(L.G.av)}, cukup ${R3c(L.cap)}; ${capPoTxt(L.G)})`).join(' | ') })); };
+  $('capXls').addEventListener('click', () => { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(capFlat()), 'Cek Kapasitas'); XLSX.writeFile(wb, `Cek_Kapasitas_Produksi_${todayStr()}.xlsx`); });
+  $('capCopy').addEventListener('click', async () => { const F = capFlat(); if (!F.length) return; const head = Object.keys(F[0]); const txt = [head.join('\t'), ...F.map((r) => head.map((h) => String(r[h]).replace(/\t|\n/g, ' ')).join('\t'))].join('\n'); try { await navigator.clipboard.writeText(txt); toast('Hasil disalin. Tempel di Excel atau chat.'); } catch (e) { toast('Gagal menyalin otomatis. Pakai Unduh Excel.'); } });
   function stkBase() {
     const today = todayStr();
     const key = today + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.planMon.size + '|' + P.stockDate + '|' + (P.kurang || []).length + '|' + (P.incK || []).length + '|' + P.adj.length;
