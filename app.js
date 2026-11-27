@@ -3481,6 +3481,28 @@
     P.log = d.log || [];
     P.mrpUrl = d.mrpUrl || CFG.MRP_SHEET_URL;
     P.hz = todayStr().slice(0, 7);   // rentang otomatis: bulan berjalan + 2 bulan
+    P.stockHistRaw = P.stockHist; applySubStock();
+  }
+  /* Material Pengganti "habiskan stok lama" untuk pasangan yang kode LAMA-nya sudah tidak ada di BoM aktif mana pun
+   * (BoM sudah memakai kode BARU): stok LAMA dipindah ke stok BARU di semua perhitungan (Plotting Harian, Proyeksi Stok,
+   * Stok terkini, PR, Suggest). Kode LAMA jadi 0 supaya tidak terhitung dua kali. Bila LAMA masih dipakai BoM aktif,
+   * tidak dipindah (penggabungan per SKU di PR/Suggest tetap berlaku). */
+  function applySubStock() {
+    const raw = P.stockHistRaw; if (!raw) return;
+    P.stockHist = new Map([...raw].map(([d, m]) => [d, new Map([...m].map(([c, o]) => [c, Object.assign({}, o)]))]));
+    P.subMoved = new Map(); P.subMovedFrom = new Map();
+    (P.subs || []).filter((x) => x.aktif && x.pakai && x.lama && x.baru && x.lama !== x.baru).forEach((x) => {
+      if (matUsers(x.lama).length || ltKitUsers(x.lama).length) return;
+      P.stockHist.forEach((m, d) => {
+        const o = m.get(x.lama); if (!o || !o.qty) return;
+        const mb = MRP.master.get(x.baru) || {}, b = m.get(x.baru) || { qty: 0, uom: mb.uom || o.uom, name: mb.name || '' };
+        b.qty += o.qty; m.set(x.baru, b);
+        if (d === P.stockDate) { if (!P.subMoved.has(x.baru)) P.subMoved.set(x.baru, []); P.subMoved.get(x.baru).push({ lama: x.lama, qty: o.qty }); P.subMovedFrom.set(x.lama, { baru: x.baru, qty: o.qty }); }
+        o.qty = 0;
+      });
+    });
+    P.stock = new Map([...(P.stockHist.get(P.stockDate) || new Map())].map(([c, o]) => [c, Object.assign({}, o)]));
+    P.stockRev = (P.stockRev || 0) + 1;
   }
 
   // ---------- Week ----------
@@ -7689,7 +7711,7 @@
   /* ---------- Material pengganti (RM / PM): hanya untuk perhitungan PR ----------
    * Pasangan LAMA → BARU. Di perhitungan PR material BARU, kebutuhan + stok + OS PO material LAMA digabung
    * (stok lama dipakai lebih dulu), kekurangannya dibeli sebagai BARU. Material LAMA tidak diusulkan PR.
-   * Pemotongan stok MO, Proyeksi Stok, dan Plotting Harian tidak terpengaruh (tetap per material sesuai BoM Odoo). */
+   * Bila kode LAMA sudah tidak ada di BoM aktif mana pun, stok LAMA dipindah ke BARU di semua perhitungan (applySubStock). */
   function setSubs(list) {
     P.subs = (list || []).map((r) => ({ lama: String(r[0] || '').trim(), baru: String(r[1] || '').trim(), pakai: String(r[2] || 'Y').toUpperCase() !== 'N', aktif: String(r[3] || 'Y').toUpperCase() !== 'N', cat: r[4] || '', time: r[5] || '', skus: String(r[6] || '').split(/[;,\s]+/).map((x) => x.trim()).filter(Boolean) })).filter((x) => x.lama && x.baru);
   }
@@ -7723,7 +7745,7 @@
     box.innerHTML = L.map((x, i) => {
       const users = [...new Set(matUsers(x.lama).filter((u) => !(P.skus.get(u.sku) || {}).rakitan).map((u) => u.sku).concat(ltKitUsers(x.lama).map((u) => `${u.sku} (rakitan)`)))], sw = x.skus.length ? x.skus : null;
       return `<tr class="${x.aktif ? '' : 'lp-dim'}" data-si="${i}"><td><b class="mono">${esc(x.lama)}</b><small class="sub-nm">${esc(nm(x.lama))}</small></td><td><b class="mono">${esc(x.baru)}</b><small class="sub-nm">${esc(nm(x.baru))}</small></td>
-        <td>${x.pakai ? 'Habiskan dulu' : '<span class="pl-warn-t">Tidak dipakai</span>'}</td><td class="num">${stk(x.lama)}</td><td class="num">${stk(x.baru)}</td>
+        <td>${x.pakai ? 'Habiskan dulu' : '<span class="pl-warn-t">Tidak dipakai</span>'}</td><td class="num">${P.subMovedFrom && P.subMovedFrom.has(x.lama) && P.subMovedFrom.get(x.lama).baru === x.baru ? `${prNumTxt(P.subMovedFrom.get(x.lama).qty)} <small class="muted">${esc((MRP.master.get(x.lama) || {}).uom || '')}</small><small class="sub-mv">dihitung sebagai ${esc(x.baru)}</small>` : stk(x.lama)}</td><td class="num">${stk(x.baru)}${P.subMoved && P.subMoved.has(x.baru) ? `<small class="sub-mv">termasuk stok lama ${esc(P.subMoved.get(x.baru).map((m) => m.lama + ' ' + prNumTxt(m.qty)).join(', '))}</small>` : ''}</td>
         <td>${sw ? `<small><b>${esc(sw.join(', '))}</b></small>` : '<span class="kf-w kf-ok">Semua SKU</span>'}</td><td>${users.length ? `<small>${esc(users.join(', '))}</small>` : '<span class="muted">tidak ada</span>'}</td><td><small>${esc(x.cat)}</small></td>
         <td>${x.aktif ? '<span class="kf-w kf-ok">Aktif</span>' : '<span class="kf-w kf-todo">Nonaktif</span>'}</td>
         <td class="kf-act">${ed ? `<button type="button" class="btn-link" data-subed="${i}">Ubah</button> <button type="button" class="btn-link" data-subon="${i}">${x.aktif ? 'Nonaktifkan' : 'Aktifkan'}</button> <button type="button" class="btn-link danger" data-subdel="${i}">Hapus</button>` : ''}</td></tr>`;
@@ -7734,7 +7756,7 @@
   }
   async function saveSubs(list, msg) {
     const res = await mrpApi('saveSubs', { rows: list.map((x) => [x.lama, x.baru, x.pakai ? 'Y' : 'N', x.aktif ? 'Y' : 'N', x.cat || '', (x.skus || []).join(';')]) });
-    setSubs(res.subs || []); stkCache.clear(); renderSubs(); toast(msg || 'Material pengganti tersimpan.');
+    setSubs(res.subs || []); applySubStock(); stkCache.clear(); renderSubs(); toast(msg || 'Material pengganti tersimpan.');
   }
   function subDialog(i) {
     const L = P.subs || [], x = i >= 0 ? L[i] : { lama: '', baru: '', pakai: true, aktif: true, cat: '', skus: [] };
@@ -8431,7 +8453,7 @@
   $('capCopy').addEventListener('click', async () => { const F = capFlat(); if (!F.length) return; const head = Object.keys(F[0]); const txt = [head.join('\t'), ...F.map((r) => head.map((h) => String(r[h]).replace(/\t|\n/g, ' ')).join('\t'))].join('\n'); try { await navigator.clipboard.writeText(txt); toast('Hasil disalin. Tempel di Excel atau chat.'); } catch (e) { toast('Gagal menyalin otomatis. Pakai Unduh Excel.'); } });
   function stkBase() {
     const today = todayStr();
-    const key = today + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.planMon.size + '|' + P.stockDate + '|' + (P.kurang || []).length + '|' + (P.incK || []).length + '|' + P.adj.length;
+    const key = (P.stockRev || 0) + '|' + today + '|' + Math.floor(Date.now() / 60000) + '|' + P.konf.size + '|' + P.plan.size + '|' + P.planMon.size + '|' + P.stockDate + '|' + (P.kurang || []).length + '|' + (P.incK || []).length + '|' + P.adj.length;
     if (stkCache.has(key)) return stkCache.get(key);
     const cur = today.slice(0, 7), tm = addDay(today, 1);
     const dates = [...(P.stockHist || new Map()).keys()].filter((d) => d <= today).sort();
