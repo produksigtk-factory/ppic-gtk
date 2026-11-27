@@ -1299,7 +1299,7 @@
           <div class="tb-actions"><button class="btn btn-sm" id="subAdd" hidden>Tambah pasangan</button></div>
         </div>
         <div class="table-wrap"><table class="po-table sub-t"><thead><tr><th>Material lama</th><th>Material baru (dibeli)</th><th>Stok lama</th><th class="num">Stok terkini lama</th><th class="num">Stok terkini baru</th><th>SKU yang berganti</th><th title="SKU aktif di Parameter SKU + produk rakitan aktif di menu BoM Banded/2in1/KIT (baris Ya digunakan)">SKU yang BoM aktifnya pakai lama</th><th>Catatan</th><th>Status</th><th></th></tr></thead><tbody id="subRows"></tbody></table></div>
-        <p class="hint">Hanya untuk perhitungan PR material RM dan PM (pasangan harus RM → RM atau PM → PM). Saat menghitung PR material baru: kebutuhan, stok terkini, dan OS PO material lama ikut digabung (stok lama dipakai lebih dulu), lalu kekurangannya dibeli sebagai material baru. Material lama tidak muncul di "Tambah PR dari stok kurang", dan bila diketik di Formulir PR muncul peringatan dengan tombol ganti. Pemotongan stok MO, Proyeksi Stok, dan Plotting Harian tetap per material sesuai BoM Odoo; selisih pemakaian di lapangan direkap lewat ADD. Data tersimpan di tab MATERIAL_PENGGANTI (Google Sheet MRP).</p>
+        <p class="hint">Pasangan harus RM → RM atau PM → PM. Material lama tidak muncul di "Tambah PR dari stok kurang", dan bila diketik di Formulir PR muncul peringatan dengan tombol ganti. <b>Habiskan dulu:</b> untuk SKU yang berganti, kebutuhan diambil dari stok &amp; OS PO material lama lebih dulu, sisanya dari material baru (PR, Suggest Produksi). Bila material lama sudah tidak ada di BoM aktif mana pun ("SKU yang BoM aktifnya pakai lama" = tidak ada), stok lamanya dihitung sebagai stok material baru di semua menu: Plotting Harian, Proyeksi Stok, Kebutuhan / PR, dan Suggest Produksi. <b>Tidak dipakai:</b> stok &amp; OS PO material lama diabaikan. Data tersimpan di tab MATERIAL_PENGGANTI (Google Sheet MRP).</p>
       </section>
       <section id="view-pr-rekap" class="view" hidden>
         <div class="toolbar">
@@ -1380,7 +1380,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=f92bdaf2"></script>
-<script src="app.js?v=773ff9ac"></script>
+<script src="app.js?v=35579355"></script>
 <script src="csl.js?v=c699e490"></script>
 <script src="help.js?v=90393986"></script>
 <script src="tasks.js?v=4755b43f"></script>

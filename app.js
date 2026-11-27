@@ -3419,7 +3419,7 @@
     skus: new Map(), plan: new Map(), stock: new Map(), stockDate: '', stockSrc: '', adj: [], inc: [], weeks: [], log: [],
     parsedStock: null, parsedPlan: null,
   };
-  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/harian', 'mrp/kalender', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/suggest', 'mrp/sku', 'mrp/update', 'mrp/rakitan']);
+  const PLAN_KEYS = new Set(['mrp/rencana', 'mrp/konfirmasi', 'mrp/harian', 'mrp/kalender', 'mrp/kebutuhan', 'mrp/proyeksi', 'mrp/suggest', 'mrp/sku', 'mrp/update', 'mrp/rakitan', 'mrp/pengganti']);
   const BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const monLabel = (b) => `${BULAN_PANJANG[Number(b.slice(5, 7)) - 1]} ${b.slice(0, 4)}`;
@@ -4025,6 +4025,7 @@
     else if (key === 'mrp/sku') renderSku();
     else if (key === 'mrp/update') renderMrpUpdate();
     else if (key === 'mrp/rakitan') renderRakitan();
+    else if (key === 'mrp/pengganti') renderSubs();
   }
   // Header tabel per week yang seragam (seperti Rencana Produksi): baris bulan → baris week + rentang tanggal → baris sub-kolom
   // lead/tail: [{ html, cls, title }] (rowspan 2); subs: [{ label, cls, title }]; cellCls(i): kelas tambahan per week
