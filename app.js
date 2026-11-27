@@ -168,7 +168,8 @@
     'cslb/weekly':        { view: 'view-csl-weekly',        crumb: 'CSL Beauty',                title: 'Weekly Review',   actions: 'csl' },
     'pr/rekap':          { view: 'view-pr-rekap',          crumb: 'Purchase Request',          title: 'Rekap PR',        actions: 'po' },
     'pr/form':           { view: 'view-pr-form',           crumb: 'Purchase Request',          title: 'Formulir PR',     actions: 'po' },
-    'pr/pengganti':      { view: 'view-pr-subs',           crumb: 'Purchase Request',          title: 'Material Pengganti', actions: 'po' },
+    'mrp/pengganti':     { view: 'view-pr-subs',           crumb: 'MRP',                       title: 'Material Pengganti', actions: 'mrp' },
+    'pr/pengganti':      { view: 'view-pr-subs',           crumb: 'MRP',                       title: 'Material Pengganti', actions: 'mrp' },
     'prlt/rekap':        { view: 'view-pr-rekap',          crumb: 'PR Lead Time Panjang',      title: 'Rekap PR LT Panjang', actions: 'po' },
     'prlt/form':         { view: 'view-pr-form',           crumb: 'PR Lead Time Panjang',      title: 'Formulir PR LT Panjang', actions: 'po' },
     'prlt/material':     { view: 'view-prlt-mat',          crumb: 'PR Lead Time Panjang',      title: 'Material LT & Saran Buka PO', actions: 'po' },
@@ -226,7 +227,8 @@
     if (key === 'pr/form' || key === 'prlt/form') prEnter();
     if (key === 'pr/rekap' || key === 'prlt/rekap') renderPrRekap();
     if (key === 'po/followup') renderFu();
-    if (key === 'pr/pengganti') renderSubs();
+    if (key === 'pr/pengganti') { location.replace('#/mrp/pengganti'); return; }
+    if (key === 'mrp/pengganti') renderSubs();
     if (key === 'prlt/material') renderLtMat();
     else if (r.actions === 'csl') { if (window.CSL) window.CSL.enter(state.routeKey); }
     else if (state.routeKey.startsWith('info/')) { if (window.HELP) window.HELP.enter(state.routeKey); }
@@ -3940,7 +3942,7 @@
     document.body.classList.toggle('mrp-edit-on', on);
     paintEditBtn();
     renderPlanView(state.routeKey);
-    if (state.routeKey === 'pr/pengganti') renderSubs();
+    if (state.routeKey === 'mrp/pengganti') renderSubs();
     if (state.routeKey === 'prlt/material') renderLtMat();
   }
   function paintEditBtn() {
@@ -7738,7 +7740,7 @@
     const box = $('subRows'); if (!box) return;
     const ed = state.edit.on || P.edit;
     if (!MRP.loaded) { $('subInfo').textContent = 'Memuat data MRP…'; box.innerHTML = '<tr class="empty"><td colspan="10">Memuat…</td></tr>'; if (!(await mrpReady())) { $('subInfo').textContent = 'Data MRP tidak bisa dimuat.'; return; } }
-    if (state.routeKey !== 'pr/pengganti') return;
+    if (state.routeKey !== 'mrp/pengganti') return;
     const L = P.subs || [];
     const nm = (c) => ((MRP.master.get(c) || {}).name || '');
     const stk = (c) => { const x = prCalc(c, 'all', []); return x ? `${prNumTxt(x.stok) || 0} <small class="muted">${esc(x.uom || '')}</small>` : '–'; };
@@ -7784,7 +7786,7 @@
           <label class="tb-check"><input type="radio" name="skumode" value="pick"${x.skus.length ? ' checked' : ''}> Hanya SKU yang dicentang</label>
           <div class="sub-skul" id="subSkuL"${x.skus.length ? '' : ' hidden'}>${skuBox(x.lama, x.skus)}</div>
           <p class="hint">SKU yang tidak dicentang tetap memakai material lama: kebutuhannya tetap di material lama (masih bisa di-PR-kan), dan stok lama dipakai untuk SKU itu lebih dulu; sisanya baru ikut mengurangi kekurangan material baru.</p></div>
-        <p class="hint">Material RM atau PM (lama dan baru harus golongan sama). Berlaku untuk perhitungan PR saja: kebutuhan, stok, dan OS PO material lama digabung ke material baru; material lama tidak diusulkan PR. Proyeksi Stok dan pemotongan stok MO tidak berubah.</p>`,
+        <p class="hint">Material RM atau PM (lama dan baru harus golongan sama). Material lama tidak diusulkan PR.<br><b>Habiskan dulu:</b> stok &amp; OS PO material lama dipakai lebih dulu untuk SKU yang berganti, sisanya dari material baru (PR, Suggest Produksi). Bila material lama sudah tidak ada di BoM aktif mana pun, stok lamanya dihitung sebagai stok material baru di semua menu (Plotting Harian, Proyeksi Stok, PR, Suggest).<br><b>Tidak dipakai:</b> stok &amp; OS PO material lama diabaikan; seluruh kebutuhan SKU yang berganti langsung ke material baru.</p>`,
       onSubmit: async (fd) => {
         const lama = String(fd.lama || '').trim(), baru = String(fd.baru || '').trim();
         if (!lama || !baru) throw new Error('Kode lama dan baru wajib diisi.');
