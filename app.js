@@ -3687,7 +3687,7 @@
   function pjMoNote(R) {
     const m = R.mo; if (!m) return '';
     const bl = (id, code) => { const b = bomById(code, id); return b ? refOf(b) : id; };
-    let t = `<br><b>Mode Plan:</b> SKU-week yang sudah ada MO di Konfirmasi Produksi dihitung dari MO (kg MO × BoM MO), sisanya dari plan.${m.used.length ? ` ${nf.format(m.used.length)} MO dipakai.` : ' Belum ada MO di rentang ini.'}`;
+    let t = `<br><b>Mode Plan:</b> SKU-week yang sudah ada MO di Konfirmasi Produksi dihitung dari MO (kg MO × BoM MO), sisanya dari plan.${m.used.length ? ` ${nf.format(m.used.length)} MO dipakai.` : ' Belum ada MO di rentang ini.'}${R.monFill && R.monFill.length ? ` Plan bulan yang belum dibagi per week (${nf.format(R.monFill.length)} SKU-bulan) dibagi ke week sisa bulan itu menurut jumlah hari.` : ''}`;
     if (m.diff.length) t += ` <span class="pl-warn-t">⚠ ${nf.format(m.diff.length)} MO memakai BoM beda dengan default Parameter SKU:</span> ${m.diff.slice(0, 8).map((d) => `${esc(d.no)} ${esc(d.code)} (BoM ${esc(bl(d.bom, d.code))}, default ${esc(bl(d.def, d.code))})`).join(' · ')}${m.diff.length > 8 ? ' …' : ''}`;
     if (m.noKg.length) t += ` <span class="pl-bad">${nf.format(m.noKg.length)} MO tanpa konversi kg (tidak dihitung):</span> ${esc(m.noKg.slice(0, 6).join(', '))}`;
     return t;
@@ -3735,7 +3735,19 @@
       const i = idx.get(key.split('|').slice(0, 2).join('|'));
       if (i !== undefined) k.list.forEach((r) => runMo(r, i));
     });
-    return { weeks, idx, req, made, fg: fgReq, noBom, mo };
+    // Plan bulan untuk SKU yang belum punya rencana per week di bulan itu: sisa (Plan bulan − MO) dibagi ke week bulan itu
+    // menurut jumlah hari; bulan berjalan hanya mulai hari ini
+    const today = todayStr(), months = new Set(weeks.map((w) => w.bulan)), monFill = [];
+    const dayN = (a, b) => Math.max(1, Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1);
+    P.planMon.forEach((o) => {
+      if (!months.has(o.bulan) || !(o.qty > 0) || sumWeekOf(o.bulan, o.code) > 1e-9) return;
+      const rest = o.qty - sumKonfOf(o.bulan, o.code, kc); if (!(rest > 1e-9)) return;
+      const ws = []; weeks.forEach((w, i) => { if (w.bulan === o.bulan && w.end >= today) ws.push({ i, d: dayN(w.start > today ? w.start : today, w.end) }); });
+      const tot = ws.reduce((t, x) => t + x.d, 0); if (!tot) return;
+      ws.forEach((x) => run(o.code, x.i, (rest * x.d) / tot));
+      monFill.push(o.code + '|' + o.bulan);
+    });
+    return { weeks, idx, req, made, fg: fgReq, noBom, mo, monFill };
   }
 
   // PC (Products to Consume) & CP (Consumed Products) per MO dari Odoo
@@ -3790,8 +3802,9 @@
           W.matched.add(r0.po + '|' + code + '|' + a.ke);
           // sudah datang (Diterima diisi dari konfirmasi): tetap menambah stok sampai stok baru di-upload dengan tanggal ≥ tanggal datang
           const o = get(code), inStock = P.stockDate && P.stockDate >= a.datang;
+          // dicatat di week tanggal datang sebenarnya; datang sebelum rentang → week pertama, sesudah rentang → week berjalan
           let ti; const wd = weekOfDate(a.datang); if (wd) ti = R.idx.get(wd.bulan + '|' + wd.week);
-          if (ti === undefined || (cw !== undefined && ti < cw)) ti = cw;
+          if (ti === undefined) ti = n && a.datang < R.weeks[0].start ? 0 : cw;
           const rv = Object.assign({ kind: 'recv', date: x.date, datang: a.datang, ke: a.ke, konf: a.qty, inStock }, base);
           if (!inStock && ti !== undefined) { o.inc[ti] += a.qty; rv.incI = ti; }
           o.recv = o.recv || []; o.recv.push(rv);
@@ -5718,7 +5731,7 @@
     P.incKBack = () => pjWeekPoDialog(code, j);
     openDialog({
       title: `${r.code} · PO ${wLabel(w)} ${w.bulan.slice(0, 4)}`, ok: 'Tutup', wide: true, cancel: false, onSubmit: null,
-      body: `<p class="dlg-lead">${esc(r.name)} · ${esc(wTitle(w))} · PO terjadwal di week ini <b>${fq(r.po.w[j])}</b> · Incoming dikonfirmasi <b>${fq(r.inW[j] || 0)}</b> ${esc(r.uom)}</p>
+      body: `<p class="dlg-lead">${esc(r.name)} · ${esc(wTitle(w))} · PO terjadwal di week ini <b>${fq(r.po.w[j])}</b> · Incoming <b>${fq(r.inW[j] || 0)}</b> ${esc(r.uom)}${(() => { const au = L.filter((x) => x.kAuto && x.incI === j).reduce((t, x) => t + (x.eff || 0), 0), rv = (r.po.recv || []).filter((x) => x.incI === j).reduce((t, x) => t + (x.konf || 0), 0), kf = (r.inW[j] || 0) - au - rv; return ` (${[kf > 1e-9 ? `dikonfirmasi ${fq(kf)}` : '', rv > 1e-9 ? `sudah datang ${fq(rv)}` : '', au > 1e-9 ? `otomatis — sisa kedatangan sebagian ${fq(au)}` : ''].filter(Boolean).join(' · ') || '–'})`; })()}</p>
         <div class="table-wrap"><table class="po-table pl-mini"><thead><tr><th>No PO</th><th>Supplier</th><th>Jadwal ke</th><th>Tgl jadwal</th><th class="num">Qty</th><th class="num">Diterima</th><th class="num">Sisa</th><th>Konfirmasi incoming</th></tr></thead><tbody>
         ${L.map((x) => `<tr><td><button type="button" class="btn-link pr-po" data-gopo="${esc(x.po)}" data-gocode="${esc(r.code)}">${esc(x.po)}</button></td><td>${esc(x.supplier)}</td><td class="num">${esc(x.ke)}</td><td>${fmtDate(x.date)}</td>
           <td class="num">${fq(x.qty)}</td><td class="num">${x.rec ? fq(x.rec) : ''}</td><td class="num"><b>${fq(x.sisa)}</b></td><td>${incKCell(x, r.code)}</td></tr>`).join('')}
